@@ -50,6 +50,7 @@ node_modules/
 .next/
 out/
 .nuxt/
+*.tsbuildinfo
 
 # Build
 *.pyc
