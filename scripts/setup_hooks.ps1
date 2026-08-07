@@ -14,7 +14,10 @@ bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
+# Windows PowerShell 5.1's -Encoding UTF8 always writes a BOM, which breaks
+# the shebang so Git Bash can't spawn the hook. The hook body is pure ASCII,
+# so ASCII encoding avoids the BOM entirely.
+Set-Content -Path $HookFile -Value $HookBody -Encoding ASCII -NoNewline
 Write-Host "[ai-log] Git pre-push hook installed."
 
 if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }
