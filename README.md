@@ -83,12 +83,22 @@ uvicorn src.main:app --reload --port 8000
 │   │   ├── state.py      #    State schema (TypedDict)
 │   │   ├── nodes/        #    Node functions
 │   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
+│   ├── api/              # 🌐 Core Backend (FastAPI Modular Architecture)
+│   │   ├── core/         #    Core configs, security & shared DB dependencies
+│   │   │   ├── config.py #    Pydantic settings (Environment variables)
+│   │   │   ├── database.py#   Async Engine, AsyncSession & Base Model setup
+│   │   │   ├── security.py#   JWT hashing, Passlib & OAuth2 RBAC helpers
+│   │   │   └── response.py#   Standardized response envelope wrapper
+│   │   ├── common/       #    Global shared utilities, exceptions & middleware
+│   │   └── modules/      #    Domain Modules (Self-contained business units)
+│   │       ├── auth/     #    [MODULE MẪU] Authentication module
+│   │       │   ├── router.py     # API endpoints
+│   │       │   ├── service.py    # Business logic
+│   │       │   ├── repository.py # Database queries (SQLAlchemy Async)
+│   │       │   └── schemas.py    # Request/Response Pydantic DTOs
+│   │       ├── patient/  #    Patient module (Profiles, Preferences, Caregivers)
+│   │       └── ...       #    (Other modules: doctor, prescription, reminder, etc.)
+│   └── main.py           # 🚀 App entry point & Router registration
 ├── tests/                # 🧪 pytest suite
 │   ├── test_agents/      #    Agent/graph tests
 │   └── test_api/         #    API endpoint tests
