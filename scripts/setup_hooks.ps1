@@ -17,14 +17,8 @@ bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-# Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding UTF8`.
-# A BOM before #! can prevent Git from launching this bash hook.
-$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-# Git Bash treats CRLF as part of each command token. Always install the
-# executable hook with LF line endings, even when this setup script is run
-# from Windows PowerShell.
-$HookBody = $HookBody.Replace("`r`n", "`n")
-[System.IO.File]::WriteAllText($HookFile, $HookBody, $Utf8NoBom)
+$HookBodyLf = $HookBody -replace "`r`n", "`n"
+[System.IO.File]::WriteAllText($HookFile, $HookBodyLf)
 Write-Host "[ai-log] Git pre-push hook installed."
 
 $LogDir = Join-Path $RepoRoot '.ai-log'
