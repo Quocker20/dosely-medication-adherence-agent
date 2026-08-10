@@ -78,17 +78,35 @@ uvicorn src.main:app --reload --port 8000
 
 ```
 ├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
+│   ├── agents/             # 🧠 LangGraph Agent
+│   │   ├── graph.py        #    State graph (nodes + edges)
+│   │   ├── state.py        #    State schema (TypedDict)
+│   │   ├── nodes/          #    Node functions
+│   │   └── tools/          #    Agent tools (@tool)
+│   ├── core/               # ⚙️ Hạ tầng dùng chung (Config, Database, Security, Redis, Celery)
+│   │   ├── config.py       #    Pydantic settings đọc .env
+│   │   ├── database.py     #    Async SQLAlchemy 2.0 Engine & Session
+│   │   ├── redis.py        #    Redis connection pool
+│   │   ├── security.py     #    Phone OTP, JWT encode/decode, RBAC guards
+│   │   ├── response.py     #    Standardized API response envelope format
+│   │   └── celery_app.py   #    Celery app instance
+│   ├── common/             # 🛠️ Shared utilities, exceptions & middleware
+│   ├── modules/            # 🧩 Phân hệ nghiệp vụ dạng Vertical Slice
+│   │   ├── auth/           #    Phân hệ 1: Phone OTP & JWT Token [MẪU MODULAR]
+│   │   │   ├── models.py   #    ORM Models (User, OtpCode, RefreshToken)
+│   │   │   ├── router.py   #    API Endpoints (/auth/otp/request, /auth/otp/verify,...)
+│   │   │   ├── service.py  #    Business Logic (Tạo OTP, Verify, Dispatch SMS)
+│   │   │   └── schemas.py  #    Pydantic DTOs (OTPRequest, OTPVerify, TokenResponse)
+│   │   ├── doctors/        #    Phân hệ 2: Doctor profiles & Audit logs
+│   │   ├── patients/       #    Phân hệ 3 & 4: Patient profiles, routines & caregivers
+│   │   ├── prescriptions/  #    Phân hệ 5: Thuốc & Đơn thuốc
+│   │   ├── agents/         #    Phân hệ 6: LangGraph AI Agent & Scheduled Doses
+│   │   ├── adherence/      #    Phân hệ 7: Điểm danh & SOS Red Alert
+│   │   └── ocr_rag/        #    Phân hệ 8: Prescription OCR & RAG Search
+│   ├── api/                # 🌐 Dependencies & Aggregated API Routers
+│   │   ├── deps.py         #    Global FastAPI Dependencies (get_db, get_current_user, RBAC)
+│   │   └── v1_router.py    #    Tổng hợp tất cả router từ các modules
+│   └── main.py             # 🚀 FastAPI Entrypoint & WebSocket Handler
 ├── tests/                # 🧪 pytest suite
 │   ├── test_agents/      #    Agent/graph tests
 │   └── test_api/         #    API endpoint tests

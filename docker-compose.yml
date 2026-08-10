@@ -1,19 +1,91 @@
 version: "3.8"
 
 services:
+  # 1. FastAPI Backend Service
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: remindrx_backend
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # 2. Database PostgreSQL Service (Mapping 21 Tables)
+  postgres:
+    image: postgres:15-alpine
+    container_name: remindrx_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-remindrx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-remindrx_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./.agents/docs/database_v1_init.sql:/docker-entrypoint-initdb.d/init.sql # Tự động init 21 bảng khi chạy lần đầu
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-remindrx} -d ${POSTGRES_DB:-remindrx_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Redis Service (Quản lý Auth Token Blacklist, Rate Limit & Celery Broker)
+  redis:
+    image: redis:7-alpine
+    container_name: remindrx_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 4. Celery Worker Service (Xử lý bất đồng bộ cho OCR, RAG & AI Agent)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: remindrx_worker
+    command: celery -A src.core.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
