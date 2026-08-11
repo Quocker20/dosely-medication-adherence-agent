@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Annotated, TypedDict
+
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 
 class AgentState(TypedDict, total=False):
@@ -10,9 +13,9 @@ class AgentState(TypedDict, total=False):
     total=False cho phép tất cả fields là optional.
     """
 
-    query: str
-    context: str
-    analysis: str
-    response: str
+    messages: Annotated[list[BaseMessage], add_messages]
+    # De-identified theo cong_viec.md §4.5: truyền patient_id, không truyền
+    # họ tên/SĐT/địa chỉ vào state hay prompt.
+    patient_id: str
     error: str
     metadata: dict

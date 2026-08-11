@@ -99,12 +99,33 @@ graph LR
 
 ## 6. API cần expose (`src/api/routes.py`)
 
-- `POST /reminders/generate` — input `patient_id` (+ optional ngày), output lịch nhắc đã
-  cá nhân hoá cho 24h/tuần tới. Web-app/cron gọi endpoint này để lấy nội dung + giờ bắn.
-- `POST /chat` — giữ như hiện tại nhưng route qua intent thuốc (bệnh nhân hỏi/xác nhận qua
-  chat).
-- `POST /doses/confirm` — bệnh nhân báo đã uống/bỏ lỡ.
-- `GET /status` — giữ nguyên.
+> **Cập nhật 2026-08-08**: đồng team đã chốt `api-contract.md` + `schema.md` (21 bảng).
+> Thiết kế thực tế **đảo ngược** so với dự kiến ban đầu: AI **không** tự expose endpoint
+> public cho web-app/cron gọi vào. Thay vào đó web-app sở hữu endpoint trigger, AI chạy
+> như một job nền (async worker) và ghi kết quả vào DB để web-app poll trạng thái.
+
+- Web-app gọi AI qua job trigger, không phải AI expose route cho web-app:
+  - `POST /patients/{patient_id}/schedules/generate` (Doctor/System) — trả `202 Accepted` +
+    `agent_run_id` ngay lập tức, không đợi AI chạy xong.
+  - `POST /patients/{patient_id}/schedules/reschedule` (Patient/System) — tương tự, dùng khi
+    bệnh nhân đổi giờ sinh hoạt hoặc bỏ lỡ nhiều cữ.
+  - `GET /agent-runs/{agent_run_id}` — web-app poll bằng endpoint này để lấy trạng thái
+    (`RUNNING`/`COMPLETED`/`FAILED`), `latency_ms`, `generated_dose_count`, `error_code`.
+- **Việc AI cần làm**: khi nhận trigger (`trigger_type`: `PRESCRIPTION_APPROVED` /
+  `ROUTINE_UPDATED`), chạy graph (`compute_schedule_node` → `generate_message_node`), rồi
+  ghi kết quả vào bảng `agent_runs` (status, `generated_dose_count`, `graph_version`...) và
+  `scheduled_doses`. Cần thống nhất với đồng team: AI ghi thẳng vào DB, hay có 1 callback/
+  internal endpoint riêng để cập nhật `agent_run` — **chưa chốt, cần hỏi lại**.
+- `POST /chat` — vẫn giữ, route qua intent thuốc (bệnh nhân hỏi/xác nhận qua chat). Đây là
+  API riêng của AI service, không nằm trong `api-contract.md` (file đó là contract chính
+  của web-app, không phải toàn bộ hệ thống).
+- Xác nhận uống/bỏ lỡ **không còn là 1 endpoint của AI nữa** — web-app đã có sẵn
+  `POST /scheduled-doses/{scheduled_dose_id}/actions` (action: `TAKEN`/`SNOOZE`/`SKIPPED`,
+  bắt buộc header `Idempotency-Key`) để app di động gọi trực tiếp. `handle_confirmation_node`
+  trong chat (mục 3) giờ chỉ là lối vào phụ (khi bệnh nhân báo qua chat thay vì bấm nút) —
+  nếu dùng, AI phải gọi lại đúng endpoint này (kèm Idempotency-Key) thay vì tự ghi thẳng vào
+  `adherence_logs`, để tránh 2 nguồn ghi trùng.
+- `GET /status` — giữ nguyên, health-check nội bộ của AI service.
 
 ## 7. An toàn & giới hạn phạm vi (quan trọng, hay bị BTC/giảng khảo chấm điểm)
 
@@ -124,13 +145,25 @@ graph LR
 
 ## 9. Checklist thứ tự làm việc
 
-1. [ ] Chốt schema DB tối thiểu (`prescriptions`, `patients`, `dose_logs`) với đồng team.
-2. [ ] Viết mock data JSON giống schema đã chốt để dev độc lập, chưa cần DB thật.
-3. [ ] Cập nhật `state.py` theo mục 2.
+1. [x] Chốt schema DB với đồng team — thực tế ra `api-contract.md` + `schema.md` (21 bảng,
+   rộng hơn nhiều so với 3 bảng tối thiểu dự kiến ban đầu).
+2. [ ] Viết mock data JSON theo `schema.md` (đặc biệt bảng `prescriptions`,
+   `prescription_items`, `patient_routines`, `scheduled_doses`, `agent_runs`) để dev độc lập,
+   chưa cần DB thật.
+3. [ ] Cập nhật `state.py` theo mục 2 — thêm field khớp `prescription_items` thật
+   (`morning_dose`/`noon_dose`/`evening_dose`/`bedtime_dose`, `meal_relation`,
+   `minimum_interval_minutes`) thay vì chuỗi `frequency` tự do.
 4. [ ] Viết `compute_schedule_node` (thuần code, có unit test) — đây là phần lõi, làm trước.
 5. [ ] Viết tool đọc DB (`fetch_prescription_node`), nối vào graph.
 6. [ ] Viết `generate_message_node` bằng LLM (prompt cá nhân hoá theo tên bệnh nhân/thuốc).
 7. [ ] Viết `safety_guard_node` + test case an toàn trong `eval/`.
-8. [ ] API `/reminders/generate`, `/doses/confirm` để web-app gọi.
-9. [ ] (Nice-to-have) RAG tra cứu tương tác thuốc nếu còn thời gian.
-10. [ ] Cập nhật `ARCHITECTURE.md` phần "3. AI Agent" và `docs/architecture_diagram.md`.
+8. [ ] Xác nhận với đồng team cơ chế AI ghi kết quả vào `agent_runs`/`scheduled_doses` (ghi
+   thẳng DB hay qua callback nội bộ) — xem ghi chú "chưa chốt" ở mục 6.
+9. [ ] Xác nhận `handle_confirmation_node` (chat) gọi lại đúng
+   `POST /scheduled-doses/{id}/actions` kèm `Idempotency-Key`, không ghi trùng vào
+   `adherence_logs`.
+10. [ ] (Nice-to-have) RAG tra cứu tương tác thuốc — lưu ý slice 8 đã có sẵn OCR+RAG cho
+   nhãn thuốc (`ocr_jobs`), nên hỏi rõ AI có cần dùng chung knowledge base đó không, tránh
+   làm trùng.
+11. [ ] Cập nhật `ARCHITECTURE.md` phần "3. AI Agent" và `docs/architecture_diagram.md` —
+   hiện cả 2 file vẫn là template placeholder, chưa điền theo thiết kế thật.

@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
 
+    # Backend API (RemindRx FastAPI backend — see api-contract.md)
+    api_base_url: str = "http://localhost:8000/api/v1"
+    # Bearer token for the agent's own SYSTEM-role calls. api-contract.md
+    # mentions PATIENT/SYSTEM and DOCTOR/SYSTEM auth on a couple of agent
+    # endpoints but doesn't yet define how a SYSTEM caller gets a token —
+    # confirm the real auth flow with the backend team before relying on this.
+    api_service_token: str = ""
+    api_timeout_seconds: float = Field(default=10.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
