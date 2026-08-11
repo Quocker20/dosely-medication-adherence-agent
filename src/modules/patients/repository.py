@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.auth.models import User
 from src.modules.patients.models import PatientProfile
+from src.modules.prescriptions.models import Prescription
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,6 @@ class PatientRepository:
         self,
         user_id: uuid.UUID,
         name: str,
-        primary_doctor_id: Optional[uuid.UUID] = None,
         dob: Optional[date] = None,
         sex: Optional[str] = None,
         timezone: str = "Asia/Ho_Chi_Minh",
@@ -31,7 +31,6 @@ class PatientRepository:
         """Persist a new patient profile record."""
         profile = PatientProfile(
             user_id=user_id,
-            primary_doctor_id=primary_doctor_id,
             name=name,
             dob=dob,
             sex=sex,
@@ -59,18 +58,17 @@ class PatientRepository:
             return None
         return row[0], row[1]
 
-    async def list_patients_for_doctor(
+    async def list_patients(
         self,
-        doctor_id: Optional[uuid.UUID],
+        doctor_id: Optional[uuid.UUID] = None,
         page: int = 1,
         size: int = 10,
         search: Optional[str] = None,
     ) -> Tuple[List[Tuple[PatientProfile, User]], int]:
         """Fetch paginated patient profiles joined with users in a single query.
 
-        doctor_id=None means unscoped (ADMIN). Otherwise scoped to that doctor's
-        roster via primary_doctor_id — the WHERE clause is the RBAC boundary,
-        never a post-fetch filter.
+        doctor_id=None means unscoped (ADMIN). Otherwise scoped to patients who
+        have at least one prescription written by that doctor.
         """
         total_count_col = func.count().over().label("total_count")
         base_stmt = select(PatientProfile, User, total_count_col).join(
@@ -79,7 +77,13 @@ class PatientRepository:
 
         filters = []
         if doctor_id is not None:
-            filters.append(PatientProfile.primary_doctor_id == doctor_id)
+            filters.append(
+                PatientProfile.user_id.in_(
+                    select(Prescription.patient_id).where(
+                        Prescription.doctor_id == doctor_id
+                    )
+                )
+            )
         if search and search.strip():
             term = f"%{search.strip()}%"
             filters.append(

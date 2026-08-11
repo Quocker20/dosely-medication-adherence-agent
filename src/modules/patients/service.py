@@ -99,7 +99,6 @@ class PatientService:
                 )
                 profile = await self._patient_repo.create_patient_profile(
                     user_id=user.id,
-                    primary_doctor_id=doctor_id,
                     name=request.name,
                     dob=request.dob,
                     sex=request.sex,
@@ -114,7 +113,6 @@ class PatientService:
                     new_values={
                         "phone": cleaned_phone,
                         "name": request.name,
-                        "primary_doctor_id": str(doctor_id),
                     },
                     ip_address=ip_address,
                 )
@@ -134,11 +132,12 @@ class PatientService:
         size: int = 10,
         search: Optional[str] = None,
     ) -> PageResponse[PatientDetailResponse]:
-        """Fetch paginated patient roster, scoped to the requesting doctor unless ADMIN."""
+        """Fetch paginated patient roster, scoped to patients with a prescription
+        written by the requesting doctor, unless ADMIN."""
         role = actor_payload.get("role")
         doctor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
 
-        items, total_count = await self._patient_repo.list_patients_for_doctor(
+        items, total_count = await self._patient_repo.list_patients(
             doctor_id=doctor_id, page=page, size=size, search=search
         )
 
@@ -159,20 +158,10 @@ class PatientService:
     async def get_patient(
         self, patient_id: uuid.UUID, actor_payload: dict
     ) -> PatientDetailResponse:
-        """Fetch patient detail, scoped to the requesting doctor unless ADMIN.
-
-        Out-of-scope access returns 404, never 403 — a 403 would confirm the
-        patient ID exists under a different doctor, leaking PHI existence.
-        """
+        """Fetch patient detail."""
         result = await self._patient_repo.get_patient_with_user(patient_id)
         if result is None:
             raise NotFoundException(message="Patient not found")
 
         profile, user = result
-        role = actor_payload.get("role")
-        if role != "ADMIN":
-            requester_id = uuid.UUID(actor_payload["sub"])
-            if profile.primary_doctor_id != requester_id:
-                raise NotFoundException(message="Patient not found")
-
         return self._to_detail(profile, user)

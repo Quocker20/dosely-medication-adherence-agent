@@ -1,4 +1,4 @@
-"""slice3: patient_profiles.primary_doctor_id, constraints, indexes for patients/medications
+"""slice3: patient_profiles constraints, indexes for patients/medications
 
 Revision ID: 0002_slice3
 Revises: 0001_baseline
@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "0002_slice3"
@@ -20,20 +19,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-
-    # ── patient_profiles: primary_doctor_id link (needed for /doctors/patients roster) ──
-    op.add_column(
-        "patient_profiles",
-        sa.Column("primary_doctor_id", postgresql.UUID(as_uuid=True), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_patient_profiles_primary_doctor",
-        "patient_profiles",
-        "doctor_profiles",
-        ["primary_doctor_id"],
-        ["user_id"],
-        ondelete="SET NULL",
-    )
 
     op.create_check_constraint(
         "ck_patient_profiles_sex",
@@ -61,11 +46,6 @@ def upgrade() -> None:
         "length(btrim(timezone)) > 0",
     )
 
-    op.create_index(
-        "idx_patient_profiles_doctor_created",
-        "patient_profiles",
-        ["primary_doctor_id", sa.text("created_at DESC")],
-    )
     op.execute(
         "CREATE INDEX idx_patient_profiles_name_trgm ON patient_profiles "
         "USING gin (name gin_trgm_ops)"
@@ -122,13 +102,9 @@ def downgrade() -> None:
 
     op.execute("DROP INDEX IF EXISTS idx_users_phone_trgm")
     op.execute("DROP INDEX IF EXISTS idx_patient_profiles_name_trgm")
-    op.drop_index("idx_patient_profiles_doctor_created", table_name="patient_profiles")
 
     op.drop_constraint("ck_patient_profiles_tz_not_blank", "patient_profiles", type_="check")
     op.drop_constraint("ck_patient_profiles_dob_sane", "patient_profiles", type_="check")
     op.drop_constraint("ck_patient_profiles_name_not_blank", "patient_profiles", type_="check")
     op.drop_constraint("ck_patient_profiles_consent", "patient_profiles", type_="check")
     op.drop_constraint("ck_patient_profiles_sex", "patient_profiles", type_="check")
-
-    op.drop_constraint("fk_patient_profiles_primary_doctor", "patient_profiles", type_="foreignkey")
-    op.drop_column("patient_profiles", "primary_doctor_id")

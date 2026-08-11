@@ -17,11 +17,6 @@ class PatientProfile(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    primary_doctor_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("doctor_profiles.user_id", ondelete="SET NULL"),
-        nullable=True,
-    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     dob: Mapped[date | None] = mapped_column(Date, nullable=True)
     sex: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -48,4 +43,3 @@ class PatientProfile(Base):
 
     # lazy="raise" prevents implicit N+1 queries. Explicit JOIN required to load these.
     user: Mapped["User"] = relationship("User", lazy="raise")  # type: ignore # noqa: F821
-    doctor: Mapped["DoctorProfile | None"] = relationship("DoctorProfile", lazy="raise")  # type: ignore # noqa: F821
