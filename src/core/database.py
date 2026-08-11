@@ -32,13 +32,10 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency yielding an async database session with automatic transaction management."""
+    """Dependency yielding an async database session.
+
+    Transaction management is NOT handled here. Service layer is responsible
+    for explicit transaction boundaries via ``async with session.begin():``.
+    """
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+        yield session
