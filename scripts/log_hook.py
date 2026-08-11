@@ -125,6 +125,7 @@ def normalize(data: dict, tool: str) -> dict | None:
             "prompt": data.get("prompt", "")[:1000],
             "turn_id": data.get("turn_id", ""),
             "transcript_path": data.get("transcript_path", ""),
+            "response_summary": str(data.get("last_assistant_message") or "")[:500],
         })
 
     elif tool == "cursor":
@@ -159,7 +160,9 @@ def main():
     # Read stdin as UTF-8 explicitly. On Windows, sys.stdin defaults to the
     # system code page (e.g. cp1252), which corrupts non-Latin1 prompts
     # (Vietnamese, CJK, emoji) into mojibake. The hook payload is always UTF-8.
-    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace").strip()
+    # utf-8-sig also accepts normal UTF-8 while stripping the BOM that
+    # Windows PowerShell may prepend when it pipes JSON to a native command.
+    raw = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace").strip()
     if not raw:
         sys.exit(0)
 
@@ -180,8 +183,12 @@ def main():
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    # Output valid JSON (required by some tools like Gemini)
-    print(json.dumps({"status": "logged"}))
+    # Codex Stop hooks require a supported JSON result. Other integrations
+    # accept the legacy status response used by their hook adapters.
+    if tool == "codex":
+        print(json.dumps({"continue": True}))
+    else:
+        print(json.dumps({"status": "logged"}))
 
 
 if __name__ == "__main__":

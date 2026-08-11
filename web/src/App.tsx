@@ -44,9 +44,10 @@ export default function App() {
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    const [nextSummary, nextAlerts] = await Promise.all([api.summary(), api.alerts()]);
+    const [nextSummary, nextAlerts, nextPatients] = await Promise.all([api.summary(), api.alerts(), api.patients()]);
     setSummary(nextSummary);
     setAlerts(nextAlerts);
+    setPatients(nextPatients);
   }, []);
 
   useEffect(() => {
@@ -77,6 +78,15 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      refreshDashboard().catch(() => {
+        // Lần tải đầu đã có error panel; polling im lặng và tự phục hồi ở nhịp sau.
+      });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [refreshDashboard]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -146,6 +156,16 @@ export default function App() {
               </p>
             </div>
             <div className="topbar-actions">
+              <button
+                className="btn sm"
+                onClick={() => {
+                  refreshDashboard()
+                    .then(() => toast("Đã đồng bộ dữ liệu mới nhất"))
+                    .catch((error) => toast(error instanceof Error ? error.message : "Không đồng bộ được dữ liệu"));
+                }}
+              >
+                ↻ Làm mới
+              </button>
               <span className={`pill ${liveAlerts ? "crit" : "ok"}`}>
                 <span className="dot" />
                 {liveAlerts} Red Alert
