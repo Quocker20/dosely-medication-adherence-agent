@@ -1,27 +1,22 @@
 from langgraph.graph import END, StateGraph
+from langgraph.prebuilt import ToolNode
 
-from src.agents.nodes.example_node import analyze_node, respond_node
+from src.agents.nodes.chat_node import agent_node, should_continue
 from src.agents.state import AgentState
-
-
-def should_continue(state: AgentState) -> str:
-    """Route based on whether an error occurred during analysis."""
-    if state.get("error"):
-        return END
-    return "respond"
+from src.agents.tools import CHAT_TOOLS
 
 
 def build_graph() -> StateGraph:
     graph = StateGraph(AgentState)
 
-    # Add nodes
-    graph.add_node("analyze", analyze_node)
-    graph.add_node("respond", respond_node)
+    graph.add_node("agent", agent_node)
+    graph.add_node("tools", ToolNode(CHAT_TOOLS, handle_tool_errors=True))
 
-    # Add edges
-    graph.set_entry_point("analyze")
-    graph.add_conditional_edges("analyze", should_continue)
-    graph.add_edge("respond", END)
+    graph.set_entry_point("agent")
+    # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
+    # until agent replies with no tool_calls left.
+    graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
+    graph.add_edge("tools", "agent")
 
     return graph.compile()
 
