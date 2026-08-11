@@ -12,24 +12,44 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # App
-    app_name: str = "AI20K Agent"
+    # App Config
+    app_name: str = "ADHE REMIND API"
     app_env: Literal["development", "production", "test"] = "development"
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+
+    # PostgreSQL Database
+    postgres_user: str
+    postgres_password: str
+    postgres_db: str
+    postgres_host: str = "postgres"
+    postgres_port: int = 5432
+    database_url: str
+
+    # Redis Cache & Message Broker
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_url: str
+
+    # Celery Task Queue
+    celery_broker_url: str
+    celery_result_backend: str
+
+    # JWT Security
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
 
     # LLM
     openai_api_key: str = ""
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
-    # Database
-    database_url: str = "sqlite:///./data/app.db"
-
-    # Vector Store
-    chroma_persist_dir: str = "./data/chroma"
+    # Password Security
+    password_pepper: str
 
     # RemindRx — luật lâm sàng chạy bằng code xác định (không phải LLM).
     # Xem docs/RemindRx_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".
