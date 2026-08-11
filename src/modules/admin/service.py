@@ -74,16 +74,6 @@ class AdminService:
 
         try:
             async with self._db.begin():
-                existing_user = await self._auth_repo.get_user_by_phone(cleaned_phone)
-                if existing_user is not None:
-                    raise ConflictException(message="Phone number already registered")
-
-                existing_doctor = await self._doctor_repo.get_doctor_by_license_no(
-                    request.license_no
-                )
-                if existing_doctor is not None:
-                    raise ConflictException(message="License number already registered")
-
                 user = await self._auth_repo.create_user(
                     phone=cleaned_phone,
                     hashed_password=hashed_pin,
@@ -275,9 +265,9 @@ class AdminService:
                 ip_address=ip_address,
             )
 
-            await self._db.flush()
-            await self._db.refresh(profile)
-            await self._db.refresh(user)
+        # Explicitly refresh ORM instances AFTER transaction commit
+        await self._db.refresh(profile)
+        await self._db.refresh(user)
 
         return DoctorDetailResponse(
             user_id=profile.user_id,

@@ -61,14 +61,13 @@ class DoctorRepository:
     async def list_doctors(
         self, page: int = 1, size: int = 10, search: Optional[str] = None
     ) -> Tuple[List[Tuple[DoctorProfile, User]], int]:
-        """Fetch paginated doctor profiles joined with users."""
-        base_stmt = select(DoctorProfile, User).join(
-            User, DoctorProfile.user_id == User.id
-        )
-        count_stmt = select(func.count(DoctorProfile.user_id)).join(
+        """Fetch paginated doctor profiles joined with users in a single query."""
+        total_count_col = func.count().over().label("total_count")
+        base_stmt = select(DoctorProfile, User, total_count_col).join(
             User, DoctorProfile.user_id == User.id
         )
 
+        filter_clause = None
         if search and search.strip():
             term = f"%{search.strip()}%"
             filter_clause = or_(
@@ -77,10 +76,6 @@ class DoctorRepository:
                 DoctorProfile.license_no.ilike(term),
             )
             base_stmt = base_stmt.where(filter_clause)
-            count_stmt = count_stmt.where(filter_clause)
-
-        total_count_result = await self._db.execute(count_stmt)
-        total_count = total_count_result.scalar_one()
 
         offset = (page - 1) * size
         stmt = (
@@ -89,8 +84,21 @@ class DoctorRepository:
             .limit(size)
         )
         result = await self._db.execute(stmt)
-        items = [(row[0], row[1]) for row in result.all()]
+        rows = result.all()
 
+        if not rows:
+            if page == 1:
+                return [], 0
+            count_stmt = select(func.count(DoctorProfile.user_id)).join(
+                User, DoctorProfile.user_id == User.id
+            )
+            if filter_clause is not None:
+                count_stmt = count_stmt.where(filter_clause)
+            total_count = (await self._db.execute(count_stmt)).scalar_one()
+            return [], total_count
+
+        total_count = rows[0].total_count
+        items = [(row[0], row[1]) for row in rows]
         return items, total_count
 
     async def update_doctor_profile(
@@ -157,9 +165,9 @@ class AuditLogRepository:
         actor_id: Optional[uuid.UUID] = None,
         entity_type: Optional[str] = None,
     ) -> Tuple[List[AuditLog], int]:
-        """Fetch paginated audit logs with optional filters."""
-        base_stmt = select(AuditLog)
-        count_stmt = select(func.count(AuditLog.id))
+        """Fetch paginated audit logs with optional filters in a single query."""
+        total_count_col = func.count().over().label("total_count")
+        base_stmt = select(AuditLog, total_count_col)
 
         filters = []
         if actor_id is not None:
@@ -169,10 +177,6 @@ class AuditLogRepository:
 
         if filters:
             base_stmt = base_stmt.where(*filters)
-            count_stmt = count_stmt.where(*filters)
-
-        total_count_result = await self._db.execute(count_stmt)
-        total_count = total_count_result.scalar_one()
 
         offset = (page - 1) * size
         stmt = (
@@ -181,6 +185,17 @@ class AuditLogRepository:
             .limit(size)
         )
         result = await self._db.execute(stmt)
-        items = list(result.scalars().all())
+        rows = result.all()
 
+        if not rows:
+            if page == 1:
+                return [], 0
+            count_stmt = select(func.count(AuditLog.id))
+            if filters:
+                count_stmt = count_stmt.where(*filters)
+            total_count = (await self._db.execute(count_stmt)).scalar_one()
+            return [], total_count
+
+        total_count = rows[0].total_count
+        items = [row[0] for row in rows]
         return items, total_count
