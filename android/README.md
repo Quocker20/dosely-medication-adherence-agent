@@ -64,9 +64,8 @@ app/src/main/java/com/remindrx/app/
 ```
 
 Screens: Login (6-digit PIN), compulsory first-login PIN change, Onboarding
-(routine), Dashboard, Prescription
-(đơn thuốc), Reminder (interruptive push), Health survey, SOS (hold-3s),
-Settings.
+(routine), Dashboard, medication list/detail (RAG mock), AI assistant with chat
+history, Reminder (interruptive push), Health survey, SOS (hold-3s), Settings.
 
 ## Kết nối backend
 
@@ -113,6 +112,10 @@ và sẽ trở về PIN ban đầu khi khởi động lại app; bản release k
 - **Persist auth session.** PIN login and first-login PIN change call the real
   auth endpoints, but tokens are kept in memory only. Store them with encrypted
   local storage and add refresh/logout handling before production.
+- **Replace AI/RAG mock.** Medication detail and assistant chat currently use
+  local, safety-labelled demo data. Replace `MockMedicationKnowledge` and
+  `AssistantViewModel.answerFor` with the production retrieval/chat APIs while
+  preserving source citations and clinical guardrails.
 - **Push notifications.** `ReminderScreen` is reachable today only by tapping
   an upcoming dose on the dashboard. Real delivery needs FCM (or whatever the
   backend's Web Push equivalent is for native) triggering a notification that
