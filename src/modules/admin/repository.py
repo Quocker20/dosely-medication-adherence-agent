@@ -36,7 +36,7 @@ class DoctorRepository:
         return profile
 
     async def get_doctor_with_user(
-        self, user_id: uuid.UUID
+        self, user_id: uuid.UUID, for_update: bool = False
     ) -> Optional[Tuple[DoctorProfile, User]]:
         """Fetch doctor profile joined with user record O(1)."""
         stmt = (
@@ -44,6 +44,8 @@ class DoctorRepository:
             .join(User, DoctorProfile.user_id == User.id)
             .where(DoctorProfile.user_id == user_id)
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
         row = result.first()
         if row is None:

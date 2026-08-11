@@ -200,7 +200,9 @@ class AdminService:
         )
 
         async with self._db.begin():
-            existing = await self._doctor_repo.get_doctor_with_user(doctor_id)
+            existing = await self._doctor_repo.get_doctor_with_user(
+                doctor_id, for_update=True
+            )
             if existing is None:
                 raise NotFoundException(message="Doctor not found")
 
@@ -292,7 +294,9 @@ class AdminService:
         )
 
         async with self._db.begin():
-            existing = await self._doctor_repo.get_doctor_with_user(doctor_id)
+            existing = await self._doctor_repo.get_doctor_with_user(
+                doctor_id, for_update=True
+            )
             if existing is None:
                 raise NotFoundException(message="Doctor not found")
 
