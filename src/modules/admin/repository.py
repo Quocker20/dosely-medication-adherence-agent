@@ -63,12 +63,12 @@ class DoctorRepository:
     async def list_doctors(
         self, page: int = 1, size: int = 10, search: Optional[str] = None
     ) -> Tuple[List[Tuple[DoctorProfile, User]], int]:
-        """Fetch paginated doctor profiles joined with users in a single query."""
-        total_count_col = func.count().over().label("total_count")
-        base_stmt = select(DoctorProfile, User, total_count_col).join(
-            User, DoctorProfile.user_id == User.id
-        )
+        """Fetch paginated doctor profiles joined with users.
 
+        Count is a separate query rather than count().over() — the window
+        function forces the planner to materialize the full filtered result
+        before LIMIT can apply, which is a full scan on every page request.
+        """
         filter_clause = None
         if search and search.strip():
             term = f"%{search.strip()}%"
@@ -77,6 +77,21 @@ class DoctorRepository:
                 User.phone.ilike(term),
                 DoctorProfile.license_no.ilike(term),
             )
+
+        count_stmt = select(func.count(DoctorProfile.user_id)).join(
+            User, DoctorProfile.user_id == User.id
+        )
+        if filter_clause is not None:
+            count_stmt = count_stmt.where(filter_clause)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        base_stmt = select(DoctorProfile, User).join(
+            User, DoctorProfile.user_id == User.id
+        )
+        if filter_clause is not None:
             base_stmt = base_stmt.where(filter_clause)
 
         offset = (page - 1) * size
@@ -86,21 +101,7 @@ class DoctorRepository:
             .limit(size)
         )
         result = await self._db.execute(stmt)
-        rows = result.all()
-
-        if not rows:
-            if page == 1:
-                return [], 0
-            count_stmt = select(func.count(DoctorProfile.user_id)).join(
-                User, DoctorProfile.user_id == User.id
-            )
-            if filter_clause is not None:
-                count_stmt = count_stmt.where(filter_clause)
-            total_count = (await self._db.execute(count_stmt)).scalar_one()
-            return [], total_count
-
-        total_count = rows[0].total_count if rows else 0
-        items = [(row[0], row[1]) for row in rows]
+        items = [(row[0], row[1]) for row in result.all()]
         return items, total_count
 
     async def update_doctor_profile(
@@ -167,16 +168,27 @@ class AuditLogRepository:
         actor_id: Optional[uuid.UUID] = None,
         entity_type: Optional[str] = None,
     ) -> Tuple[List[AuditLog], int]:
-        """Fetch paginated audit logs with optional filters in a single query."""
-        total_count_col = func.count().over().label("total_count")
-        base_stmt = select(AuditLog, total_count_col)
+        """Fetch paginated audit logs with optional filters.
 
+        Count is a separate query rather than count().over() — the window
+        function forces the planner to materialize the full filtered result
+        before LIMIT can apply, which is a full scan on every page request.
+        """
         filters = []
         if actor_id is not None:
             filters.append(AuditLog.actor_user_id == actor_id)
         if entity_type is not None and entity_type.strip():
             filters.append(AuditLog.entity_type == entity_type.strip())
 
+        count_stmt = select(func.count(AuditLog.id))
+        if filters:
+            count_stmt = count_stmt.where(*filters)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        base_stmt = select(AuditLog)
         if filters:
             base_stmt = base_stmt.where(*filters)
 
@@ -187,17 +199,5 @@ class AuditLogRepository:
             .limit(size)
         )
         result = await self._db.execute(stmt)
-        rows = result.all()
-
-        if not rows:
-            if page == 1:
-                return [], 0
-            count_stmt = select(func.count(AuditLog.id))
-            if filters:
-                count_stmt = count_stmt.where(*filters)
-            total_count = (await self._db.execute(count_stmt)).scalar_one()
-            return [], total_count
-
-        total_count = rows[0].total_count if rows else 0
-        items = [row[0] for row in rows]
+        items = [row[0] for row in result.all()]
         return items, total_count
