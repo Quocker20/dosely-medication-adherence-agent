@@ -29,16 +29,27 @@ class MedicationRepository:
         search: Optional[str] = None,
         active_only: bool = True,
     ) -> Tuple[List[Medication], int]:
-        """Fetch paginated medication catalog entries in a single query."""
-        total_count_col = func.count().over().label("total_count")
-        base_stmt = select(Medication, total_count_col)
+        """Fetch paginated medication catalog entries.
 
+        Count is a separate query rather than count().over() — the window
+        function forces the planner to materialize the full filtered result
+        before LIMIT can apply, which is a full scan on every page request.
+        """
         filters = []
         if active_only:
             filters.append(Medication.is_active.is_(True))
         if search and search.strip():
             filters.append(Medication.name.ilike(f"%{search.strip()}%"))
 
+        count_stmt = select(func.count(Medication.id))
+        if filters:
+            count_stmt = count_stmt.where(*filters)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        base_stmt = select(Medication)
         if filters:
             base_stmt = base_stmt.where(*filters)
 
@@ -49,17 +60,5 @@ class MedicationRepository:
             .limit(size)
         )
         result = await self._db.execute(stmt)
-        rows = result.all()
-
-        if not rows:
-            if page == 1:
-                return [], 0
-            count_stmt = select(func.count(Medication.id))
-            if filters:
-                count_stmt = count_stmt.where(*filters)
-            total_count = (await self._db.execute(count_stmt)).scalar_one()
-            return [], total_count
-
-        total_count = rows[0].total_count if rows else 0
-        items = [row[0] for row in rows]
+        items = [row[0] for row in result.all()]
         return items, total_count
