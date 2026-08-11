@@ -110,9 +110,15 @@ class AdminService:
                 )
         except IntegrityError as exc:
             logger.warning(f"IntegrityError creating doctor: {exc}")
-            raise ConflictException(
-                message="Phone or license number already registered"
-            )
+            err_msg = str(exc).lower()
+            if "license_no" in err_msg:
+                raise ConflictException(message="License number already registered")
+            elif "phone" in err_msg:
+                raise ConflictException(message="Phone number already registered")
+            else:
+                raise ConflictException(
+                    message="Phone or license number already registered"
+                )
 
         doctor_detail = DoctorDetailResponse(
             user_id=user.id,
@@ -269,20 +275,19 @@ class AdminService:
                 ip_address=ip_address,
             )
 
-            updated = await self._doctor_repo.get_doctor_with_user(doctor_id)
-            if updated is None:
-                raise NotFoundException(message="Doctor not found")
-            up_profile, up_user = updated
+            await self._db.flush()
+            await self._db.refresh(profile)
+            await self._db.refresh(user)
 
         return DoctorDetailResponse(
-            user_id=up_profile.user_id,
-            phone=up_user.phone,
-            role=up_user.role,
-            status=up_user.status,
-            name=up_profile.name,
-            license_no=up_profile.license_no,
-            specialty=up_profile.specialty,
-            created_at=up_profile.created_at,
+            user_id=profile.user_id,
+            phone=user.phone,
+            role=user.role,
+            status=user.status,
+            name=profile.name,
+            license_no=profile.license_no,
+            specialty=profile.specialty,
+            created_at=profile.created_at,
         )
 
     async def deactivate_doctor(
