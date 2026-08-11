@@ -5,15 +5,20 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.main import app
-from src.services.store import store
+try:
+    from src.services.store import store
+except ImportError:
+    store = None
 
 
 @pytest.fixture(autouse=True)
 def reset_store():
     """Mỗi test chạy trên dữ liệu seed sạch — store là in-memory singleton."""
-    store.reset()
+    if store is not None:
+        store.reset()
     yield
-    store.reset()
+    if store is not None:
+        store.reset()
 
 
 @pytest_asyncio.fixture

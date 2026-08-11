@@ -82,6 +82,15 @@ class AuthRepository:
         )
         await self._db.execute(stmt)
 
+    async def update_user_status(self, user_id: uuid.UUID, status: str) -> None:
+        """Update user account status."""
+        stmt = (
+            update(User)
+            .where(User.id == user_id)
+            .values(status=status, updated_at=datetime.now(timezone.utc))
+        )
+        await self._db.execute(stmt)
+
     # ── SQL: RefreshToken operations ──
 
     async def save_refresh_token(
