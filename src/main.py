@@ -23,7 +23,7 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="ADHE REMIND Medication Adherence Core API",
+    description="RemindRx Medication Adherence Core API",
     version="1.0.0",
     lifespan=lifespan,
 )
