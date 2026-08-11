@@ -63,6 +63,7 @@ out/
 # AI Configuration (Track structure, ignore content)
 .agents/
 .codegraph/
+CLAUDE.md
 
 package-lock.json
 package.json
