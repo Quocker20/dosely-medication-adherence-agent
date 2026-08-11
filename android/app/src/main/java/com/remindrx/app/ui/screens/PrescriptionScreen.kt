@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,7 +32,10 @@ import com.remindrx.app.ui.components.TimeChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
 @Composable
-fun PrescriptionScreen(medications: List<Medication>) {
+fun PrescriptionScreen(
+    medications: List<Medication>,
+    onOpenMedication: (Medication) -> Unit,
+) {
     val extras = LocalRemindRxColors.current
 
     LazyColumn(
@@ -39,7 +43,7 @@ fun PrescriptionScreen(medications: List<Medication>) {
         contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
     ) {
         item {
-            Text("Đơn thuốc của tôi", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
+            Text("Danh sách thuốc", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
 
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -60,7 +64,7 @@ fun PrescriptionScreen(medications: List<Medication>) {
             }
         }
 
-        items(medications) { med -> MedicationCard(med) }
+        items(medications) { med -> MedicationCard(med, onClick = { onOpenMedication(med) }) }
 
         item {
             GuardrailNote(
@@ -72,9 +76,10 @@ fun PrescriptionScreen(medications: List<Medication>) {
 }
 
 @Composable
-private fun MedicationCard(med: Medication) {
+private fun MedicationCard(med: Medication, onClick: () -> Unit) {
     val extras = LocalRemindRxColors.current
     Card(
+        onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, extras.border),
@@ -96,6 +101,22 @@ private fun MedicationCard(med: Medication) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 med.times.forEach { time -> TimeChip(time) }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Xem chi tiết",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

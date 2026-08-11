@@ -32,6 +32,7 @@ import com.remindrx.app.ui.theme.LocalRemindRxColors
 fun ChangePinScreen(
     isLoading: Boolean,
     error: String?,
+    isRequired: Boolean = true,
     onInputChanged: () -> Unit,
     onChangePin: (newPin: String, confirmedPin: String) -> Unit,
 ) {
@@ -52,9 +53,16 @@ fun ChangePinScreen(
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 18.dp),
         )
-        Text("Tạo mã PIN mới", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Để bảo vệ thông tin sức khoẻ, bạn cần đổi mã PIN do bác sĩ hoặc quản trị viên cung cấp trước khi tiếp tục.",
+            if (isRequired) "Tạo mã PIN mới" else "Đổi mã PIN",
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Text(
+            if (isRequired) {
+                "Để bảo vệ thông tin sức khoẻ, bạn cần đổi mã PIN do bác sĩ hoặc quản trị viên cung cấp trước khi tiếp tục."
+            } else {
+                "Tạo mã PIN mới gồm 6 chữ số. Bạn sẽ dùng mã này cho lần đăng nhập tiếp theo."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = extras.inkMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
@@ -124,12 +132,18 @@ fun ChangePinScreen(
         }
 
         GuardrailNote(
-            "Mã PIN phải có đúng 6 chữ số và khác mã PIN ban đầu.",
+            "Mã PIN phải có đúng 6 chữ số và khác mã PIN hiện tại.",
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
         )
 
         PrimaryButton(
-            text = if (isLoading) "Đang lưu…" else "Đổi mã PIN & tiếp tục",
+            text = if (isLoading) {
+                "Đang lưu…"
+            } else if (isRequired) {
+                "Đổi mã PIN & tiếp tục"
+            } else {
+                "Lưu mã PIN mới"
+            },
             onClick = {
                 focusManager.clearFocus()
                 onChangePin(newPin, confirmedPin)
