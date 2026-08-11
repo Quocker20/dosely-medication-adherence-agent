@@ -41,6 +41,20 @@ class DoseStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class DoseAction(StrEnum):
+    """Ba hành động bệnh nhân được phép ghi nhận cho một cữ thuốc."""
+
+    TAKEN = "TAKEN"
+    LATE = "LATE"
+    SKIPPED = "SKIPPED"
+
+
+class SymptomSeverity(StrEnum):
+    MILD = "MILD"
+    MODERATE = "MODERATE"
+    SEVERE = "SEVERE"
+
+
 class AlertState(StrEnum):
     OPEN = "OPEN"
     ACKNOWLEDGED = "ACKNOWLEDGED"
@@ -172,10 +186,12 @@ class ValidationReport(BaseModel):
 
 
 class ScheduledDose(BaseModel):
+    id: str = ""
     drug_name: str
     dose_per_intake: str
     treatment_days: int
     patient_note: str = ""
+    status: DoseStatus = DoseStatus.PENDING
 
 
 class ScheduleSlot(BaseModel):
@@ -214,6 +230,61 @@ class MedicationSchedule(BaseModel):
 
 class GenerateScheduleRequest(BaseModel):
     prescription_id: str
+
+
+class DoseActionRequest(BaseModel):
+    action: DoseAction
+    note: str = Field(default="", max_length=500)
+
+
+class DoseActionRecord(BaseModel):
+    id: str
+    dose_id: str
+    patient_id: str
+    status: DoseAction
+    note: str = ""
+    recorded_at: str
+
+
+class AdherenceSummary(BaseModel):
+    patient_id: str
+    adherence_rate: int = Field(ge=0, le=100)
+    taken: int = 0
+    late: int = 0
+    skipped: int = 0
+    missed: int = 0
+    pending: int = 0
+
+
+class HealthSurveyCreate(BaseModel):
+    mood: int = Field(ge=1, le=5)
+    symptoms: list[str] = Field(default_factory=list, max_length=20)
+    severity: SymptomSeverity
+    note: str = Field(default="", max_length=500)
+
+
+class HealthSurvey(BaseModel):
+    id: str
+    patient_id: str
+    mood: int
+    symptoms: list[str]
+    severity: SymptomSeverity
+    note: str = ""
+    submitted_at: str
+
+
+class SosCreate(BaseModel):
+    note: str = Field(default="", max_length=500)
+    share_location: bool = False
+
+
+class SosEvent(BaseModel):
+    id: str
+    patient_id: str
+    note: str = ""
+    share_location: bool
+    created_at: str
+    alert_id: str
 
 
 class AlertChannel(BaseModel):

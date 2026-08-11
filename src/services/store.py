@@ -13,12 +13,18 @@ from datetime import UTC, datetime
 
 from src.models.clinical import (
     AdherenceLog,
+    AdherenceSummary,
+    AgentRun,
     Alert,
     AlertChannel,
     AlertKind,
     AlertState,
+    DoseAction,
+    DoseActionRecord,
     DoseStatus,
     DrugCatalogEntry,
+    HealthSurvey,
+    HealthSurveyCreate,
     LastEvent,
     MedicationSchedule,
     Patient,
@@ -26,6 +32,15 @@ from src.models.clinical import (
     PatientRoutine,
     PatientStatus,
     Prescription,
+    PrescriptionItem,
+    PrescriptionStatus,
+    ScheduledDose,
+    ScheduleSlot,
+    ScheduleStatus,
+    SosCreate,
+    SosEvent,
+    SymptomSeverity,
+    Timing,
     WeekCell,
 )
 
@@ -217,6 +232,122 @@ def _seed_alerts() -> list[Alert]:
     ]
 
 
+def _seed_prescriptions() -> list[Prescription]:
+    """Đơn đã duyệt để app bệnh nhân có dữ liệu ngay sau khi backend khởi động."""
+
+    return [
+        Prescription(
+            id="RX-2400",
+            patient_id="p-02",
+            doctor_id="doctor-demo-01",
+            status=PrescriptionStatus.APPROVED,
+            created_at="2026-08-03T08:00:00+00:00",
+            approved_at="2026-08-03T08:05:00+00:00",
+            items=[
+                PrescriptionItem(
+                    seq=1,
+                    drug_name="Metformin 500mg",
+                    dose_per_intake="1 viên",
+                    frequency_per_day=3,
+                    timing=Timing.AFTER_BREAKFAST,
+                    treatment_days=14,
+                    patient_note="Uống sau bữa ăn",
+                ),
+                PrescriptionItem(
+                    seq=2,
+                    drug_name="Losartan 50mg",
+                    dose_per_intake="1 viên",
+                    frequency_per_day=1,
+                    timing=Timing.AFTER_LUNCH,
+                    treatment_days=14,
+                    patient_note="",
+                ),
+                PrescriptionItem(
+                    seq=3,
+                    drug_name="Atorvastatin 20mg",
+                    dose_per_intake="1 viên",
+                    frequency_per_day=1,
+                    timing=Timing.BEDTIME,
+                    treatment_days=14,
+                    patient_note="",
+                ),
+            ],
+        )
+    ]
+
+
+def _seed_schedules() -> list[MedicationSchedule]:
+    return [
+        MedicationSchedule(
+            id="SCH-9100",
+            patient_id="p-02",
+            prescription_id="RX-2400",
+            status=ScheduleStatus.ACTIVE,
+            slots=[
+                ScheduleSlot(
+                    time="07:30",
+                    doses=[
+                        ScheduledDose(
+                            id="dose-p02-0730-metformin",
+                            drug_name="Metformin 500mg",
+                            dose_per_intake="1 viên",
+                            treatment_days=14,
+                            patient_note="Uống sau bữa ăn",
+                            status=DoseStatus.TAKEN,
+                        )
+                    ],
+                ),
+                ScheduleSlot(
+                    time="12:30",
+                    doses=[
+                        ScheduledDose(
+                            id="dose-p02-1230-metformin",
+                            drug_name="Metformin 500mg",
+                            dose_per_intake="1 viên",
+                            treatment_days=14,
+                            patient_note="Uống sau bữa ăn",
+                        ),
+                        ScheduledDose(
+                            id="dose-p02-1230-losartan",
+                            drug_name="Losartan 50mg",
+                            dose_per_intake="1 viên",
+                            treatment_days=14,
+                        ),
+                    ],
+                ),
+                ScheduleSlot(
+                    time="18:30",
+                    doses=[
+                        ScheduledDose(
+                            id="dose-p02-1830-metformin",
+                            drug_name="Metformin 500mg",
+                            dose_per_intake="1 viên",
+                            treatment_days=14,
+                            patient_note="Uống sau bữa ăn",
+                        )
+                    ],
+                ),
+                ScheduleSlot(
+                    time="22:00",
+                    doses=[
+                        ScheduledDose(
+                            id="dose-p02-2200-atorvastatin",
+                            drug_name="Atorvastatin 20mg",
+                            dose_per_intake="1 viên",
+                            treatment_days=14,
+                        )
+                    ],
+                ),
+            ],
+            agent_run=AgentRun(
+                id="agent-seed-01",
+                status=ScheduleStatus.ACTIVE,
+                latency_ms=184,
+            ),
+        )
+    ]
+
+
 class Store:
     """Repository in-memory. Mọi thay đổi trạng thái đi qua đây."""
 
@@ -228,10 +359,19 @@ class Store:
         self._logs = _seed_logs()
         self._week = _seed_week()
         self._alerts: dict[str, Alert] = {a.id: a for a in _seed_alerts()}
-        self._prescriptions: dict[str, Prescription] = {}
-        self._schedules: dict[str, MedicationSchedule] = {}
+        self._prescriptions: dict[str, Prescription] = {p.id: p for p in _seed_prescriptions()}
+        self._schedules: dict[str, MedicationSchedule] = {s.patient_id: s for s in _seed_schedules()}
+        self._dose_actions: dict[str, DoseActionRecord] = {}
+        self._dose_action_keys: dict[str, DoseActionRecord] = {}
+        self._health_surveys: dict[str, HealthSurvey] = {}
+        self._sos_events: dict[str, SosEvent] = {}
+        self._sos_keys: dict[str, SosEvent] = {}
         self._rx_seq = itertools.count(2401)
         self._schedule_seq = itertools.count(9101)
+        self._action_seq = itertools.count(1)
+        self._survey_seq = itertools.count(1)
+        self._sos_seq = itertools.count(1)
+        self._alert_seq = itertools.count(2083)
 
     # ---------- patients ----------
     def list_patients(self) -> list[Patient]:
@@ -291,11 +431,212 @@ class Store:
         current = self._schedules.get(schedule.patient_id)
         if current is not None:
             schedule = schedule.model_copy(update={"version": current.version + 1})
+
+        # Planning Agent chỉ sinh khung giờ. ID cữ được gắn bằng code xác định
+        # để client có thể ghi action idempotent mà không cho agent tự tạo ID.
+        slots = []
+        for slot_index, slot in enumerate(schedule.slots, start=1):
+            doses = [
+                dose.model_copy(
+                    update={"id": dose.id or f"{schedule.id}-{slot_index:02d}-{dose_index:02d}"},
+                )
+                for dose_index, dose in enumerate(slot.doses, start=1)
+            ]
+            slots.append(slot.model_copy(update={"doses": doses}))
+        schedule = schedule.model_copy(update={"slots": slots})
         self._schedules[schedule.patient_id] = schedule
         return schedule
 
     def get_schedule(self, patient_id: str) -> MedicationSchedule | None:
         return self._schedules.get(patient_id)
+
+    def record_dose_action(
+        self,
+        dose_id: str,
+        action: DoseAction,
+        note: str,
+        idempotency_key: str,
+    ) -> DoseActionRecord | None:
+        replay = self._dose_action_keys.get(idempotency_key)
+        if replay is not None:
+            if replay.dose_id != dose_id or replay.status != action:
+                raise ValueError("Idempotency-Key đã được dùng cho một hành động khác.")
+            return replay
+
+        target: tuple[str, MedicationSchedule, int, int] | None = None
+        for patient_id, schedule in self._schedules.items():
+            for slot_index, slot in enumerate(schedule.slots):
+                for dose_index, dose in enumerate(slot.doses):
+                    if dose.id == dose_id:
+                        target = (patient_id, schedule, slot_index, dose_index)
+                        break
+                if target is not None:
+                    break
+            if target is not None:
+                break
+
+        if target is None:
+            return None
+
+        patient_id, schedule, slot_index, dose_index = target
+        dose = schedule.slots[slot_index].doses[dose_index]
+        if dose.status in (DoseStatus.TAKEN, DoseStatus.LATE, DoseStatus.SKIPPED, DoseStatus.MISSED):
+            raise ValueError(f"Cữ thuốc {dose_id} đã được ghi nhận là {dose.status.value}.")
+
+        next_status = DoseStatus(action.value)
+        slots = list(schedule.slots)
+        doses = list(slots[slot_index].doses)
+        doses[dose_index] = dose.model_copy(update={"status": next_status})
+        slots[slot_index] = slots[slot_index].model_copy(update={"doses": doses})
+        self._schedules[patient_id] = schedule.model_copy(update={"slots": slots})
+
+        recorded_at = now_iso()
+        record = DoseActionRecord(
+            id=f"ACT-{next(self._action_seq):05d}",
+            dose_id=dose_id,
+            patient_id=patient_id,
+            status=action,
+            note=note,
+            recorded_at=recorded_at,
+        )
+        self._dose_actions[dose_id] = record
+        self._dose_action_keys[idempotency_key] = record
+
+        action_label = {
+            DoseAction.TAKEN: "TAKEN",
+            DoseAction.LATE: "LATE",
+            DoseAction.SKIPPED: "SKIPPED",
+        }[action]
+        self._logs.setdefault(patient_id, []).insert(
+            0,
+            AdherenceLog(
+                at=datetime.now(UTC).strftime("%H:%M"),
+                status=next_status,
+                message=f"{dose.drug_name} — {action_label}" + (f" · {note}" if note else ""),
+            ),
+        )
+
+        patient = self._patients[patient_id]
+        miss_count = patient.consecutive_miss + 1 if action is DoseAction.SKIPPED else 0
+        tone = "crit" if action is DoseAction.SKIPPED else "warn" if action is DoseAction.LATE else "ok"
+        self._patients[patient_id] = patient.model_copy(
+            update={
+                "consecutive_miss": miss_count,
+                "last_event": LastEvent(
+                    text=f"{dose.drug_name} — {action_label}",
+                    tone=tone,
+                    at="vừa xong",
+                ),
+            }
+        )
+        return record
+
+    def adherence_summary(self, patient_id: str) -> AdherenceSummary | None:
+        patient = self._patients.get(patient_id)
+        if patient is None:
+            return None
+        schedule = self._schedules.get(patient_id)
+        statuses = [dose.status for slot in schedule.slots for dose in slot.doses] if schedule else []
+        return AdherenceSummary(
+            patient_id=patient_id,
+            adherence_rate=patient.adherence_rate,
+            taken=statuses.count(DoseStatus.TAKEN),
+            late=statuses.count(DoseStatus.LATE),
+            skipped=statuses.count(DoseStatus.SKIPPED),
+            missed=statuses.count(DoseStatus.MISSED),
+            pending=statuses.count(DoseStatus.PENDING) + statuses.count(DoseStatus.SENT),
+        )
+
+    def save_health_survey(self, patient_id: str, payload: HealthSurveyCreate) -> HealthSurvey:
+        survey = HealthSurvey(
+            id=f"SUR-{next(self._survey_seq):05d}",
+            patient_id=patient_id,
+            submitted_at=now_iso(),
+            **payload.model_dump(),
+        )
+        self._health_surveys[survey.id] = survey
+        symptom_text = ", ".join(payload.symptoms) if payload.symptoms else "không triệu chứng"
+        self._logs.setdefault(patient_id, []).insert(
+            0,
+            AdherenceLog(
+                at=datetime.now(UTC).strftime("%H:%M"),
+                message=f"Khảo sát sức khỏe: {symptom_text} ({payload.severity.value})",
+            ),
+        )
+
+        if payload.severity is SymptomSeverity.SEVERE:
+            alert = self._new_alert(
+                patient_id=patient_id,
+                kind=AlertKind.SEVERE_SYMPTOM,
+                title="Triệu chứng mức SEVERE",
+                detail=f"Bệnh nhân khai báo: {symptom_text}. Cần bác sĩ đánh giá.",
+            )
+            patient = self._patients[patient_id]
+            self._patients[patient_id] = patient.model_copy(
+                update={
+                    "status": PatientStatus.RED_ALERT,
+                    "symptom": symptom_text,
+                    "last_event": LastEvent(text=alert.title, tone="crit", at="vừa xong"),
+                }
+            )
+        return survey
+
+    def create_sos(self, patient_id: str, payload: SosCreate, idempotency_key: str) -> SosEvent:
+        replay = self._sos_keys.get(idempotency_key)
+        if replay is not None:
+            if replay.patient_id != patient_id:
+                raise ValueError("Idempotency-Key đã được dùng cho một yêu cầu SOS khác.")
+            return replay
+
+        detail = payload.note.strip() or "Bệnh nhân kích hoạt SOS từ ứng dụng."
+        if payload.share_location:
+            detail += " Bệnh nhân đồng ý chia sẻ vị trí với kênh cứu trợ."
+        alert = self._new_alert(
+            patient_id=patient_id,
+            kind=AlertKind.SOS,
+            title="SOS từ ứng dụng bệnh nhân",
+            detail=detail,
+        )
+        event = SosEvent(
+            id=f"SOS-{next(self._sos_seq):05d}",
+            patient_id=patient_id,
+            note=payload.note,
+            share_location=payload.share_location,
+            created_at=now_iso(),
+            alert_id=alert.id,
+        )
+        self._sos_events[event.id] = event
+        self._sos_keys[idempotency_key] = event
+        self._logs.setdefault(patient_id, []).insert(
+            0,
+            AdherenceLog(at=datetime.now(UTC).strftime("%H:%M"), message="SOS từ ứng dụng — Red Alert đã mở"),
+        )
+        patient = self._patients[patient_id]
+        self._patients[patient_id] = patient.model_copy(
+            update={
+                "status": PatientStatus.SOS,
+                "last_event": LastEvent(text="Nhấn SOS từ ứng dụng", tone="crit", at="vừa xong"),
+            }
+        )
+        return event
+
+    def _new_alert(self, patient_id: str, kind: AlertKind, title: str, detail: str) -> Alert:
+        alert = Alert(
+            id=f"AL-{next(self._alert_seq)}",
+            kind=kind,
+            patient_id=patient_id,
+            title=title,
+            detail=detail,
+            opened_at=datetime.now(UTC).strftime("%H:%M"),
+            state=AlertState.OPEN,
+            channels=[
+                AlertChannel(name="Portal bác sĩ", status="DELIVERED"),
+                AlertChannel(name="SMS người thân", status="SENT"),
+            ],
+            dispatch_ms=800,
+        )
+        self._alerts[alert.id] = alert
+        return alert
 
     # ---------- alerts ----------
     def list_alerts(self, state: AlertState | None = None) -> list[Alert]:

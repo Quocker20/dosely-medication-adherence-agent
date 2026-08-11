@@ -1,16 +1,21 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from src.agents.graph import agent
 from src.agents.planning_graph import run_planning
 from src.config import get_settings
 from src.models.clinical import (
     AdherenceLog,
+    AdherenceSummary,
     Alert,
     AlertResolveRequest,
     AlertState,
     DashboardSummary,
+    DoseActionRecord,
+    DoseActionRequest,
     DrugCatalogEntry,
     GenerateScheduleRequest,
+    HealthSurvey,
+    HealthSurveyCreate,
     MedicationSchedule,
     Patient,
     PatientDetail,
@@ -19,6 +24,8 @@ from src.models.clinical import (
     PrescriptionCreate,
     PrescriptionItem,
     PrescriptionStatus,
+    SosCreate,
+    SosEvent,
 )
 from src.models.schemas import ChatRequest, ChatResponse
 from src.services.prescription_validator import validate_items
@@ -228,6 +235,72 @@ async def get_schedule(patient_id: str) -> MedicationSchedule:
     if schedule is None:
         raise HTTPException(status_code=404, detail="Bệnh nhân chưa có lịch nhắc nào.")
     return schedule
+
+
+# --------------------------------------------------------------------------
+# Tương tác app bệnh nhân (FR-3.1 / FR-4.1)
+# --------------------------------------------------------------------------
+@router.post(
+    "/scheduled-doses/{dose_id}/actions",
+    response_model=DoseActionRecord,
+    status_code=201,
+    operation_id="recordDoseAction",
+)
+async def record_dose_action(
+    dose_id: str,
+    payload: DoseActionRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=128),
+) -> DoseActionRecord:
+    """Ghi TAKEN/LATE/SKIPPED; không có trường nào cho phép đổi phác đồ."""
+
+    try:
+        record = store.record_dose_action(dose_id, payload.action, payload.note, idempotency_key)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy cữ thuốc {dose_id}")
+    return record
+
+
+@router.get(
+    "/patients/{patient_id}/adherence",
+    response_model=AdherenceSummary,
+    operation_id="getAdherenceSummary",
+)
+async def get_adherence_summary(patient_id: str) -> AdherenceSummary:
+    _get_patient_or_404(patient_id)
+    summary = store.adherence_summary(patient_id)
+    assert summary is not None
+    return summary
+
+
+@router.post(
+    "/patients/{patient_id}/health-surveys",
+    response_model=HealthSurvey,
+    status_code=201,
+    operation_id="createHealthSurvey",
+)
+async def create_health_survey(patient_id: str, payload: HealthSurveyCreate) -> HealthSurvey:
+    _get_patient_or_404(patient_id)
+    return store.save_health_survey(patient_id, payload)
+
+
+@router.post(
+    "/patients/{patient_id}/sos",
+    response_model=SosEvent,
+    status_code=201,
+    operation_id="createSos",
+)
+async def create_sos(
+    patient_id: str,
+    payload: SosCreate,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=128),
+) -> SosEvent:
+    _get_patient_or_404(patient_id)
+    try:
+        return store.create_sos(patient_id, payload, idempotency_key)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 # --------------------------------------------------------------------------

@@ -3,7 +3,9 @@
 
 $ErrorActionPreference = 'Stop'
 
-$HookFile = '.git/hooks/pre-push'
+$RepoRoot = (& git rev-parse --show-toplevel).Trim()
+if (-not $RepoRoot) { throw 'Not inside a Git repository.' }
+$HookFile = Join-Path $RepoRoot '.git/hooks/pre-push'
 
 # Git on Windows runs hooks via Git Bash, so the hook body must be bash.
 $HookBody = @'
@@ -14,10 +16,15 @@ bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
+# Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding UTF8`.
+# A BOM before #! can prevent Git from launching this bash hook.
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($HookFile, $HookBody, $Utf8NoBom)
 Write-Host "[ai-log] Git pre-push hook installed."
 
-if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }
-if (-not (Test-Path .ai-log/.gitkeep)) { New-Item -ItemType File -Path .ai-log/.gitkeep | Out-Null }
+$LogDir = Join-Path $RepoRoot '.ai-log'
+$GitKeep = Join-Path $LogDir '.gitkeep'
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+if (-not (Test-Path $GitKeep)) { New-Item -ItemType File -Path $GitKeep | Out-Null }
 
 Write-Host "[ai-log] Setup complete. Configure AI_LOG_SERVER in your .env file."
