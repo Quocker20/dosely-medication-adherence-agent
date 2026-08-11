@@ -74,7 +74,7 @@ class AuthViewModel @Inject constructor(
             return
         }
         if (newPin == currentPin) {
-            _state.update { it.copy(error = "Mã PIN mới phải khác mã PIN ban đầu.") }
+            _state.update { it.copy(error = "Mã PIN mới phải khác mã PIN hiện tại.") }
             return
         }
 
