@@ -1,4 +1,5 @@
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from src.agents.nodes.example_node import analyze_node, respond_node
 from src.agents.state import AgentState
@@ -11,7 +12,7 @@ def should_continue(state: AgentState) -> str:
     return "respond"
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     # Add nodes
