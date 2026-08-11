@@ -23,7 +23,7 @@ from src.modules.admin.models import DoctorProfile
 from src.modules.admin.repository import DoctorRepository
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
-from src.modules.patients.models import PatientProfile
+from src.modules.prescriptions.models import Prescription
 
 
 async def _create_doctor(phone: str, pin: str, name: str, license_no: str) -> uuid.UUID:
@@ -43,12 +43,6 @@ async def _create_doctor(phone: str, pin: str, name: str, license_no: str) -> uu
 async def _cleanup(doctor_ids: list[uuid.UUID], patient_phones: list[str]) -> None:
     async with AsyncSessionLocal() as db:
         async with db.begin():
-            if doctor_ids:
-                await db.execute(
-                    delete(PatientProfile).where(
-                        PatientProfile.primary_doctor_id.in_(doctor_ids)
-                    )
-                )
             for phone in patient_phones:
                 await db.execute(delete(User).where(User.phone == phone))
             if doctor_ids:
@@ -56,6 +50,12 @@ async def _cleanup(doctor_ids: list[uuid.UUID], patient_phones: list[str]) -> No
                     delete(DoctorProfile).where(DoctorProfile.user_id.in_(doctor_ids))
                 )
                 await db.execute(delete(User).where(User.id.in_(doctor_ids)))
+
+
+async def _create_prescription(patient_id: uuid.UUID, doctor_id: uuid.UUID) -> None:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            db.add(Prescription(patient_id=patient_id, doctor_id=doctor_id))
 
 
 async def _login(client, phone: str, pin: str) -> str:
@@ -117,7 +117,7 @@ async def test_create_patient_invalid_phone_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_patient_roster_is_scoped_per_doctor(client):
+async def test_patient_roster_is_scoped_by_prescription(client):
     doctor1_id = await _create_doctor(
         "+84900500003", "333333", "Dr Slice3 C1", "LIC-SLICE3-C1"
     )
@@ -139,21 +139,24 @@ async def test_patient_roster_is_scoped_per_doctor(client):
         assert create_response.status_code == 201
         patient_id = create_response.json()["data"]["patient"]["user_id"]
 
+        # No prescription yet from either doctor: roster is empty for both.
         list1 = await client.get("/api/v1/doctors/patients", headers=headers1)
-        assert list1.json()["data"]["total_elements"] == 1
+        assert list1.json()["data"]["total_elements"] == 0
 
-        list2 = await client.get("/api/v1/doctors/patients", headers=headers2)
-        assert list2.json()["data"]["total_elements"] == 0
-
-        get_own = await client.get(
-            f"/api/v1/doctors/patients/{patient_id}", headers=headers1
-        )
-        assert get_own.status_code == 200
-
+        # get_patient stays unscoped by prescription — either doctor can fetch by id.
         get_other = await client.get(
             f"/api/v1/doctors/patients/{patient_id}", headers=headers2
         )
-        assert get_other.status_code == 404
+        assert get_other.status_code == 200
+
+        await _create_prescription(uuid.UUID(patient_id), doctor1_id)
+
+        list1 = await client.get("/api/v1/doctors/patients", headers=headers1)
+        phones1 = [item["phone"] for item in list1.json()["data"]["content"]]
+        assert patient_phone in phones1
+
+        list2 = await client.get("/api/v1/doctors/patients", headers=headers2)
+        assert list2.json()["data"]["total_elements"] == 0
     finally:
         await _cleanup([doctor1_id, doctor2_id], [patient_phone])
 
