@@ -59,3 +59,10 @@ out/
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
 .ai-log/archive/
+
+# AI Configuration (Track structure, ignore content)
+.agents/
+.codegraph/
+
+package-lock.json
+package.json
