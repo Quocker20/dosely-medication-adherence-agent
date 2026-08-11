@@ -97,7 +97,7 @@ class DoctorRepository:
             total_count = (await self._db.execute(count_stmt)).scalar_one()
             return [], total_count
 
-        total_count = rows[0].total_count
+        total_count = rows[0].total_count if rows else 0
         items = [(row[0], row[1]) for row in rows]
         return items, total_count
 
@@ -196,6 +196,6 @@ class AuditLogRepository:
             total_count = (await self._db.execute(count_stmt)).scalar_one()
             return [], total_count
 
-        total_count = rows[0].total_count
+        total_count = rows[0].total_count if rows else 0
         items = [row[0] for row in rows]
         return items, total_count

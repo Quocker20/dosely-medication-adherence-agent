@@ -265,9 +265,9 @@ class AdminService:
                 ip_address=ip_address,
             )
 
-        # Explicitly refresh ORM instances AFTER transaction commit
-        await self._db.refresh(profile)
-        await self._db.refresh(user)
+            # Explicitly refresh ORM instances inside transaction block before commit
+            await self._db.refresh(profile)
+            await self._db.refresh(user)
 
         return DoctorDetailResponse(
             user_id=profile.user_id,
