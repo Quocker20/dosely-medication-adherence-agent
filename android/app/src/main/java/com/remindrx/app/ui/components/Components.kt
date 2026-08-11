@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Restaurant
@@ -268,8 +269,9 @@ fun TodayDoseCard(
 private data class BottomDestination(val route: String, val label: String)
 
 private val bottomDestinations = listOf(
-    BottomDestination("dashboard", "Lịch uống thuốc"),
-    BottomDestination("prescription", "Đơn thuốc"),
+    BottomDestination("dashboard", "Lịch thuốc"),
+    BottomDestination("prescription", "Thuốc"),
+    BottomDestination("assistant", "Trợ lý AI"),
     BottomDestination("survey", "Khảo sát"),
     BottomDestination("settings", "Cài đặt"),
 )
@@ -286,6 +288,7 @@ fun RemindRxBottomBar(currentRoute: String?, onNavigate: (String) -> Unit) {
                         when (dest.route) {
                             "dashboard" -> Icons.Filled.Home
                             "prescription" -> Icons.Filled.Medication
+                            "assistant" -> Icons.Filled.SmartToy
                             "survey" -> Icons.Filled.Checklist
                             else -> Icons.Filled.Settings
                         },
