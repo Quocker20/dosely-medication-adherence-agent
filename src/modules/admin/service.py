@@ -58,11 +58,10 @@ class AdminService:
         """Create a new Doctor account and profile.
 
         1. Clean and validate phone format.
-        2. Check for duplicate phone in users table.
-        3. Check for duplicate license_no in doctor_profiles table.
-        4. Generate random 6-digit PIN and bcrypt hash it.
-        5. Persist User, DoctorProfile, and AuditLog in one transaction.
-        6. Return CreateDoctorResponse containing temp_password.
+        2. Persist User, DoctorProfile, and AuditLog in one transaction.
+        3. Rely on DB unique constraints (phone, license_no) to reject duplicates
+           via IntegrityError — no separate pre-check query (avoids TOCTOU race).
+        4. Return CreateDoctorResponse containing temp_password.
         """
         cleaned_phone = validate_phone_number(request.phone)
 
@@ -100,10 +99,16 @@ class AdminService:
                 )
         except IntegrityError as exc:
             logger.warning(f"IntegrityError creating doctor: {exc}")
+            constraint = getattr(exc.orig, "constraint_name", None)
             err_msg = str(exc).lower()
-            if "license_no" in err_msg:
+
+            if constraint == "doctor_profiles_license_no_key" or (
+                constraint is None and "license_no" in err_msg
+            ):
                 raise ConflictException(message="License number already registered")
-            elif "phone" in err_msg:
+            elif constraint == "users_phone_key" or (
+                constraint is None and "phone" in err_msg
+            ):
                 raise ConflictException(message="Phone number already registered")
             else:
                 raise ConflictException(
