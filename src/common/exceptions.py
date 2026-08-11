@@ -42,6 +42,11 @@ class ValidationException(AppException):
         super().__init__(message=message, code=status.HTTP_422_UNPROCESSABLE_ENTITY, errors=errors)
 
 
+class ConflictException(AppException):
+    def __init__(self, message: str = "Resource conflict", errors: Optional[Any] = None):
+        super().__init__(message=message, code=status.HTTP_409_CONFLICT, errors=errors)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
