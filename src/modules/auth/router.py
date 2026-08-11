@@ -19,7 +19,7 @@ from src.modules.auth.service import AuthService
 def get_auth_service(db: Annotated[AsyncSession, Depends(get_db)]) -> AuthService:
     """Dependency factory providing AuthService instance."""
     repository = AuthRepository(db)
-    return AuthService(repository)
+    return AuthService(db=db, repository=repository)
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

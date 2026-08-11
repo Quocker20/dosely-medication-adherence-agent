@@ -20,7 +20,7 @@ class User(Base):
     )
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
-    hashed_password: Mapped[str] = mapped_column(String(64), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_first_login: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="TRUE"
     )

@@ -1,6 +1,9 @@
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.exceptions import UnauthorizedException, ValidationException
 from src.core.config import get_settings
@@ -21,13 +24,20 @@ from src.modules.auth.schemas import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+PIN_PATTERN = re.compile(r"^\d{6}$")
 
 
 class AuthService:
     """Authentication service handling PIN login, password change, and token operations."""
 
-    def __init__(self, repository: AuthRepository) -> None:
+    def __init__(self, db: AsyncSession, repository: AuthRepository) -> None:
+        self._db = db
         self._repository = repository
+
+    @staticmethod
+    def _is_valid_pin(pin: str) -> bool:
+        """Validate if password string is a 6-digit PIN."""
+        return bool(pin and PIN_PATTERN.match(pin))
 
     async def login(self, phone: str, password: str) -> AuthTokenResponse:
         """Authenticate user with phone and 6-digit PIN password.
@@ -38,8 +48,7 @@ class AuthService:
         4. Issue access and refresh tokens.
         5. Return AuthTokenResponse containing is_first_login status.
         """
-        import re
-        if not re.match(r"^\d{6}$", password):
+        if not self._is_valid_pin(password):
             raise UnauthorizedException(message="Invalid phone number or password")
 
         try:
@@ -62,19 +71,18 @@ class AuthService:
         )
         refresh_token_str = create_refresh_token(user_id=str(user.id))
 
-        # Persist hashed refresh token
+        # Persist hashed refresh token + update last login in single transaction
         token_hash = AuthRepository.hash_token(refresh_token_str)
         refresh_expires_at = datetime.now(timezone.utc) + timedelta(
             days=settings.refresh_token_expire_days
         )
-        await self._repository.save_refresh_token(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=refresh_expires_at,
-        )
-
-        # Update last login timestamp
-        await self._repository.update_last_login(user.id)
+        async with self._db.begin():
+            await self._repository.save_refresh_token(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=refresh_expires_at,
+            )
+            await self._repository.update_last_login(user.id)
 
         return AuthTokenResponse(
             access_token=access_token,
@@ -97,11 +105,15 @@ class AuthService:
 
         1. Retrieve user by ID.
         2. Verify current password.
-        3. Hash new password with bcrypt + pepper.
-        4. Update password in database.
-        5. Set is_first_login = False.
-        6. Revoke existing refresh tokens.
+        3. Validate new_password format (must be 6-digit PIN).
+        4. Hash new password with bcrypt + pepper.
+        5. Update password in database.
+        6. Set is_first_login = False.
+        7. Revoke existing refresh tokens.
         """
+        if not self._is_valid_pin(new_password):
+            raise ValidationException(message="New password must be a 6-digit PIN")
+
         uid = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
         user = await self._repository.get_user_by_id(uid)
         if user is None:
@@ -111,7 +123,8 @@ class AuthService:
             raise ValidationException(message="Current password is incorrect")
 
         new_hashed = hash_password(new_password)
-        await self._repository.change_password(user.id, new_hashed)
+        async with self._db.begin():
+            await self._repository.change_password(user.id, new_hashed)
 
         return MessageResponse(message="Password changed successfully")
 
@@ -131,9 +144,6 @@ class AuthService:
         if stored_token.expires_at < datetime.now(timezone.utc):
             raise UnauthorizedException(message="Refresh token has expired")
 
-        # Revoke old refresh token
-        await self._repository.revoke_refresh_token(token_hash)
-
         # Fetch user for new token claims
         user_id = uuid.UUID(payload["sub"])
         user = await self._repository.get_user_by_id(user_id)
@@ -148,16 +158,18 @@ class AuthService:
         )
         new_refresh_token = create_refresh_token(user_id=str(user.id))
 
-        # Persist new refresh token
+        # Revoke old + persist new refresh token in single transaction
         new_token_hash = AuthRepository.hash_token(new_refresh_token)
         new_expires_at = datetime.now(timezone.utc) + timedelta(
             days=settings.refresh_token_expire_days
         )
-        await self._repository.save_refresh_token(
-            user_id=user.id,
-            token_hash=new_token_hash,
-            expires_at=new_expires_at,
-        )
+        async with self._db.begin():
+            await self._repository.revoke_refresh_token(token_hash)
+            await self._repository.save_refresh_token(
+                user_id=user.id,
+                token_hash=new_token_hash,
+                expires_at=new_expires_at,
+            )
 
         return AuthTokenResponse(
             access_token=new_access_token,
@@ -176,5 +188,7 @@ class AuthService:
     async def logout(self, refresh_token_str: str) -> MessageResponse:
         """Revoke refresh token on logout."""
         token_hash = AuthRepository.hash_token(refresh_token_str)
-        await self._repository.revoke_refresh_token(token_hash)
+        async with self._db.begin():
+            await self._repository.revoke_refresh_token(token_hash)
         return MessageResponse(message="Logged out successfully")
+
