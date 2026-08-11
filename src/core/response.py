@@ -24,7 +24,7 @@ def success_response(
         message=message,
         data=data,
         errors=None,
-    ).model_dump()
+    ).model_dump(mode="json")
     return JSONResponse(status_code=code, content=payload)
 
 
@@ -39,5 +39,5 @@ def error_response(
         message=message,
         data=None,
         errors=errors,
-    ).model_dump()
+    ).model_dump(mode="json")
     return JSONResponse(status_code=code, content=payload)

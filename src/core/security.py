@@ -1,18 +1,25 @@
-from datetime import datetime, timedelta, timezone
-import random
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
+
+import bcrypt
 import jwt
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 
+from src.common.exceptions import (
+    ForbiddenException,
+    UnauthorizedException,
+    ValidationException,
+)
 from src.core.config import get_settings
-from src.common.exceptions import ForbiddenException, UnauthorizedException, ValidationException
 
 settings = get_settings()
 
-# OAuth2 bearer scheme pointing to Phone + OTP verification endpoint
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/otp/verify", auto_error=False)
+# OAuth2 bearer scheme pointing to Phone + PIN Password login endpoint
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login", auto_error=False
+)
 
 PHONE_REGEX = re.compile(r"^(?:\+84|84|0)[3|5|7|8|9][0-9]{8}$")
 
@@ -21,8 +28,10 @@ def validate_phone_number(phone: str) -> str:
     """Validate and normalize Vietnamese phone numbers to standard format (+84...)."""
     clean_phone = phone.strip().replace(" ", "").replace("-", "")
     if not PHONE_REGEX.match(clean_phone):
-        raise ValidationException(message="Invalid phone number format. Must be a valid Vietnamese mobile number.")
-    
+        raise ValidationException(
+            message="Invalid phone number format. Must be a valid Vietnamese mobile number."
+        )
+
     if clean_phone.startswith("0"):
         clean_phone = "+84" + clean_phone[1:]
     elif clean_phone.startswith("84"):
@@ -30,9 +39,29 @@ def validate_phone_number(phone: str) -> str:
     return clean_phone
 
 
-def generate_otp_code(digits: int = 6) -> str:
-    """Generate secure numeric OTP code for SMS/Zalo dispatch."""
-    return "".join([str(random.randint(0, 9)) for _ in range(digits)])
+def _get_peppered_bytes(plain_password: str, pepper: Optional[str] = None) -> bytes:
+    """Combine input password with system pepper into bytes for hashing."""
+    pep = pepper if pepper is not None else settings.password_pepper
+    return (plain_password + pep).encode("utf-8")
+
+
+def hash_password(plain_password: str, pepper: Optional[str] = None) -> str:
+    """Hash password using bcrypt (with auto-generated unique salt) and global system pepper."""
+    peppered_bytes = _get_peppered_bytes(plain_password, pepper)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(peppered_bytes, salt)
+    return hashed.decode("utf-8")
+
+
+def verify_password(
+    plain_password: str, hashed_password: str, pepper: Optional[str] = None
+) -> bool:
+    """Verify plain password + pepper against stored bcrypt hash."""
+    try:
+        peppered_bytes = _get_peppered_bytes(plain_password, pepper)
+        return bcrypt.checkpw(peppered_bytes, hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(
@@ -42,10 +71,12 @@ def create_access_token(
     expires_delta: Optional[timedelta] = None,
     additional_claims: Optional[dict] = None,
 ) -> str:
-    """Generate JWT Access Token for Phone + OTP authenticated user."""
+    """Generate JWT Access Token for authenticated user."""
     now = datetime.now(timezone.utc)
-    expire = now + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
-    
+    expire = now + (
+        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
+    )
+
     payload = {
         "sub": str(user_id),
         "role": role,
@@ -57,7 +88,9 @@ def create_access_token(
     if additional_claims:
         payload.update(additional_claims)
 
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def create_refresh_token(
@@ -66,8 +99,10 @@ def create_refresh_token(
 ) -> str:
     """Generate JWT Refresh Token."""
     now = datetime.now(timezone.utc)
-    expire = now + (expires_delta or timedelta(days=settings.refresh_token_expire_days))
-    
+    expire = now + (
+        expires_delta or timedelta(days=settings.refresh_token_expire_days)
+    )
+
     payload = {
         "sub": str(user_id),
         "type": "refresh",
@@ -75,7 +110,9 @@ def create_refresh_token(
         "exp": expire,
     }
 
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def decode_token(token: str) -> dict:
@@ -93,7 +130,9 @@ def decode_token(token: str) -> dict:
         raise UnauthorizedException(message="Invalid token signature or payload")
 
 
-async def get_current_user_payload(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+async def get_current_user_payload(
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> dict:
     """Dependency retrieving and validating token payload."""
     if not token:
         raise UnauthorizedException(message="Missing authentication token")
@@ -105,7 +144,10 @@ async def get_current_user_payload(token: Optional[str] = Depends(oauth2_scheme)
 
 def require_roles(*allowed_roles: str) -> Callable:
     """Dependency factory enforcing Role-Based Access Control (RBAC)."""
-    async def role_checker(payload: dict = Depends(get_current_user_payload)) -> dict:
+
+    async def role_checker(
+        payload: dict = Depends(get_current_user_payload),
+    ) -> dict:
         user_role = payload.get("role")
         if user_role not in allowed_roles:
             raise ForbiddenException(
