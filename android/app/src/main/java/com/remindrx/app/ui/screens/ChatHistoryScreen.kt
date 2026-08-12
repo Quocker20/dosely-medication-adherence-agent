@@ -11,8 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddComment
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
@@ -44,7 +44,7 @@ fun ChatHistoryScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Quay lại")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
             }
             Text("Lịch sử Chat AI", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             IconButton(onClick = onNewChat) {
@@ -80,7 +80,7 @@ fun ChatHistoryScreen(
                         Icon(
                             Icons.Filled.ChatBubbleOutline,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = extras.ai,
                         )
                         Column(Modifier.weight(1f)) {
                             Text(conversation.title, style = MaterialTheme.typography.titleMedium)
