@@ -132,8 +132,8 @@ class PatientService:
         size: int = 10,
         search: Optional[str] = None,
     ) -> PageResponse[PatientDetailResponse]:
-        """Fetch paginated patient roster, scoped to patients with a prescription
-        written by the requesting doctor, unless ADMIN."""
+        """Fetch paginated patient list, restricted to patients the requesting
+        doctor has written at least one prescription for, unless ADMIN."""
         role = actor_payload.get("role")
         doctor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
 
@@ -158,8 +158,19 @@ class PatientService:
     async def get_patient(
         self, patient_id: uuid.UUID, actor_payload: dict
     ) -> PatientDetailResponse:
-        """Fetch patient detail."""
-        result = await self._patient_repo.get_patient_with_user(patient_id)
+        """Fetch patient detail, restricted to patients the requesting doctor has
+        written at least one prescription for, unless ADMIN.
+
+        Same derivation as list_patients — detail and roster must answer to one
+        access rule. A patient outside that rule raises 404 rather than 403 so no
+        doctor can probe which patient UUIDs exist.
+        """
+        role = actor_payload.get("role")
+        doctor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
+
+        result = await self._patient_repo.get_patient_with_user(
+            patient_id, requesting_doctor_id=doctor_id
+        )
         if result is None:
             raise NotFoundException(message="Patient not found")
 

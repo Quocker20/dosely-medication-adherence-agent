@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, timezone
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,12 @@ class PatientProfile(Base):
     """Patient Profile database model."""
 
     __tablename__ = "patient_profiles"
+
+    # Name matches migration 0003_access_idx exactly so autogenerate does not
+    # propose a duplicate. Serves the ORDER BY created_at DESC of list_patients.
+    __table_args__ = (
+        Index("idx_patient_profiles_created_at", text("created_at DESC")),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -3,7 +3,7 @@ import uuid
 from datetime import date
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.auth.models import User
@@ -18,6 +18,28 @@ class PatientRepository:
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+
+    @staticmethod
+    def _has_prescribed_filter(doctor_id: uuid.UUID) -> Exists:
+        """Build the access predicate for a doctor reaching patient data.
+
+        A doctor holds no ownership over any patient. The permission is derived
+        per request from a single fact: at least one prescription written by
+        this doctor exists for that patient. Nothing else grants access, and it
+        disappears as soon as the last such prescription does.
+
+        Correlated on PatientProfile.user_id so the same predicate composes into
+        both the roster query and the single-patient fetch — keeping them from
+        drifting apart, which is how detail fetch ended up unscoped.
+        """
+        return (
+            select(Prescription.id)
+            .where(
+                Prescription.doctor_id == doctor_id,
+                Prescription.patient_id == PatientProfile.user_id,
+            )
+            .exists()
+        )
 
     async def create_patient_profile(
         self,
@@ -42,14 +64,26 @@ class PatientRepository:
         return profile
 
     async def get_patient_with_user(
-        self, user_id: uuid.UUID, for_update: bool = False
+        self,
+        user_id: uuid.UUID,
+        requesting_doctor_id: Optional[uuid.UUID] = None,
+        for_update: bool = False,
     ) -> Optional[Tuple[PatientProfile, User]]:
-        """Fetch patient profile joined with user record in one query."""
+        """Fetch patient profile joined with user record in one query.
+
+        requesting_doctor_id=None means unscoped (ADMIN). Otherwise the access
+        predicate is folded into the same statement, so a patient the doctor has
+        never prescribed for is indistinguishable from one that does not exist —
+        both return None. That keeps the caller from leaking which patient UUIDs
+        are real, and costs no extra round trip.
+        """
         stmt = (
             select(PatientProfile, User)
             .join(User, PatientProfile.user_id == User.id)
             .where(PatientProfile.user_id == user_id)
         )
+        if requesting_doctor_id is not None:
+            stmt = stmt.where(self._has_prescribed_filter(requesting_doctor_id))
         if for_update:
             stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
@@ -67,8 +101,8 @@ class PatientRepository:
     ) -> Tuple[List[Tuple[PatientProfile, User]], int]:
         """Fetch paginated patient profiles joined with users.
 
-        doctor_id=None means unscoped (ADMIN). Otherwise scoped to patients who
-        have at least one prescription written by that doctor.
+        doctor_id=None means unscoped (ADMIN). Otherwise restricted to patients
+        the doctor has written at least one prescription for.
 
         Count is a separate query rather than count().over() — the window
         function forces the planner to materialize the full filtered result
@@ -76,13 +110,7 @@ class PatientRepository:
         """
         filters = []
         if doctor_id is not None:
-            filters.append(
-                PatientProfile.user_id.in_(
-                    select(Prescription.patient_id).where(
-                        Prescription.doctor_id == doctor_id
-                    )
-                )
-            )
+            filters.append(self._has_prescribed_filter(doctor_id))
         if search and search.strip():
             term = f"%{search.strip()}%"
             filters.append(

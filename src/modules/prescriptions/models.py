@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,13 @@ class Prescription(Base):
     """Prescription database model."""
 
     __tablename__ = "prescriptions"
+
+    # Name matches migration 0003_access_idx exactly so autogenerate does not
+    # propose a duplicate. Backs the doctor-access EXISTS probe as an index-only
+    # scan; see PatientRepository._has_prescribed_filter.
+    __table_args__ = (
+        Index("idx_prescriptions_doctor_patient", "doctor_id", "patient_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
