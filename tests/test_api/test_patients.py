@@ -139,15 +139,21 @@ async def test_patient_roster_is_scoped_by_prescription(client):
         assert create_response.status_code == 201
         patient_id = create_response.json()["data"]["patient"]["user_id"]
 
-        # No prescription yet from either doctor: roster is empty for both.
+        # No prescription yet from either doctor: list is empty for both, and
+        # creating the patient grants doctor1 nothing — access comes only from
+        # having prescribed.
         list1 = await client.get("/api/v1/doctors/patients", headers=headers1)
         assert list1.json()["data"]["total_elements"] == 0
 
-        # get_patient stays unscoped by prescription — either doctor can fetch by id.
+        get_creator = await client.get(
+            f"/api/v1/doctors/patients/{patient_id}", headers=headers1
+        )
+        assert get_creator.status_code == 404
+
         get_other = await client.get(
             f"/api/v1/doctors/patients/{patient_id}", headers=headers2
         )
-        assert get_other.status_code == 200
+        assert get_other.status_code == 404
 
         await _create_prescription(uuid.UUID(patient_id), doctor1_id)
 
@@ -157,8 +163,53 @@ async def test_patient_roster_is_scoped_by_prescription(client):
 
         list2 = await client.get("/api/v1/doctors/patients", headers=headers2)
         assert list2.json()["data"]["total_elements"] == 0
+
+        # Detail access now answers to the same rule as the list.
+        get1 = await client.get(
+            f"/api/v1/doctors/patients/{patient_id}", headers=headers1
+        )
+        assert get1.status_code == 200
+        assert get1.json()["data"]["phone"] == patient_phone
+
+        get2 = await client.get(
+            f"/api/v1/doctors/patients/{patient_id}", headers=headers2
+        )
+        assert get2.status_code == 404
     finally:
         await _cleanup([doctor1_id, doctor2_id], [patient_phone])
+
+
+@pytest.mark.asyncio
+async def test_patient_detail_hides_existence_of_out_of_scope_patient(client):
+    """An out-of-scope patient must be indistinguishable from a missing one,
+    otherwise a doctor can probe which patient UUIDs are real."""
+    doctor_id = await _create_doctor(
+        "+84900500005", "555555", "Dr Slice3 D", "LIC-SLICE3-D"
+    )
+    patient_phone = "+84900500096"
+    try:
+        token = await _login(client, "+84900500005", "555555")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        create_response = await client.post(
+            "/api/v1/doctors/patients",
+            json={"phone": patient_phone, "name": "Unreachable Patient"},
+            headers=headers,
+        )
+        assert create_response.status_code == 201
+        real_patient_id = create_response.json()["data"]["patient"]["user_id"]
+
+        existing = await client.get(
+            f"/api/v1/doctors/patients/{real_patient_id}", headers=headers
+        )
+        missing = await client.get(
+            f"/api/v1/doctors/patients/{uuid.uuid4()}", headers=headers
+        )
+
+        assert existing.status_code == missing.status_code == 404
+        assert existing.json()["message"] == missing.json()["message"]
+    finally:
+        await _cleanup([doctor_id], [patient_phone])
 
 
 @pytest.mark.asyncio

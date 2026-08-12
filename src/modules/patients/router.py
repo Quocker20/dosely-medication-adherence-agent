@@ -69,7 +69,8 @@ async def list_patients(
     size: int = Query(10, ge=1, le=100, description="Items per page"),
     search: Optional[str] = Query(None, min_length=2, description="Search by name or phone"),
 ) -> JSONResponse:
-    """Query paginated patient roster scoped to the requesting doctor (Doctor only)."""
+    """Query paginated patient list, restricted to patients the requesting doctor
+    has written at least one prescription for (Doctor only)."""
     result = await service.list_patients(
         actor_payload=current_user, page=page, size=size, search=search
     )
@@ -85,7 +86,12 @@ async def get_patient_detail(
     current_user: DoctorOrAdminUserDep,
     service: PatientServiceDep,
 ) -> JSONResponse:
-    """Fetch specific patient profile by user ID (Doctor scoped to own roster / Admin)."""
+    """Fetch specific patient profile by user ID.
+
+    A Doctor may access only patients they have written at least one prescription
+    for; Admin is unrestricted. Out-of-scope patients return 404, identical to a
+    patient that does not exist.
+    """
     result = await service.get_patient(patient_id=patient_id, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
