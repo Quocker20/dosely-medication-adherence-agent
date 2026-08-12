@@ -316,7 +316,16 @@ class PatientService:
         """
         user = await self._auth_repo.get_user_by_phone(cleaned_phone)
         if self._db.in_transaction():
-            await self._db.rollback()
+            # commit(), not rollback(): ends the SELECT's autobegin transaction
+            # the same way rollback() would (nothing was written either way),
+            # but expire_on_commit=False on this sessionmaker means commit()
+            # leaves `user`'s attributes populated. rollback() unconditionally
+            # expires every object in the session regardless of that setting,
+            # so a bare `user.id` access later (outside an awaited call, hence
+            # outside the asyncio greenlet) raises MissingGreenlet trying to
+            # lazily reload it — reproduced against a real DB while building
+            # PrescriptionService's identical find-or-create-patient flow.
+            await self._db.commit()
         if user is not None:
             return user, None
 
@@ -336,7 +345,7 @@ class PatientService:
         except IntegrityError:
             user = await self._auth_repo.get_user_by_phone(cleaned_phone)
             if self._db.in_transaction():
-                await self._db.rollback()
+                await self._db.commit()
             if user is None:
                 raise
             return user, None
