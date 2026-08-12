@@ -302,8 +302,10 @@ class PatientService:
         same phone can equally already belong to a PATIENT or DOCTOR account
         (this lookup doesn't filter by role) and gain caregiver capacity on
         top of it. A brand-new phone with no prior identity is provisioned as
-        role="PATIENT" (the most generic identity); it stays invisible to
-        every patient-facing query since it never gets a patient_profiles row.
+        role="PATIENT" (the most generic identity) with a placeholder
+        patient_profiles row (name="NULL" literal text) in the same
+        transaction, so it satisfies the onboarding PATIENT-role gate instead
+        of 404/500-ing on a missing profile if it ever logs in directly.
 
         Runs as its own transaction, separate from the link insert: an
         IntegrityError here (concurrent create on the same new phone) would
@@ -313,6 +315,7 @@ class PatientService:
         SAVEPOINTs.
         """
         user = await self._auth_repo.get_user_by_phone(cleaned_phone)
+        await self._db.rollback()
         if user is not None:
             return user, None
 
@@ -325,8 +328,13 @@ class PatientService:
                     hashed_password=hashed_pin,
                     role="PATIENT",
                 )
+                await self._patient_repo.create_patient_profile(
+                    user_id=user.id,
+                    name="NULL",
+                )
         except IntegrityError:
             user = await self._auth_repo.get_user_by_phone(cleaned_phone)
+            await self._db.rollback()
             if user is None:
                 raise
             return user, None
