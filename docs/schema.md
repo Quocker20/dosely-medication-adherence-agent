@@ -243,19 +243,37 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `source_name` (str): Nguồn dữ liệu dược thư.
   * `is_active` (bool): Trạng thái khả dụng trong danh mục.
 
-### 5.2 CreatePrescriptionRequest / UpdatePrescriptionRequest
-* **Mục đích**: Bác sĩ tạo hoặc cập nhật chẩn đoán cho Đơn thuốc nháp (`DRAFT`) trong bảng `prescriptions`.
+### 5.2 CreatePrescriptionRequest
+* **Mục đích**: Bác sĩ tạo Đơn thuốc nháp (`DRAFT`) mới cho bệnh nhân trong một request duy nhất (atomic), gồm cả danh sách cữ thuốc (`items`). Endpoint: `POST /prescriptions`.
+* **Logic Find-or-Create bệnh nhân**: Bác sĩ chỉ nhập số điện thoại bệnh nhân (plaintext, không cần biết `patient_id` trước). Service tra `users.phone`:
+  * Nếu **đã tồn tại**: dùng `user_id` hiện có làm `patient_id` của đơn thuốc.
+  * Nếu **chưa tồn tại**: tạo mới `User` (role=`PATIENT`) + `PatientProfile` ngay trong cùng transaction. Mọi cột NOT NULL không có default (ví dụ `patient_profiles.name`) được điền literal chuỗi `"NULL"` làm placeholder — bệnh nhân tự cập nhật hồ sơ thật khi Onboarding (`POST /patients/me/profile`). Cột có server default (`timezone`) dùng default, không cần điền. Mật khẩu PIN 6 chữ số tạm thời được sinh ngẫu nhiên như luồng `CreateDoctorRequest`/`CreatePatientByDoctorRequest`, trả về một lần trong `CreatePrescriptionResponse.temp_password`.
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:
+  * `phone` (str, Field pattern=r'^\+?[0-9]{9,15}$'): Số điện thoại bệnh nhân (plaintext) dùng để tìm hoặc tạo tài khoản.
   * `diagnosis_note` (Optional[str]): Chẩn đoán lâm sàng của bác sĩ (Ví dụ: Mã ICD-10 và mô tả bệnh).
+  * `items` (List[CreatePrescriptionItemRequest], default=[]): Danh sách cữ thuốc tạo kèm ngay trong đơn. Có thể để trống và bổ sung sau qua `POST /prescriptions/{prescription_id}/items` (chỉ khi đơn còn `DRAFT`).
 
-### 5.3 CancelPrescriptionRequest
+### 5.3 UpdatePrescriptionRequest
+* **Mục đích**: Bác sĩ cập nhật chẩn đoán cho Đơn thuốc còn ở trạng thái `DRAFT`. Endpoint: `PUT /prescriptions/{prescription_id}`.
+* **Module**: `src.modules.prescriptions.schemas`
+* **Cấu trúc thuộc tính**:
+  * `diagnosis_note` (Optional[str]): Chẩn đoán lâm sàng của bác sĩ.
+
+### 5.4 CreatePrescriptionResponse
+* **Mục đích**: Phản hồi cho `POST /prescriptions`. Bọc ngoài `PrescriptionDetailResponse` kèm mật khẩu PIN tạm thời — chỉ khác `null` khi request vừa provision tài khoản bệnh nhân mới (phone chưa tồn tại), tương tự deviation đã áp dụng ở `CreatePatientResponse`/`CaregiverLinkDetailResponse`.
+* **Module**: `src.modules.prescriptions.schemas`
+* **Cấu trúc thuộc tính**:
+  * `prescription` (PrescriptionDetailResponse): Đơn thuốc vừa tạo, gồm `items`.
+  * `temp_password` (Optional[str]): Mật khẩu PIN 6 chữ số ngẫu nhiên cấp lần đầu cho bệnh nhân mới. `null` nếu bệnh nhân đã tồn tại từ trước.
+
+### 5.5 CancelPrescriptionRequest
 * **Mục đích**: Bác sĩ gửi lý do khi tiến hành Hủy đơn thuốc (`CANCELLED`).
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:
   * `cancel_reason` (str, Field min_length=1): Lý do hủy đơn thuốc.
 
-### 5.4 CreatePrescriptionItemRequest / UpdatePrescriptionItemRequest
+### 5.6 CreatePrescriptionItemRequest / UpdatePrescriptionItemRequest
 * **Mục đích**: Tiếp nhận thông tin liều lượng và cách dùng cho một cữ thuốc trong bảng `prescription_items`.
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:
@@ -273,7 +291,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `end_date` (Optional[date]): Ngày kết thúc đợt uống.
   * `instructions` (Optional[str]): Hướng dẫn chi tiết bổ sung.
 
-### 5.5 PrescriptionItemDetailResponse
+### 5.7 PrescriptionItemDetailResponse
 * **Mục đích**: Phản hồi thông tin chi tiết một dòng thuốc thuộc đơn.
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:
@@ -294,7 +312,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `instructions` (Optional[str]): Hướng dẫn dùng.
   * `created_at` (datetime): Thời điểm tạo.
 
-### 5.6 PrescriptionDetailResponse
+### 5.8 PrescriptionDetailResponse
 * **Mục đích**: Phản hồi dữ liệu đơn thuốc hoàn chỉnh bao gồm danh sách các cữ thuốc chi tiết bên trong. Dùng cho cả API xem chi tiết lẫn item trong phân trang `PageResponse[PrescriptionDetailResponse]`.
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:

@@ -65,15 +65,15 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### SLICE 5: PRESCRIPTIONS & PRESCRIPTION ITEMS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /patients/{patient_id}/prescriptions | Required (DOCTOR) | Path Param (patient_id: UUID) + CreatePrescriptionRequest | 201 Created / PrescriptionDetailResponse |
+| POST | /prescriptions | Required (DOCTOR) | CreatePrescriptionRequest (phone-based find-or-create patient, atomic with items) | 201 Created / CreatePrescriptionResponse |
 | GET | /patients/{patient_id}/prescriptions | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (status, page, size) | 200 OK / PageResponse[PrescriptionDetailResponse] |
 | GET | /prescriptions/{prescription_id} | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | PUT | /prescriptions/{prescription_id} | Required (DOCTOR) | Path Param (prescription_id: UUID) + UpdatePrescriptionRequest | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/approve | Required (DOCTOR) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/cancel | Required (DOCTOR) | Path Param (prescription_id: UUID) + CancelPrescriptionRequest | 200 OK / PrescriptionDetailResponse |
-| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR) | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest | 201 Created / PrescriptionItemDetailResponse |
-| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR) | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest | 200 OK / PrescriptionItemDetailResponse |
-| DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR) | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
+| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest | 201 Created / PrescriptionItemDetailResponse |
+| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest | 200 OK / PrescriptionItemDetailResponse |
+| DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 6: SCHEDULES & AI AGENTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
