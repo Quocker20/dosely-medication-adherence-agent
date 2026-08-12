@@ -73,7 +73,7 @@ fun AssistantScreen(
             Icon(
                 Icons.Filled.SmartToy,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = extras.ai,
                 modifier = Modifier.padding(end = 10.dp),
             )
             Column(Modifier.weight(1f)) {
@@ -177,7 +177,7 @@ fun AssistantScreen(
                 },
                 enabled = input.isNotBlank() && !state.isReplying,
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Gửi", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Gửi", tint = extras.ai)
             }
         }
     }
@@ -199,7 +199,7 @@ private fun ChatBubble(message: ChatMessage) {
                 bottomEnd = if (isUser) 4.dp else 18.dp,
             ),
             colors = CardDefaults.cardColors(
-                containerColor = if (isUser) MaterialTheme.colorScheme.primary else extras.surfaceAlt,
+                containerColor = if (isUser) extras.ai else extras.surfaceAlt,
             ),
             modifier = Modifier.widthIn(max = 320.dp),
         ) {
