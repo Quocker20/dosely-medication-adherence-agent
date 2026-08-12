@@ -48,7 +48,7 @@ import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.MealRelation
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
-enum class ChipTone { SUCCESS, WARNING, DANGER, NEUTRAL, MUTED }
+enum class ChipTone { SUCCESS, WARNING, DANGER, NEUTRAL, AI, MUTED }
 
 @Composable
 fun StatusChip(text: String, tone: ChipTone, modifier: Modifier = Modifier) {
@@ -58,6 +58,7 @@ fun StatusChip(text: String, tone: ChipTone, modifier: Modifier = Modifier) {
         ChipTone.WARNING -> extras.warning to extras.warningTint
         ChipTone.DANGER -> extras.danger to extras.dangerTint
         ChipTone.NEUTRAL -> MaterialTheme.colorScheme.primary to extras.primaryTint
+        ChipTone.AI -> extras.ai to extras.aiTint
         ChipTone.MUTED -> extras.inkMuted to extras.surfaceAlt
     }
     Card(
@@ -280,6 +281,9 @@ private val bottomDestinations = listOf(
 fun RemindRxBottomBar(currentRoute: String?, onNavigate: (String) -> Unit) {
     NavigationBar {
         bottomDestinations.forEach { dest ->
+            val extras = LocalRemindRxColors.current
+            val selectedColor = if (dest.route == "assistant") extras.ai else MaterialTheme.colorScheme.primary
+            val selectedIndicator = if (dest.route == "assistant") extras.aiTint else extras.primaryTint
             NavigationBarItem(
                 selected = currentRoute == dest.route,
                 onClick = { onNavigate(dest.route) },
@@ -297,11 +301,11 @@ fun RemindRxBottomBar(currentRoute: String?, onNavigate: (String) -> Unit) {
                 },
                 label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = LocalRemindRxColors.current.primaryTint,
-                    unselectedIconColor = LocalRemindRxColors.current.inkMuted,
-                    unselectedTextColor = LocalRemindRxColors.current.inkMuted,
+                    selectedIconColor = selectedColor,
+                    selectedTextColor = selectedColor,
+                    indicatorColor = selectedIndicator,
+                    unselectedIconColor = extras.inkMuted,
+                    unselectedTextColor = extras.inkMuted,
                 ),
             )
         }
