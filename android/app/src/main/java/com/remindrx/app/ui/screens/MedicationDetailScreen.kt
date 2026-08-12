@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -39,7 +39,7 @@ fun MedicationDetailScreen(medication: Medication?, onBack: () -> Unit) {
     if (medication == null) {
         Column(Modifier.fillMaxSize().padding(20.dp)) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Quay lại")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
             }
             Text("Không tìm thấy thông tin thuốc.", style = MaterialTheme.typography.titleMedium)
         }
@@ -54,7 +54,7 @@ fun MedicationDetailScreen(medication: Medication?, onBack: () -> Unit) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Quay lại")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
                 }
                 Text("Chi tiết thuốc", style = MaterialTheme.typography.headlineMedium)
             }
@@ -73,7 +73,7 @@ fun MedicationDetailScreen(medication: Medication?, onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(medication.name, style = MaterialTheme.typography.titleLarge)
-                        StatusChip("RAG mock", ChipTone.NEUTRAL)
+                        StatusChip("RAG mock", ChipTone.AI)
                     }
                     Text(
                         medication.doseLabel,
@@ -115,7 +115,7 @@ fun MedicationDetailScreen(medication: Medication?, onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Text("Nguồn tham khảo", style = MaterialTheme.typography.titleMedium)
                     }
                     knowledge.sources.forEach { source ->

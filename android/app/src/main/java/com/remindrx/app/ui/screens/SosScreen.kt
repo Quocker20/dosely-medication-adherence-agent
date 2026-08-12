@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.MockRepository
+import com.remindrx.app.ui.theme.LocalRemindRxColors
 import kotlinx.coroutines.delay
 
 private const val HOLD_MILLIS = 3000
@@ -42,6 +43,7 @@ private const val HOLD_MILLIS = 3000
  */
 @Composable
 fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
+    val extras = LocalRemindRxColors.current
     var pressed by remember { mutableStateOf(false) }
     var triggered by remember { mutableStateOf(false) }
     val progress by animateFloatAsState(
@@ -64,7 +66,7 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFFCF4338), Color(0xFFA22E25)))),
+            .background(Brush.verticalGradient(listOf(extras.danger, extras.dangerStrong))),
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -110,12 +112,12 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
                         Text(
                             if (triggered) "ĐANG GỌI" else "SOS",
                             style = MaterialTheme.typography.headlineMedium,
-                            color = Color(0xFFCF4338),
+                            color = extras.danger,
                         )
                         Text(
                             if (triggered) "Chị Hoa..." else "GIỮ ĐỂ GỌI",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFCF4338),
+                            color = extras.danger,
                             fontWeight = FontWeight.Bold,
                         )
                     }
