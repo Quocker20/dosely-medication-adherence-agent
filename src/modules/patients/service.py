@@ -315,7 +315,8 @@ class PatientService:
         SAVEPOINTs.
         """
         user = await self._auth_repo.get_user_by_phone(cleaned_phone)
-        await self._db.rollback()
+        if self._db.in_transaction():
+            await self._db.rollback()
         if user is not None:
             return user, None
 
@@ -334,7 +335,8 @@ class PatientService:
                 )
         except IntegrityError:
             user = await self._auth_repo.get_user_by_phone(cleaned_phone)
-            await self._db.rollback()
+            if self._db.in_transaction():
+                await self._db.rollback()
             if user is None:
                 raise
             return user, None
