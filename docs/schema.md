@@ -275,10 +275,10 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 
 ### 5.6 CreatePrescriptionItemRequest / UpdatePrescriptionItemRequest
 * **Mục đích**: Tiếp nhận thông tin liều lượng và cách dùng cho một cữ thuốc trong bảng `prescription_items`.
+* **Logic display_name (snapshot, không FK)**: Client không gửi `display_name`. Service tra `medication_id` trong danh mục `medications`, lấy `Medication.name` và đóng băng (freeze) giá trị đó vào cột `prescription_items.display_name` ngay tại thời điểm ghi — không tồn tại lại ràng buộc FK giữa `prescription_items.medication_id` và `medications.id` (đã drop ở migration `0007_drop_pi_med_fk`), nên record giữ nguyên tên thuốc kể cả khi sau này `Medication` bị sửa hoặc xoá. `medication_id` không hợp lệ (không tồn tại trong `medications`) trả về `404 Not Found`.
 * **Module**: `src.modules.prescriptions.schemas`
 * **Cấu trúc thuộc tính**:
-  * `medication_id` (Optional[UUID]): Mã thuốc liên kết từ danh mục `medications`.
-  * `display_name` (str): Tên hiển thị của thuốc trên đơn.
+  * `medication_id` (UUID, bắt buộc): Mã thuốc trong danh mục `medications` dùng để tra `display_name` tại thời điểm ghi. Không phải khoá ngoại (no FK) — chỉ là con trỏ lịch sử.
   * `dose_unit` (str): Đơn vị liều dùng (Ví dụ: `"VIEN"`, `"GOI"`, `"ML"`).
   * `morning_dose` (Optional[float]): Liều uống buổi sáng.
   * `noon_dose` (Optional[float]): Liều uống buổi trưa.
@@ -297,8 +297,8 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 * **Cấu trúc thuộc tính**:
   * `id` (UUID): Mã định danh item đơn thuốc.
   * `prescription_id` (UUID): Mã đơn thuốc cha.
-  * `medication_id` (Optional[UUID]): Mã thuốc danh mục.
-  * `display_name` (str): Tên thuốc hiển thị.
+  * `medication_id` (Optional[UUID]): Mã thuốc danh mục dùng để tra tên tại thời điểm ghi (không FK).
+  * `display_name` (str): Tên thuốc hiển thị — snapshot đóng băng từ `Medication.name`, không đổi dù danh mục thay đổi sau đó.
   * `dose_unit` (str): Đơn vị liều.
   * `morning_dose` (Optional[float]): Liều sáng.
   * `noon_dose` (Optional[float]): Liều trưa.
