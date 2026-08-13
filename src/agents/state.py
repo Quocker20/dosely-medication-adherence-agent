@@ -17,5 +17,11 @@ class AgentState(TypedDict, total=False):
     # De-identified theo cong_viec.md §4.5: truyền patient_id, không truyền
     # họ tên/SĐT/địa chỉ vào state hay prompt.
     patient_id: str
+    # True khi safety_guard_node đã escalate (Red Alert) ở turn này — graph
+    # dùng field này để ngắt, không đi tiếp vào agent_node bình thường.
+    escalated: bool
+    # Nhãn do classify_intent_node gán — graph dùng để route sang
+    # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
+    intent: str
     error: str
     metadata: dict
