@@ -1,5 +1,9 @@
 package com.remindrx.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,13 +25,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -39,10 +46,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.remindrx.app.data.ChatMessage
 import com.remindrx.app.data.ChatRole
 import com.remindrx.app.ui.AssistantUiState
@@ -54,11 +63,17 @@ fun AssistantScreen(
     onSend: (String) -> Unit,
     onNewChat: () -> Unit,
     onOpenHistory: () -> Unit,
+    onStartRecording: () -> Unit = {},
+    onStopRecordingAndSend: () -> Unit = {},
 ) {
     val extras = LocalRemindRxColors.current
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     var input by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) onStartRecording() }
 
     LaunchedEffect(state.messages.size, state.isReplying) {
         val lastIndex = state.messages.lastIndex + if (state.isReplying) 1 else 0
@@ -129,6 +144,23 @@ fun AssistantScreen(
                     }
                 }
             }
+            if (state.error != null) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = extras.dangerTint),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        Text(
+                            state.error,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = extras.danger,
+                            fontWeight = FontWeight.Normal,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+            }
         }
 
         Row(
@@ -156,7 +188,10 @@ fun AssistantScreen(
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(20.dp),
-                placeholder = { Text("Hỏi về thuốc hoặc lịch uống…") },
+                enabled = !state.isRecording,
+                placeholder = {
+                    Text(if (state.isRecording) "Đang ghi âm…" else "Hỏi về thuốc hoặc lịch uống…")
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
                     onSend = {
@@ -171,11 +206,35 @@ fun AssistantScreen(
             )
             IconButton(
                 onClick = {
+                    when {
+                        state.isRecording -> onStopRecordingAndSend()
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED -> onStartRecording()
+                        else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                enabled = !state.isReplying,
+                colors = if (state.isRecording) {
+                    IconButtonDefaults.iconButtonColors(containerColor = extras.dangerTint)
+                } else {
+                    IconButtonDefaults.iconButtonColors()
+                },
+            ) {
+                Icon(
+                    if (state.isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
+                    contentDescription = if (state.isRecording) "Dừng ghi âm và gửi" else "Hỏi bằng giọng nói",
+                    tint = if (state.isRecording) extras.danger else extras.ai,
+                )
+            }
+            IconButton(
+                onClick = {
                     onSend(input)
                     input = ""
                     focusManager.clearFocus()
                 },
-                enabled = input.isNotBlank() && !state.isReplying,
+                enabled = input.isNotBlank() && !state.isReplying && !state.isRecording,
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Gửi", tint = extras.ai)
             }
