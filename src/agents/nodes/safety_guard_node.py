@@ -26,7 +26,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.agents.state import AgentState
 from src.agents.tools.safety_tools import match_severe_symptom_keyword, trigger_red_alert
-from src.services.llm import get_llm
+from src.modules.planning.core.llm import get_llm
 
 _LLM_TIMEOUT_SECONDS = 3.0
 

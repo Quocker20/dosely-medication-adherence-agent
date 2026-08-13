@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from src.services.backend_client import BackendAPIError, get, post
+from src.modules.planning.core.backend_client import BackendAPIError, get, post
 
 
 def _mock_async_client(*, raises: Exception | None = None, response: MagicMock | None = None):
@@ -20,7 +20,7 @@ def _mock_async_client(*, raises: Exception | None = None, response: MagicMock |
     mock_ctx = MagicMock()
     mock_ctx.__aenter__.return_value = mock_client
     mock_ctx.__aexit__.return_value = False
-    return patch("src.services.backend_client.httpx.AsyncClient", return_value=mock_ctx)
+    return patch("src.modules.planning.core.backend_client.httpx.AsyncClient", return_value=mock_ctx)
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@ import pytest
 
 from src.agents.nodes.planning_node import validate_candidate_node
 from src.agents.planning_graph import run_planning
-from src.models.clinical import (
+from src.modules.planning.core.clinical import (
     PatientRoutine,
     Prescription,
     PrescriptionItem,

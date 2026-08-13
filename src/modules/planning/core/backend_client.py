@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from src.config import get_settings
+from src.core.config import get_settings
 
 
 class BackendAPIError(Exception):

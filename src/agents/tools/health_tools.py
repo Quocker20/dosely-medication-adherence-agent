@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from src.services.backend_client import BackendAPIError, post
+from src.modules.planning.core.backend_client import BackendAPIError, post
 
 
 @tool

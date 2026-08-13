@@ -84,7 +84,7 @@ async def test_chat_voice_happy_path(client):
 
 @pytest.mark.asyncio
 async def test_chat_voice_stt_failure_returns_502(client):
-    from src.services.speech import SpeechServiceError
+    from src.modules.planning.core.speech import SpeechServiceError
 
     with patch(
         "src.api.routes.transcribe_audio",
@@ -101,7 +101,7 @@ async def test_chat_voice_stt_failure_returns_502(client):
 
 @pytest.mark.asyncio
 async def test_chat_voice_tts_failure_still_returns_text_response(client):
-    from src.services.speech import SpeechServiceError
+    from src.modules.planning.core.speech import SpeechServiceError
 
     with (
         _reaches_agent(),
