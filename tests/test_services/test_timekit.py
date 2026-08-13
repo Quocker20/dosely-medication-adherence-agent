@@ -1,4 +1,4 @@
-from src.services.timekit import DAY_MINUTES, min_gap_minutes, shift, to_hhmm, to_minutes
+from src.modules.planning.core.timekit import DAY_MINUTES, min_gap_minutes, shift, to_hhmm, to_minutes
 
 
 def test_to_minutes_and_back():
