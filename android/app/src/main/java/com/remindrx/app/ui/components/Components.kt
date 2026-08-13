@@ -210,9 +210,13 @@ fun TodayDoseCard(
 ) {
     val extras = LocalRemindRxColors.current
     val isLocked = dose.status == DoseStatus.LOCKED
+    // A recorded adherence event is final. Resolved doses remain visible as a
+    // receipt only and cannot be opened or changed from the daily schedule.
+    val isOpenable = dose.status == DoseStatus.UPCOMING || dose.status == DoseStatus.SNOOZED
 
     Card(
         onClick = onOpen,
+        enabled = isOpenable,
         modifier = modifier.fillMaxWidth().alpha(if (isLocked) 0.55f else 1f),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),

@@ -48,7 +48,9 @@ class PatientViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = error.message ?: "Không kết nối được máy chủ RemindRx.",
+                            error = error.toVietnameseUiMessage(
+                                "Không thể tải dữ liệu RemindRx lúc này.",
+                            ),
                         )
                     }
                 }
@@ -68,7 +70,7 @@ class PatientViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             busyDoseIds = it.busyDoseIds - doseId,
-                            error = error.message ?: "Không ghi nhận được cữ thuốc.",
+                            error = error.toVietnameseUiMessage("Không ghi nhận được cữ thuốc."),
                         )
                     }
                 }
@@ -99,7 +101,9 @@ class PatientViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isSavingRoutine = false,
-                            routineError = error.message ?: "Không lưu được thói quen sinh hoạt.",
+                            routineError = error.toVietnameseUiMessage(
+                                "Không lưu được thói quen sinh hoạt.",
+                            ),
                         )
                     }
                 }
@@ -123,7 +127,9 @@ class PatientViewModel @Inject constructor(
                     it.copy(message = if (severity == "SEVERE") "Đã gửi cảnh báo cho bác sĩ" else "Đã gửi khảo sát")
                 }
             }.onFailure { error ->
-                _state.update { it.copy(error = error.message ?: "Không gửi được khảo sát.") }
+                _state.update {
+                    it.copy(error = error.toVietnameseUiMessage("Không gửi được khảo sát."))
+                }
             }
         }
     }
@@ -135,7 +141,13 @@ class PatientViewModel @Inject constructor(
             }.onSuccess {
                 _state.update { it.copy(message = "Red Alert đã gửi tới bác sĩ và người thân") }
             }.onFailure { error ->
-                _state.update { it.copy(error = error.message ?: "Không gửi được SOS. Hãy gọi cấp cứu ngay.") }
+                _state.update {
+                    it.copy(
+                        error = error.toVietnameseUiMessage(
+                            "Không gửi được SOS. Hãy gọi cấp cứu ngay.",
+                        ),
+                    )
+                }
             }
         }
     }
