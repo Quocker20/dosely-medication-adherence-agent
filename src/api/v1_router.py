@@ -6,6 +6,7 @@ from src.modules.adherence.router import (
     patients_adherence_router,
 )
 from src.modules.agents.router import agent_runs_router, schedules_router
+from src.modules.agents.router import agent_runs_router, schedules_router, chat_router
 from src.modules.auth.router import router as auth_router
 from src.modules.patients.router import router as patients_router
 from src.modules.patients.router import self_router as patients_self_router
@@ -25,3 +26,4 @@ v1_router.include_router(agent_runs_router)
 v1_router.include_router(dose_actions_router)
 v1_router.include_router(patients_adherence_router)
 v1_router.include_router(alerts_router)
+v1_router.include_router(chat_router)
