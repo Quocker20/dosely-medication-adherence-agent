@@ -76,19 +76,41 @@ uvicorn src.main:app --reload --port 8000
 
 ## 📁 Cấu trúc dự án
 
+> Cây thư mục thật của repo RemindRx (P-216) — không phải cây thư mục gốc của
+> template AI20K. Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết chi tiết kiến
+> trúc/data flow, và [CLAUDE.md](CLAUDE.md) cho quy ước + ràng buộc bắt buộc.
+
 ```
 ├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
+│   ├── agents/             # 🧠 LangGraph Agent
+│   │   ├── graph.py        #    State graph (nodes + edges)
+│   │   ├── state.py        #    State schema (TypedDict)
+│   │   ├── nodes/          #    Node functions
+│   │   └── tools/          #    Agent tools (@tool)
+│   ├── core/               # ⚙️ Hạ tầng dùng chung (Config, Database, Security, Redis, Celery)
+│   │   ├── config.py       #    Pydantic settings đọc .env
+│   │   ├── database.py     #    Async SQLAlchemy 2.0 Engine & Session
+│   │   ├── redis.py        #    Redis connection pool
+│   │   ├── security.py     #    Phone OTP, JWT encode/decode, RBAC guards
+│   │   ├── response.py     #    Standardized API response envelope format
+│   │   └── celery_app.py   #    Celery app instance
+│   ├── common/             # 🛠️ Shared utilities, exceptions & middleware
+│   ├── modules/            # 🧩 Phân hệ nghiệp vụ dạng Vertical Slice
+│   │   ├── auth/           #    Phân hệ 1: Phone OTP & JWT Token [MẪU MODULAR]
+│   │   │   ├── models.py   #    ORM Models (User, OtpCode, RefreshToken)
+│   │   │   ├── router.py   #    API Endpoints (/auth/otp/request, /auth/otp/verify,...)
+│   │   │   ├── service.py  #    Business Logic (Tạo OTP, Verify, Dispatch SMS)
+│   │   │   └── schemas.py  #    Pydantic DTOs (OTPRequest, OTPVerify, TokenResponse)
+│   │   ├── doctors/        #    Phân hệ 2: Doctor profiles & Audit logs
+│   │   ├── patients/       #    Phân hệ 3 & 4: Patient profiles, routines & caregivers
+│   │   ├── prescriptions/  #    Phân hệ 5: Thuốc & Đơn thuốc
+│   │   ├── agents/         #    Phân hệ 6: LangGraph AI Agent & Scheduled Doses
+│   │   ├── adherence/      #    Phân hệ 7: Điểm danh & SOS Red Alert
+│   │   └── ocr_rag/        #    Phân hệ 8: Prescription OCR & RAG Search
+│   ├── api/                # 🌐 Dependencies & Aggregated API Routers
+│   │   ├── deps.py         #    Global FastAPI Dependencies (get_db, get_current_user, RBAC)
+│   │   └── v1_router.py    #    Tổng hợp tất cả router từ các modules
+│   └── main.py             # 🚀 FastAPI Entrypoint & WebSocket Handler
 ├── tests/                # 🧪 pytest suite
 │   ├── test_agents/      #    Agent/graph tests
 │   └── test_api/         #    API endpoint tests
@@ -102,15 +124,32 @@ uvicorn src.main:app --reload --port 8000
 ├── .agents/              # Antigravity rules + workflows
 ├── .ai-log/              # 📊 AI usage logs (auto-generated)
 ├── docs/
-│   ├── guide/            # 📖 Technical Guidebook (10 chapters)
-│   └── architecture_diagram.md
-├── eval/                 # 📊 Evaluation results
-├── presentation/         # 🎤 Demo Day slides
-├── .github/workflows/    # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/        # 🪝 Copilot hook config
-├── Dockerfile            # 🐳 Multi-stage build
-├── docker-compose.yml    # 🐙 Full stack orchestration
-└── README_boilerplate.md # 📝 README template cho đội của bạn
+│   ├── RemindRx_Tong_Hop_Tai_Lieu.md   # 📖 Brief/PRD/API Spec/Architecture/Dataset — ĐỌC TRƯỚC khi code feature
+│   ├── Android_Compose_System_Design_Skills.md
+│   ├── architecture_diagram.md
+│   └── guide/             #    Technical Guidebook AI20K (10 chương, tài liệu chung)
+├── scripts/              # 🔌 AI Logging Hooks (bắt buộc theo BTC AI20K — không xóa/sửa)
+│   ├── log_hook.py        #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
+│   ├── log_antigravity.py #    Antigravity IDE prompt scanner
+│   ├── log_manual.py      #    Manual log cho ChatGPT / web tools
+│   ├── submit_log.py      #    Submit logs on git push (BATCH_LIMIT/lần)
+│   └── setup_hooks.sh / setup_hooks.ps1  # One-time hook installer
+├── .claude/               # Claude Code config cho repo này
+│   ├── agents/hitl-guardrail-reviewer.md #  Review diff chạm prescription/schedule/dose
+│   ├── commands/           #  /check, /new-fr
+│   └── skills/             #  sync-fr-status, android-development
+├── .codex/ .cursor/ .gemini/  # Per-tool hook configs (tương đương .claude/)
+├── .ai-log/               # 📊 AI usage logs (auto-generated, archive/ theo ngày)
+├── eval/results/          # 📊 Evaluation results
+├── presentation/          # 🎤 Demo Day slides
+├── outputs/               # 🗂️ Sản phẩm phụ trợ (phân tích, UI export...)
+├── .github/workflows/      # ⚡ CI/CD (GitHub Actions)
+├── .github/hooks/          # 🪝 Copilot hook config
+├── Dockerfile              # 🐳 Multi-stage build (backend)
+├── docker-compose.yml      # 🐙 Full stack orchestration
+├── ARCHITECTURE.md / JOURNAL.md / WORKLOG.md  # Tài liệu nhóm tự cập nhật thủ công
+├── CLAUDE.md               # Quy ước + ràng buộc bắt buộc khi code trong repo này
+└── README_boilerplate.md   # 📝 README template gốc của AI20K (tham khảo, không phải README thật)
 ```
 
 ## 📚 Technical Guidebook — 10 Chương

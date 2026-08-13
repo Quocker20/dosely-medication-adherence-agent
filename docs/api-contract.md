@@ -8,16 +8,18 @@
 * Default Content-Type: application/json (Except multipart/form-data for file uploads)
 * Authentication Scheme: Bearer Token (JWT) transmitted via HTTP Header "Authorization: Bearer <token>"
 
-### Global Pagination Envelope (PageResponseDto)
+### Global Pagination Envelope (PageResponse)
 All list-retrieval endpoints utilizing pagination must return data wrapped inside the following metadata structure:
+```json
 {
   "content": [],
-  "pageNo": 0,
-  "pageSize": 10,
-  "totalElements": 150,
-  "totalPages": 15,
+  "page_no": 0,
+  "page_size": 10,
+  "total_elements": 150,
+  "total_pages": 15,
   "last": false
 }
+```
 
 ---
 
@@ -26,29 +28,28 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /auth/otp/request | Public | OTPRequest | 202 Accepted / OTPResponse |
-| POST | /auth/otp/resend | Public | OTPResendRequest | 202 Accepted / OTPResponse |
-| POST | /auth/otp/verify | Public | OTPVerifyRequest | 200 OK / AuthTokenResponse |
+| POST | /auth/login | Public | LoginRequest | 200 OK / AuthTokenResponse |
+| POST | /auth/change-password | Required (Authenticated) | ChangePasswordRequest | 200 OK / MessageResponse |
 | POST | /auth/refresh | Public | RefreshTokenRequest | 200 OK / AuthTokenResponse |
 | POST | /auth/logout | Required (Authenticated) | LogoutRequest | 200 OK / MessageResponse |
 
 ### SLICE 2: ADMIN & DOCTOR MANAGEMENT
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /admin/doctors | Required (ADMIN) | CreateDoctorRequest | 201 Created / DoctorDetailResponse |
-| GET | /admin/doctors | Required (ADMIN) | Query Params (page, size, search) | 200 OK / PageResponseDto<DoctorDetailResponse> |
+| POST | /admin/doctors | Required (ADMIN) | CreateDoctorRequest | 201 Created / CreateDoctorResponse |
+| GET | /admin/doctors | Required (ADMIN) | Query Params (page, size, search) | 200 OK / PageResponse[DoctorDetailResponse] |
 | GET | /admin/doctors/{doctor_id} | Required (ADMIN) | Path Param (doctor_id: UUID) | 200 OK / DoctorDetailResponse |
 | PUT | /admin/doctors/{doctor_id} | Required (ADMIN) | Path Param (doctor_id: UUID) + UpdateDoctorRequest | 200 OK / DoctorDetailResponse |
 | DELETE | /admin/doctors/{doctor_id} | Required (ADMIN) | Path Param (doctor_id: UUID) | 200 OK / MessageResponse |
-| GET | /admin/audit-logs | Required (ADMIN) | Query Params (page, size, actorId, entityType) | 200 OK / PageResponseDto<AuditLogListResponse> |
+| GET | /admin/audit-logs | Required (ADMIN) | Query Params (page, size, actorId, entityType) | 200 OK / PageResponse[AuditLogListResponse] |
 
 ### SLICE 3: DOCTOR & PATIENT CLINICAL MANAGEMENT
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /doctors/patients | Required (DOCTOR) | CreatePatientByDoctorRequest | 201 Created / PatientDetailResponse |
-| GET | /doctors/patients | Required (DOCTOR) | Query Params (page, size, search) | 200 OK / PageResponseDto<PatientDetailResponse> |
+| GET | /doctors/patients | Required (DOCTOR) | Query Params (page, size, search) | 200 OK / PageResponse[PatientDetailResponse] |
 | GET | /doctors/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / PatientDetailResponse |
-| GET | /medications | Required (Authenticated) | Query Params (page, size, search) | 200 OK / PageResponseDto<MedicationDetailResponse> |
+| GET | /medications | Required (Authenticated) | Query Params (page, size, search) | 200 OK / PageResponse[MedicationDetailResponse] |
 | GET | /medications/{medication_id} | Required (Authenticated) | Path Param (medication_id: UUID) | 200 OK / MedicationDetailResponse |
 
 ### SLICE 4: PATIENT PROFILE, ROUTINE & CAREGIVER LINKS
@@ -58,21 +59,21 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /patients/{patient_id}/routine | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) | 200 OK / PatientRoutineResponse |
 | PUT | /patients/{patient_id}/routine | Required (PATIENT) | Path Param (patient_id: UUID) + UpdateRoutineRequest | 200 OK / PatientRoutineResponse |
 | POST | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR) | Path Param (patient_id: UUID) + CreateCaregiverLinkRequest | 201 Created / CaregiverLinkDetailResponse |
-| GET | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / List<CaregiverLinkDetailResponse> |
+| GET | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / List[CaregiverLinkDetailResponse] |
 | DELETE | /patients/{patient_id}/caregivers/{caregiver_link_id} | Required (PATIENT/ADMIN) | Path Params (patient_id: UUID, caregiver_link_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 5: PRESCRIPTIONS & PRESCRIPTION ITEMS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /patients/{patient_id}/prescriptions | Required (DOCTOR) | Path Param (patient_id: UUID) + CreatePrescriptionRequest | 201 Created / PrescriptionDetailResponse |
-| GET | /patients/{patient_id}/prescriptions | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (status, page, size) | 200 OK / PageResponseDto<PrescriptionDetailResponse> |
+| POST | /prescriptions | Required (DOCTOR) | CreatePrescriptionRequest (phone-based find-or-create patient, atomic with items) | 201 Created / CreatePrescriptionResponse |
+| GET | /patients/{patient_id}/prescriptions | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (status, page, size) | 200 OK / PageResponse[PrescriptionDetailResponse] |
 | GET | /prescriptions/{prescription_id} | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | PUT | /prescriptions/{prescription_id} | Required (DOCTOR) | Path Param (prescription_id: UUID) + UpdatePrescriptionRequest | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/approve | Required (DOCTOR) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/cancel | Required (DOCTOR) | Path Param (prescription_id: UUID) + CancelPrescriptionRequest | 200 OK / PrescriptionDetailResponse |
-| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR) | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest | 201 Created / PrescriptionItemDetailResponse |
-| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR) | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest | 200 OK / PrescriptionItemDetailResponse |
-| DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR) | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
+| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest (medication_id required; display_name auto-snapshotted from Medication.name server-side, not client input) | 201 Created / PrescriptionItemDetailResponse |
+| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest (medication_id required; display_name re-snapshotted from Medication.name) | 200 OK / PrescriptionItemDetailResponse |
+| DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 6: SCHEDULES & AI AGENTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
@@ -87,10 +88,10 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /scheduled-doses/{scheduled_dose_id}/actions | Required (PATIENT) | Path Param (scheduled_dose_id: UUID) + RecordDoseActionRequest (Header: Idempotency-Key) | 201 Created / AdherenceLogDetailResponse |
 | GET | /patients/{patient_id}/adherence | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to) | 200 OK / AdherenceSummaryResponse |
-| GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponseDto<AdherenceLogDetailResponse> |
+| GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponse[AdherenceLogDetailResponse] |
 | POST | /patients/{patient_id}/health-surveys | Required (PATIENT) | Path Param (patient_id: UUID) + SubmitHealthSurveyRequest | 201 Created / HealthSurveyDetailResponse |
 | POST | /patients/{patient_id}/sos | Required (PATIENT) | Path Param (patient_id: UUID) + TriggerSosRequest (Header: Idempotency-Key) | 201 Created / AlertDetailResponse |
-| GET | /alerts | Required (DOCTOR/ADMIN) | Query Params (page, size, status, patientId) | 200 OK / PageResponseDto<AlertDetailResponse> |
+| GET | /alerts | Required (DOCTOR/ADMIN) | Query Params (page, size, status, patientId) | 200 OK / PageResponse[AlertDetailResponse] |
 | POST | /alerts/{alert_id}/acknowledge | Required (DOCTOR) | Path Param (alert_id: UUID) | 200 OK / AlertDetailResponse |
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
 
@@ -99,7 +100,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /patients/{patient_id}/drug-label-ocr | Required (PATIENT/DOCTOR) | Path Param (patient_id: UUID) + CreateOcrJobMultipartRequest | 202 Accepted / OcrJobAsyncResponse |
 | GET | /ocr-jobs/{ocr_job_id} | Required (PATIENT/DOCTOR) | Path Param (ocr_job_id: UUID) | 200 OK / OcrJobDetailResponse |
-| GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponseDto<DashboardPatientListResponse> |
+| GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponse[DashboardPatientListResponse] |
 | GET | /dashboard/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / DashboardPatientDetailResponse |
 | WS | /ws/dashboard | Handshake Protocol | Initial Socket Connection Handshake (Query Token) | WebSocket Connection Established |
 | STREAM | /ws/dashboard/events | Active Socket Connection | Stream events via WebSocket Connection | JSON Event Frame (WebSocketEventStream) |

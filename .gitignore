@@ -51,6 +51,7 @@ node_modules/
 .next/
 out/
 .nuxt/
+*.tsbuildinfo
 
 # Build
 *.pyc
@@ -59,3 +60,14 @@ out/
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
 .ai-log/archive/
+
+# AI Configuration (Track structure, ignore content)
+.agents/
+.codegraph/
+CLAUDE.md
+
+package-lock.json
+package.json
+
+CLAUDE.md
+.claude/

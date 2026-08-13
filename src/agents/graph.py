@@ -1,6 +1,8 @@
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.graph.state import CompiledStateGraph
 
+# pyrefly: ignore [missing-import]
 from src.agents.nodes.chat_node import agent_node, should_continue
 from src.agents.nodes.classify_intent_node import classify_intent_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
@@ -17,7 +19,7 @@ def _route_after_classify_intent(state: AgentState) -> str:
     return "rescheduling" if state.get("intent") == "report_meal_shift" else "agent"
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("safety_guard", safety_guard_node)
