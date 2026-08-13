@@ -1,8 +1,10 @@
 package com.remindrx.app.di
 
 import com.remindrx.app.data.repository.AuthRepository
+import com.remindrx.app.data.repository.ChatRepository
 import com.remindrx.app.data.repository.PatientRepository
 import com.remindrx.app.data.repository.RemoteAuthRepositoryImpl
+import com.remindrx.app.data.repository.RemoteChatRepositoryImpl
 import com.remindrx.app.data.repository.RemotePatientRepositoryImpl
 import com.remindrx.app.data.repository.RemoteRoutineRepositoryImpl
 import com.remindrx.app.data.repository.RoutineRepository
@@ -27,4 +29,7 @@ abstract class RepositoryModule {
 
     @Binds
     abstract fun bindPatientRepository(impl: RemotePatientRepositoryImpl): PatientRepository
+
+    @Binds
+    abstract fun bindChatRepository(impl: RemoteChatRepositoryImpl): ChatRepository
 }

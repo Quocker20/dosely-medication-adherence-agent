@@ -1,0 +1,85 @@
+"""READ-ONLY tools — patient prescriptions, routine, schedule, adherence.
+
+See cong_viec.md §2.1. Endpoints follow api-contract.md Slice 4/5/6/7.
+"""
+from __future__ import annotations
+
+from langchain_core.tools import tool
+
+from src.services.backend_client import BackendAPIError, get
+
+
+@tool
+async def get_prescriptions(patient_id: str) -> str:
+    """Lấy danh sách đơn thuốc (kèm các cữ thuốc) của bệnh nhân.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+
+    Returns:
+        Danh sách đơn thuốc dạng JSON string, hoặc thông báo lỗi
+    """
+    try:
+        page = await get(f"/patients/{patient_id}/prescriptions")
+    except BackendAPIError as e:
+        return f"Không lấy được đơn thuốc: {e.detail}"
+    return str(page.get("content", page))
+
+
+@tool
+async def get_patient_profile(patient_id: str) -> str:
+    """Lấy khung giờ sinh hoạt (routine) của bệnh nhân.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+
+    Returns:
+        Routine (wake_time, breakfast_time, lunch_time, dinner_time,
+        sleep_time) dạng JSON string, hoặc thông báo lỗi
+    """
+    try:
+        routine = await get(f"/patients/{patient_id}/routine")
+    except BackendAPIError as e:
+        return f"Không lấy được routine: {e.detail}"
+    return str(routine)
+
+
+@tool
+async def get_scheduled_doses(patient_id: str, date: str) -> str:
+    """Lấy lịch uống thuốc (các cữ cụ thể) của bệnh nhân trong một ngày.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+        date: Ngày cần xem lịch, định dạng YYYY-MM-DD
+
+    Returns:
+        Danh sách các cữ thuốc trong ngày dạng JSON string, hoặc thông báo lỗi
+    """
+    try:
+        schedule = await get(f"/patients/{patient_id}/schedules", params={"date": date})
+    except BackendAPIError as e:
+        return f"Không lấy được lịch uống thuốc: {e.detail}"
+    return str(schedule.get("doses", schedule))
+
+
+@tool
+async def get_adherence_stats(patient_id: str, date_from: str, date_to: str) -> str:
+    """Lấy thống kê tỷ lệ tuân thủ điều trị của bệnh nhân trong một khoảng thời gian.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+        date_from: Ngày bắt đầu thống kê, định dạng YYYY-MM-DD
+        date_to: Ngày kết thúc thống kê, định dạng YYYY-MM-DD
+
+    Returns:
+        Thống kê tuân thủ (adherence_rate, total_doses, taken_doses,
+        skipped_doses, missed_doses) dạng JSON string, hoặc thông báo lỗi
+    """
+    try:
+        summary = await get(
+            f"/patients/{patient_id}/adherence",
+            params={"from": date_from, "to": date_to},
+        )
+    except BackendAPIError as e:
+        return f"Không lấy được thống kê tuân thủ: {e.detail}"
+    return str(summary)
