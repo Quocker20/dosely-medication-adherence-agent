@@ -4,7 +4,7 @@ nhân cao tuổi không muốn/không tiện gõ chữ.
 Đây là lớp CHUYỂN ĐỔI bọc quanh graph chat (src/agents/graph.py), KHÔNG
 phải tool cho LLM tự quyết định gọi — LLM không cần biết audio tồn tại, nó
 luôn chỉ thấy/chỉ tạo text. Việc audio<->text xảy ra ở tầng API
-(src/api/routes.py), trước khi vào và sau khi ra khỏi graph.
+(src/modules/agents/router.py), trước khi vào và sau khi ra khỏi graph.
 
 Nguyên tắc lỗi: transcribe_audio KHÔNG fail-open — nghe không rõ thì phải
 raise rõ ràng để tầng gọi báo bệnh nhân nói lại, không được âm thầm coi
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from openai import AsyncOpenAI
 
-from src.config import get_settings
+from src.core.config import get_settings
 
 
 class SpeechServiceError(Exception):

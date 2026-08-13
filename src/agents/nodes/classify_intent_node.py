@@ -27,7 +27,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from src.agents.state import AgentState
-from src.services.llm import get_llm
+from src.modules.planning.core.llm import get_llm
 
 _CLASSIFY_SYSTEM_PROMPT = """Phân loại tin nhắn của bệnh nhân vào ĐÚNG 1 nhãn:
 

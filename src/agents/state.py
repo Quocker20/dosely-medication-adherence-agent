@@ -35,10 +35,10 @@ class PlanningState(TypedDict, total=False):
     validator đối chiếu lại ở `validate_candidate_node`.
     """
 
-    prescription: Any  # models.clinical.Prescription
-    routine: Any  # models.clinical.PatientRoutine
+    prescription: Any  # modules.planning.core.clinical.Prescription
+    routine: Any  # modules.planning.core.clinical.PatientRoutine
     anchors: dict[str, str]
     candidates: list[dict[str, Any]]
     review_notes: list[str]
-    slots: list[Any]  # models.clinical.ScheduleSlot
+    slots: list[Any]  # modules.planning.core.clinical.ScheduleSlot
     error: str

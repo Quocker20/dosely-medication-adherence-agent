@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.state import AgentState
 from src.agents.tools.schedule_tools import reschedule_remaining_doses
-from src.services.llm import get_llm
+from src.modules.planning.core.llm import get_llm
 
 _MEAL_VI = {"breakfast": "bữa sáng", "lunch": "bữa trưa", "dinner": "bữa tối"}
 

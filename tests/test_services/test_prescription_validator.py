@@ -1,11 +1,11 @@
-from src.models.clinical import (
+from src.modules.planning.core.clinical import (
     Prescription,
     PrescriptionItem,
     PrescriptionItemIn,
     PrescriptionStatus,
     Timing,
 )
-from src.services.prescription_validator import (
+from src.modules.planning.core.prescription_validator import (
     assert_clinical_fields_unchanged,
     validate_items,
 )

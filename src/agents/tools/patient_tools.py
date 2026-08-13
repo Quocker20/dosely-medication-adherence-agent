@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from src.services.backend_client import BackendAPIError, get
+from src.modules.planning.core.backend_client import BackendAPIError, get
 
 
 @tool

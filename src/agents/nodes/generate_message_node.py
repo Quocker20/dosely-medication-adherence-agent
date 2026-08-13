@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from src.services.llm import get_llm
+from src.modules.planning.core.llm import get_llm
 
 _MEAL_RELATION_TEXT = {
     "before_meal": "trước bữa ăn",

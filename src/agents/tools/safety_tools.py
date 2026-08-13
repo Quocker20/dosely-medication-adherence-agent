@@ -18,7 +18,7 @@ import logging
 
 from langchain_core.tools import tool
 
-from src.services.backend_client import post
+from src.modules.planning.core.backend_client import post
 
 logger = logging.getLogger("safety")
 

@@ -125,8 +125,8 @@ from fastapi import File, Form, HTTPException, UploadFile
 from langchain_core.messages import HumanMessage
 from src.agents.audit import log_turn
 from src.agents.graph import agent
-from src.models.schemas import ChatRequest, ChatResponse, VoiceChatResponse
-from src.services.speech import SpeechServiceError, synthesize_speech, transcribe_audio
+from src.agents.schemas import ChatRequest, ChatResponse, VoiceChatResponse
+from src.modules.planning.core.speech import SpeechServiceError, synthesize_speech, transcribe_audio
 
 chat_router = APIRouter(tags=["Schedules & AI Agents"])
 

@@ -16,7 +16,7 @@ from src.agents.nodes.planning_node import (
     validate_candidate_node,
 )
 from src.agents.state import PlanningState
-from src.models.clinical import (
+from src.modules.planning.core.clinical import (
     AgentRun,
     MedicationSchedule,
     PatientRoutine,

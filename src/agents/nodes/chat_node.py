@@ -18,7 +18,7 @@ from langchain_core.messages import SystemMessage
 
 from src.agents.state import AgentState
 from src.agents.tools import CHAT_TOOLS
-from src.services.llm import get_llm
+from src.modules.planning.core.llm import get_llm
 
 SYSTEM_PROMPT = """Bạn là trợ lý AI của RemindRx, hỗ trợ bệnh nhân theo dõi lịch uống thuốc.
 
