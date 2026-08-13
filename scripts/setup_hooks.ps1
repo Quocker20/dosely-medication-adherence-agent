@@ -10,7 +10,8 @@ $HookFile = Join-Path $RepoRoot '.git/hooks/pre-push'
 # Git on Windows runs hooks via Git Bash, so the hook body must be bash.
 $HookBody = @'
 #!/usr/bin/env bash
-# Pre-push: sweep recent Antigravity / Gemini prompts, then submit AI logs.
+# Pre-push: sweep recent Codex and Antigravity / Gemini prompts, then submit AI logs.
+bash scripts/_pyrun.sh scripts/log_codex.py --auto || true
 bash scripts/_pyrun.sh scripts/log_antigravity.py --auto || true
 bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
@@ -19,6 +20,10 @@ exit 0
 # Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding UTF8`.
 # A BOM before #! can prevent Git from launching this bash hook.
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+# Git Bash treats CRLF as part of each command token. Always install the
+# executable hook with LF line endings, even when this setup script is run
+# from Windows PowerShell.
+$HookBody = $HookBody.Replace("`r`n", "`n")
 [System.IO.File]::WriteAllText($HookFile, $HookBody, $Utf8NoBom)
 Write-Host "[ai-log] Git pre-push hook installed."
 
