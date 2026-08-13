@@ -36,7 +36,6 @@ fun OnboardingScreen(
     routine: List<RoutineItem>,
     isLoading: Boolean,
     error: String?,
-    onRetry: () -> Unit,
     onDone: () -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
@@ -85,7 +84,6 @@ fun OnboardingScreen(
         }
         if (error != null) {
             Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
-            PrimaryButton("Thử lại", onClick = onRetry, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         }
         PrimaryButton("Lưu & tạo lịch uống thuốc", onClick = onDone, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))
     }
