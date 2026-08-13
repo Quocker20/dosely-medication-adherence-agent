@@ -7,6 +7,7 @@ celery_app = Celery(
     "adhe_remind_tasks",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
+    include=["src.modules.agents.tasks"],
 )
 
 celery_app.conf.update(

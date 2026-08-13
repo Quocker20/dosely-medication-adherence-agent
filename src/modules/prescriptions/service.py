@@ -232,6 +232,10 @@ class PrescriptionService:
             await self._snapshot_item_fields(item.model_dump())
             for item in request.items
         ]
+        if self._db.in_transaction():
+            # commit(), not rollback(): ends the SELECT's autobegin transaction
+            # (nothing was written), same reasoning as _resolve_or_create_patient.
+            await self._db.commit()
 
         async with self._db.begin():
             doctor_row = await self._doctor_repo.get_doctor_with_user(doctor_id)
