@@ -12,6 +12,7 @@ import com.remindrx.app.data.ChatMessage
 import com.remindrx.app.data.ChatRole
 import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.repository.ChatRepository
+import com.remindrx.app.ui.toVietnameseUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
