@@ -6,10 +6,12 @@ import com.google.gson.GsonBuilder
 import com.remindrx.app.BuildConfig
 import com.remindrx.app.data.remote.ApiConfig
 import com.remindrx.app.data.remote.RemindRxApiService
+import com.remindrx.app.data.repository.SessionStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -22,7 +24,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideOkHttpClient(sessionStore: SessionStore): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
                 // Không log body vì có thể chứa dữ liệu sức khỏe/triệu chứng.
@@ -31,7 +33,18 @@ object NetworkModule {
                 HttpLoggingInterceptor.Level.NONE
             }
         }
+        val auth = Interceptor { chain ->
+            val original = chain.request()
+            val token = sessionStore.accessToken
+            val request = if (token != null && original.header("Authorization") == null) {
+                original.newBuilder().addHeader("Authorization", "Bearer $token").build()
+            } else {
+                original
+            }
+            chain.proceed(request)
+        }
         return OkHttpClient.Builder()
+            .addInterceptor(auth)
             .addInterceptor(logging)
             .build()
     }
