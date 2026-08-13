@@ -15,8 +15,8 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.state import PlanningState
-from src.config import get_settings
-from src.models.clinical import (
+from src.core.config import get_settings
+from src.modules.planning.core.clinical import (
     PatientRoutine,
     Prescription,
     PrescriptionItem,
@@ -26,8 +26,8 @@ from src.models.clinical import (
     ScheduleSlot,
     Timing,
 )
-from src.services.prescription_validator import assert_clinical_fields_unchanged
-from src.services.timekit import min_gap_minutes, shift, to_minutes
+from src.modules.planning.core.prescription_validator import assert_clinical_fields_unchanged
+from src.modules.planning.core.timekit import min_gap_minutes, shift, to_minutes
 
 TIMING_LABELS: dict[Timing, str] = {
     Timing.BEFORE_BREAKFAST: "Trước ăn sáng",

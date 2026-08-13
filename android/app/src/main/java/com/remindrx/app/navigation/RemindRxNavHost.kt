@@ -195,6 +195,8 @@ fun RemindRxApp() {
                     onSend = assistantViewModel::sendMessage,
                     onNewChat = assistantViewModel::startNewConversation,
                     onOpenHistory = { navController.navigate(Routes.CHAT_HISTORY) },
+                    onStartRecording = assistantViewModel::startRecording,
+                    onStopRecordingAndSend = assistantViewModel::stopRecordingAndSend,
                 )
             }
             composable(Routes.CHAT_HISTORY) {
