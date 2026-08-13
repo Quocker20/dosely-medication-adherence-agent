@@ -1,8 +1,11 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from typing import List
+
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
 
@@ -73,6 +76,55 @@ class Prescription(Base):
     approved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="NOW()",
+    )
+
+    # lazy="raise" prevents implicit N+1 queries. Explicit JOIN/selectinload required to load these.
+    items: Mapped[List["PrescriptionItem"]] = relationship(
+        "PrescriptionItem", lazy="raise", order_by="PrescriptionItem.created_at"
+    )
+
+
+class PrescriptionItem(Base):
+    """Prescription line item (single medication dosing rule) database model."""
+
+    __tablename__ = "prescription_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default="gen_random_uuid()",
+    )
+    prescription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prescriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # No FK to medications: display_name is a frozen snapshot taken at
+    # write time, so this column must survive the referenced medication
+    # being edited or deleted.
+    medication_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dose_unit: Mapped[str] = mapped_column(String(30), nullable=False)
+    morning_dose: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    noon_dose: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    evening_dose: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    bedtime_dose: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    route: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="ORAL"
+    )
+    meal_relation: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    minimum_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
