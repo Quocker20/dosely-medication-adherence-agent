@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # D-01 chưa chốt (Brief "> 3" vs PRD "3") — baseline theo PRD, đổi bằng env.
     missed_dose_alert_threshold: int = Field(default=3, ge=1, le=10)
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
+    # Slice 6: rolling generation window. Bounds scheduled_doses row count for
+    # open-ended prescriptions (nullable end_date) — a Beat job tops this up
+    # daily rather than generating the whole treatment course up front.
+    schedule_horizon_days: int = Field(default=14, ge=1, le=90)
     doctor_id: str = "dr-nguyen-van-a"
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"
