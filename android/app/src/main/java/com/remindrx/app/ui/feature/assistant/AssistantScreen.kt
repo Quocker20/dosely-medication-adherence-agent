@@ -1,4 +1,4 @@
-package com.remindrx.app.ui.screens
+package com.remindrx.app.ui.feature.assistant
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -45,7 +45,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.ChatMessage
 import com.remindrx.app.data.ChatRole
-import com.remindrx.app.ui.AssistantUiState
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
 @Composable

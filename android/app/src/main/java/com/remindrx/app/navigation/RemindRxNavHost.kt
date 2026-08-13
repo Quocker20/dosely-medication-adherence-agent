@@ -22,21 +22,21 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remindrx.app.ui.components.RemindRxBottomBar
 import com.remindrx.app.ui.components.SosFab
-import com.remindrx.app.ui.AuthViewModel
-import com.remindrx.app.ui.AssistantViewModel
-import com.remindrx.app.ui.PatientViewModel
-import com.remindrx.app.ui.screens.ChangePinScreen
-import com.remindrx.app.ui.screens.AssistantScreen
-import com.remindrx.app.ui.screens.ChatHistoryScreen
-import com.remindrx.app.ui.screens.DashboardScreen
-import com.remindrx.app.ui.screens.LoginScreen
-import com.remindrx.app.ui.screens.MedicationDetailScreen
-import com.remindrx.app.ui.screens.OnboardingScreen
-import com.remindrx.app.ui.screens.PrescriptionScreen
-import com.remindrx.app.ui.screens.ReminderScreen
-import com.remindrx.app.ui.screens.SettingsScreen
-import com.remindrx.app.ui.screens.SosScreen
-import com.remindrx.app.ui.screens.SurveyScreen
+import com.remindrx.app.ui.feature.auth.AuthViewModel
+import com.remindrx.app.ui.feature.assistant.AssistantViewModel
+import com.remindrx.app.ui.feature.patient.PatientViewModel
+import com.remindrx.app.ui.feature.auth.ChangePinScreen
+import com.remindrx.app.ui.feature.assistant.AssistantScreen
+import com.remindrx.app.ui.feature.assistant.ChatHistoryScreen
+import com.remindrx.app.ui.feature.patient.DashboardScreen
+import com.remindrx.app.ui.feature.auth.LoginScreen
+import com.remindrx.app.ui.feature.patient.MedicationDetailScreen
+import com.remindrx.app.ui.feature.patient.OnboardingScreen
+import com.remindrx.app.ui.feature.patient.PrescriptionScreen
+import com.remindrx.app.ui.feature.patient.ReminderScreen
+import com.remindrx.app.ui.feature.patient.SettingsScreen
+import com.remindrx.app.ui.feature.patient.SosScreen
+import com.remindrx.app.ui.feature.patient.SurveyScreen
 import kotlinx.coroutines.launch
 
 private object Routes {

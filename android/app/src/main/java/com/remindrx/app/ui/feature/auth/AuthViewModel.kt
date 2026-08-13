@@ -1,4 +1,4 @@
-package com.remindrx.app.ui
+package com.remindrx.app.ui.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

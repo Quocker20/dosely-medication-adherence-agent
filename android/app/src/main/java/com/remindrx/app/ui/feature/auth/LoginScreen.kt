@@ -1,4 +1,4 @@
-package com.remindrx.app.ui.screens
+package com.remindrx.app.ui.feature.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
