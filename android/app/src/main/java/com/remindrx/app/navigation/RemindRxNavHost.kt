@@ -80,6 +80,7 @@ fun RemindRxApp() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomChrome = currentRoute != null && currentRoute in BOTTOM_BAR_ROUTES
+    val showSosFab = showBottomChrome && currentRoute != Routes.ASSISTANT
 
     LaunchedEffect(patientState.message) {
         patientState.message?.let { message ->
@@ -109,7 +110,7 @@ fun RemindRxApp() {
             }
         },
         floatingActionButton = {
-            if (showBottomChrome) {
+            if (showSosFab) {
                 SosFab(onClick = { navController.navigate(Routes.SOS) })
             }
         },
@@ -154,7 +155,6 @@ fun RemindRxApp() {
                     routine = patientState.routine,
                     isLoading = patientState.isLoading,
                     error = patientState.error,
-                    onRetry = patientViewModel::refresh,
                     onDone = {
                         navController.navigate(Routes.DASHBOARD) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
                     },
