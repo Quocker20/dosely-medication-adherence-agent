@@ -46,6 +46,7 @@ def get_prescription_service(
         prescription_repository=PrescriptionRepository(db),
         doctor_repository=DoctorRepository(db),
         audit_repository=AuditLogRepository(db),
+        medication_repository=MedicationRepository(db),
         auth_repository=AuthRepository(db),
         patient_repository=PatientRepository(db),
     )

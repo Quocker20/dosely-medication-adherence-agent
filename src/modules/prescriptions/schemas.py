@@ -26,10 +26,15 @@ class MedicationDetailResponse(BaseModel):
 
 
 class PrescriptionItemBase(BaseModel):
-    """Shared dosing-rule fields for Create/Update PrescriptionItem requests."""
+    """Shared dosing-rule fields for Create/Update PrescriptionItem requests.
 
-    medication_id: Optional[uuid.UUID] = None
-    display_name: str = Field(..., max_length=255)
+    No display_name here: the service resolves it from Medication.name at
+    write time and freezes it onto the row as a snapshot (medication_id
+    carries no FK, so later edits/deletes of the catalog entry never touch
+    already-written items).
+    """
+
+    medication_id: uuid.UUID
     dose_unit: str = Field(..., max_length=30)
     morning_dose: Optional[Decimal] = None
     noon_dose: Optional[Decimal] = None
