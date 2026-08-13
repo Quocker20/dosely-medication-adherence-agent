@@ -71,8 +71,8 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | PUT | /prescriptions/{prescription_id} | Required (DOCTOR) | Path Param (prescription_id: UUID) + UpdatePrescriptionRequest | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/approve | Required (DOCTOR) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/cancel | Required (DOCTOR) | Path Param (prescription_id: UUID) + CancelPrescriptionRequest | 200 OK / PrescriptionDetailResponse |
-| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest | 201 Created / PrescriptionItemDetailResponse |
-| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest | 200 OK / PrescriptionItemDetailResponse |
+| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest (medication_id required; display_name auto-snapshotted from Medication.name server-side, not client input) | 201 Created / PrescriptionItemDetailResponse |
+| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest (medication_id required; display_name re-snapshotted from Medication.name) | 200 OK / PrescriptionItemDetailResponse |
 | DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 6: SCHEDULES & AI AGENTS
