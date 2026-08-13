@@ -66,6 +66,7 @@ out/
 CLAUDE.md
 
 package-lock.json
+web/package-lock.json
 package.json
 
 CLAUDE.md
