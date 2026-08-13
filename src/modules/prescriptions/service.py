@@ -90,6 +90,7 @@ class PrescriptionService:
         prescription_repository: PrescriptionRepository,
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
+        medication_repository: Optional[MedicationRepository] = None,
         auth_repository: Optional[AuthRepository] = None,
         patient_repository: Optional[PatientRepository] = None,
     ) -> None:
@@ -97,6 +98,7 @@ class PrescriptionService:
         self._rx_repo = prescription_repository
         self._doctor_repo = doctor_repository
         self._audit_repo = audit_repository
+        self._medication_repo = medication_repository or MedicationRepository(db)
         self._auth_repo = auth_repository or AuthRepository(db)
         self._patient_repo = patient_repository or PatientRepository(db)
 
@@ -108,6 +110,17 @@ class PrescriptionService:
     @staticmethod
     def _to_item_detail(item: PrescriptionItem) -> PrescriptionItemDetailResponse:
         return PrescriptionItemDetailResponse.model_validate(item)
+
+    async def _snapshot_item_fields(self, item_data: dict) -> dict:
+        """Resolve medication_id -> Medication and freeze its current name
+        onto display_name. No FK ties the row to medications afterward, so
+        this snapshot is the only place the name is ever read from the
+        catalog — later edits/deletes of the Medication row cannot affect it."""
+        medication_id = item_data["medication_id"]
+        medication = await self._medication_repo.get_medication_by_id(medication_id)
+        if medication is None:
+            raise NotFoundException(message="Medication not found")
+        return {**item_data, "display_name": medication.name}
 
     @classmethod
     def _to_detail(
@@ -215,6 +228,11 @@ class PrescriptionService:
 
         patient_user, temp_pin = await self._resolve_or_create_patient(cleaned_phone)
 
+        item_fields = [
+            await self._snapshot_item_fields(item.model_dump())
+            for item in request.items
+        ]
+
         async with self._db.begin():
             doctor_row = await self._doctor_repo.get_doctor_with_user(doctor_id)
             if doctor_row is None:
@@ -229,8 +247,7 @@ class PrescriptionService:
                 diagnosis_note=request.diagnosis_note,
             )
             items = await self._rx_repo.bulk_create_items(
-                prescription.id,
-                [item.model_dump() for item in request.items],
+                prescription.id, item_fields
             )
             await self._audit_repo.create_audit_log(
                 action="CREATE_PRESCRIPTION",
@@ -407,16 +424,17 @@ class PrescriptionService:
         """DOCTOR only, scoped to the doctor who created the prescription.
         Prescription MUST be DRAFT."""
         doctor_id = uuid.UUID(actor_payload["sub"])
+        fields = await self._snapshot_item_fields(request.model_dump())
 
         async with self._db.begin():
             await self._lock_draft_or_raise(prescription_id, doctor_id)
-            item = await self._rx_repo.add_item(prescription_id, request.model_dump())
+            item = await self._rx_repo.add_item(prescription_id, fields)
             await self._audit_repo.create_audit_log(
                 action="ADD_PRESCRIPTION_ITEM",
                 entity_type="PRESCRIPTION_ITEM",
                 actor_user_id=doctor_id,
                 entity_id=item.id,
-                new_values={"display_name": request.display_name},
+                new_values={"display_name": fields["display_name"]},
                 ip_address=ip_address,
             )
 
@@ -433,6 +451,7 @@ class PrescriptionService:
         """DOCTOR only, scoped to the doctor who created the prescription.
         Prescription MUST be DRAFT."""
         doctor_id = uuid.UUID(actor_payload["sub"])
+        fields = await self._snapshot_item_fields(request.model_dump())
 
         async with self._db.begin():
             await self._lock_draft_or_raise(prescription_id, doctor_id)
@@ -441,14 +460,14 @@ class PrescriptionService:
                 raise NotFoundException(message="Prescription item not found")
 
             old_display_name = existing_item.display_name
-            item = await self._rx_repo.update_item(item_id, request.model_dump())
+            item = await self._rx_repo.update_item(item_id, fields)
             await self._audit_repo.create_audit_log(
                 action="UPDATE_PRESCRIPTION_ITEM",
                 entity_type="PRESCRIPTION_ITEM",
                 actor_user_id=doctor_id,
                 entity_id=item_id,
                 old_values={"display_name": old_display_name},
-                new_values={"display_name": request.display_name},
+                new_values={"display_name": fields["display_name"]},
                 ip_address=ip_address,
             )
 

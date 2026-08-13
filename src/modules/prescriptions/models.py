@@ -105,10 +105,11 @@ class PrescriptionItem(Base):
         ForeignKey("prescriptions.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # No FK to medications: display_name is a frozen snapshot taken at
+    # write time, so this column must survive the referenced medication
+    # being edited or deleted.
     medication_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("medications.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID(as_uuid=True), nullable=True
     )
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dose_unit: Mapped[str] = mapped_column(String(30), nullable=False)
