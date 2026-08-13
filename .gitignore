@@ -33,7 +33,9 @@ Thumbs.db
 /data/
 *.db
 *.sqlite3
-*.pdf
+# Scoped to the dataset dir on purpose — a bare "*.pdf" would silently swallow
+# spec/report PDFs added under docs/.
+/data/**/*.pdf
 
 # Logs
 logs/
@@ -62,14 +64,24 @@ out/
 .ai-log/*.jsonl
 .ai-log/archive/
 
-# AI Configuration (Track structure, ignore content)
+# AI Configuration
+# .agents/ and .codegraph/ are ignored outright — unlike .ai-log/ above, they
+# keep no tracked .gitkeep, so the directories do not survive a fresh clone.
 .agents/
 .codegraph/
+
+# Anchored to the repo root: a bare "package.json" also matches nested
+# manifests such as web/package.json.
+/package.json
+
 CLAUDE.md
 
-package-lock.json
-web/package-lock.json
-package.json
+# .claude/ holds per-machine agents, commands, skills and local settings.
+# Ignore its contents but keep settings.json tracked — it carries the AI
+# logging hooks required by BTC AI20K. The pattern must be ".claude/*", not
+# ".claude/": git cannot re-include a file whose parent directory is excluded.
+.claude/*
+!.claude/settings.json
 
-CLAUDE.md
-.claude/
+# Appetize.io embed config (contains a per-build publicKey, not meant to be shared globally)
+web/public/emulator/config.js

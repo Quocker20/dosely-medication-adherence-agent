@@ -1,0 +1,2 @@
+# Git hooks execute this launcher with Bash even on Windows.
+scripts/_pyrun.sh text eol=lf
