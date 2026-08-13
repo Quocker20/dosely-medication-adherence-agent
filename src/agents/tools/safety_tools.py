@@ -18,26 +18,76 @@ import logging
 
 from langchain_core.tools import tool
 
+from src.services.backend_client import post
+
 logger = logging.getLogger("safety")
 
-# Từ cong_viec.md §4.1 — cố tình viết bằng ngôn ngữ dân dã, KHÔNG phải
-# thuật ngữ y khoa, vì bệnh nhân nói "thở không ra hơi" chứ không nói
-# "khó thở cấp". Đây là danh sách khởi điểm lấy nguyên từ doc — cần bác sĩ/
-# dược sĩ trong team review trước khi dùng thật, việc này ngoài thẩm quyền
-# của AI.
+# Từ cong_viec.md §4.1 / "Kế hoạch tầng 2" §1.2 — cố tình viết bằng ngôn
+# ngữ dân dã, KHÔNG phải thuật ngữ y khoa, vì bệnh nhân nói "thở không ra
+# hơi" chứ không nói "khó thở cấp". ≥40 mục theo yêu cầu kế hoạch, nhóm
+# theo hệ cơ quan chỉ để dễ đọc/maintain — lúc match vẫn duyệt phẳng cả
+# danh sách. Đây là danh sách khởi điểm — CẦN bác sĩ/dược sĩ trong team
+# review trước khi dùng thật, việc này ngoài thẩm quyền của AI.
 SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
+    # Hô hấp
     "khó thở",
     "thở không ra hơi",
+    "thở gấp",
+    "thở khò khè",
+    "thở dốc",
+    # Tim mạch / ngực
     "tức ngực",
     "đau ngực",
+    "đau thắt ngực",
+    "đè nặng ngực",
+    "tim đập nhanh",
+    "tim đập loạn",
+    "đánh trống ngực",
+    # Đột quỵ / thần kinh
+    "méo miệng",
+    "nói ngọng",
+    "nói không rõ",
+    "yếu liệt tay chân",
+    "tê liệt nửa người",
+    "không cử động được tay",
+    "không cử động được chân",
+    "co giật",
+    "động kinh",
+    "co cứng người",
+    # Ý thức
+    "ngất",
+    "xỉu",
+    "choáng váng ngã",
+    "mất ý thức",
+    "lơ mơ không tỉnh",
+    "không đánh thức được",
+    # Xuất huyết / tiêu hóa nặng
+    "nôn ra máu",
+    "đi ngoài ra máu",
+    "đại tiện ra máu",
+    "phân đen",
+    "ho ra máu",
+    "chảy máu không cầm được",
+    # Dị ứng nặng
     "phát ban",
-    "nổi mẩn",
+    "nổi mẩn khắp người",
+    "nổi mề đay",
     "sưng mặt",
     "sưng môi",
-    "tim đập nhanh",
-    "ngất",
-    "co giật",
-    "nôn ra máu",
+    "sưng lưỡi",
+    "sưng họng khó nuốt",
+    # Đau/sốt dữ dội
+    "đau bụng dữ dội",
+    "đau đầu dữ dội",
+    "đau đầu như búa bổ",
+    "sốt cao không hạ",
+    # Sức khỏe tâm thần / quá liều — quan trọng với bệnh nhân cao tuổi
+    # đang dùng nhiều thuốc, KHÔNG được bỏ sót nhóm này
+    "muốn chết",
+    "không muốn sống nữa",
+    "tự tử",
+    "uống nhầm thuốc quá liều",
+    "uống quá liều thuốc",
 )
 
 MISSED_DOSE_ALERT_THRESHOLD = 3
@@ -83,14 +133,13 @@ def count_missed_dose_streak(scheduled_doses: list[dict]) -> int:
 
 
 async def _send_alert(patient_id: str, reason: str, severity: str, evidence: str) -> dict:
-    """Gửi alert thật lên backend. STUB — chưa có endpoint thật, xem module
-    docstring. Raise để caller (trigger_red_alert) log CRITICAL và trả về
-    rõ ràng thay vì âm thầm giả vờ đã gửi thành công."""
-    raise NotImplementedError(
-        "Chưa có backend endpoint để code/agent tự tạo alert "
-        "(api-contract.md chỉ có POST /patients/{id}/sos — do bệnh nhân tự bấm — "
-        "và GET /alerts — chỉ để list). Cần xác nhận endpoint thật với backend team "
-        "(xem cong_viec.md mục 3) rồi implement lại hàm này."
+    """Gửi alert bằng cách dùng chung API SOS của hệ thống.
+    Đại diện cho bệnh nhân tạo tín hiệu khẩn cấp khi phát hiện qua chat.
+    """
+    message = f"[{severity}] {reason} (Bằng chứng: {evidence})"
+    return await post(
+        f"/patients/{patient_id}/sos",
+        json={"message": message, "metadata": {"source": "agent_auto_detect"}},
     )
 
 

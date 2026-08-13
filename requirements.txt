@@ -5,6 +5,7 @@ pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 tzdata>=2024.2  # zoneinfo has no IANA db on Windows without this
+python-multipart>=0.0.9  # required by FastAPI Form/File (POST /chat/voice)
 
 # AI / LangChain
 langchain>=0.3.0

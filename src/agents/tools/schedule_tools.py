@@ -41,3 +41,33 @@ async def reschedule_remaining_doses(patient_id: str, reason: str) -> str:
     except BackendAPIError as e:
         return f"Không rải lại được lịch: {e.detail}"
     return str(result)
+
+
+@tool
+async def record_dose_action(scheduled_dose_id: str, action: str, note: str = "") -> str:
+    """Ghi nhận hành động uống thuốc của bệnh nhân qua đoạn chat.
+
+    Chỉ gọi tool này khi người dùng chủ động thông báo họ đã uống thuốc, 
+    hoặc bỏ thuốc.
+
+    Args:
+        scheduled_dose_id: Mã UUID của cữ thuốc cần ghi nhận
+        action: Hành động (TAKEN, SNOOZE, SKIPPED)
+        note: Ghi chú thêm nếu có (ví dụ: lý do bỏ thuốc, ngủ quên)
+
+    Returns:
+        Kết quả ghi nhận thành công hay không
+    """
+    payload = {"note": note} if note else {}
+    try:
+        result = await post(
+            f"/scheduled-doses/{scheduled_dose_id}/actions",
+            json={
+                "action": action.upper(),
+                "action_source": "AGENT",
+                "payload": payload,
+            },
+        )
+    except BackendAPIError as e:
+        return f"Không ghi nhận được: {e.detail}"
+    return str(result)

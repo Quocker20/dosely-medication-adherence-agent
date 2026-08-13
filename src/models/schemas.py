@@ -11,3 +11,13 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str = Field(..., description="Phản hồi từ agent")
+
+
+class VoiceChatResponse(BaseModel):
+    transcript: str = Field(..., description="Văn bản nhận dạng được từ giọng nói bệnh nhân")
+    response: str = Field(..., description="Phản hồi từ agent (dạng chữ)")
+    # None khi TTS lỗi — vẫn trả transcript+response dạng chữ, không chặn
+    # cả phản hồi chỉ vì thiếu audio (fail-open, xem src/services/speech.py).
+    audio_base64: str | None = Field(
+        default=None, description="Audio mp3 của response, base64. None nếu TTS lỗi."
+    )

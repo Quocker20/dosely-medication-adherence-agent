@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
+    # Speech (STT/TTS) — cho bệnh nhân cao tuổi không muốn gõ chữ, xem
+    # src/services/speech.py. Cùng 1 OPENAI_API_KEY ở trên, không thêm provider.
+    stt_model: str = "whisper-1"
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
+
     # Database
     database_url: str = "sqlite:///./data/app.db"
 
