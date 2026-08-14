@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.Medication
-import com.remindrx.app.data.MockRepository
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.GuardrailNote
 import com.remindrx.app.ui.components.StatusChip
@@ -36,35 +34,26 @@ fun PrescriptionScreen(
     medications: List<Medication>,
     onOpenMedication: (Medication) -> Unit,
 ) {
-    val extras = LocalRemindRxColors.current
-
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
         contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
     ) {
         item {
             Text("Danh sách thuốc", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
-
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = extras.successTint),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = extras.success)
-                    Column {
-                        Text(MockRepository.DOCTOR_LINE, style = MaterialTheme.typography.labelMedium, color = extras.success)
-                        Text(MockRepository.DOCTOR_APPROVED_ON, style = MaterialTheme.typography.labelMedium, color = extras.success)
-                    }
-                }
-            }
         }
 
-        items(medications) { med -> MedicationCard(med, onClick = { onOpenMedication(med) }) }
+        if (medications.isEmpty()) {
+            item {
+                Text(
+                    "Chưa có thuốc trong đơn hiện tại.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = LocalRemindRxColors.current.inkMuted,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                )
+            }
+        } else {
+            items(medications) { med -> MedicationCard(med, onClick = { onOpenMedication(med) }) }
+        }
 
         item {
             GuardrailNote(
@@ -120,4 +109,13 @@ private fun MedicationCard(med: Medication, onClick: () -> Unit) {
             }
         }
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun PrescriptionScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    PrescriptionScreen(
+        medications = com.remindrx.app.ui.preview.previewMedications,
+        onOpenMedication = {},
+    )
 }

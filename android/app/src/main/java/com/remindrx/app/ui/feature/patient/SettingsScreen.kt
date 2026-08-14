@@ -13,19 +13,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,15 +34,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.remindrx.app.data.MockRepository
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.ui.components.PrimaryButton
 import com.remindrx.app.ui.theme.LocalRemindRxColors
+
+private val settingsRoutineDefaults = listOf(
+    RoutineItem("wake_time", "Thức dậy", "06:30"),
+    RoutineItem("breakfast_time", "Ăn sáng", "07:00"),
+    RoutineItem("lunch_time", "Ăn trưa", "11:30"),
+    RoutineItem("dinner_time", "Ăn tối", "18:00"),
+    RoutineItem("sleep_time", "Đi ngủ", "22:00"),
+)
 
 @Composable
 fun SettingsScreen(
@@ -52,12 +59,16 @@ fun SettingsScreen(
     onRoutineInputChanged: () -> Unit,
     onSaveRoutine: (List<RoutineItem>) -> Unit,
     onChangePin: () -> Unit,
+    onOpenCaregivers: () -> Unit = {},
+    onOpenAdherenceHistory: () -> Unit = {},
+    isLoggingOut: Boolean = false,
+    onLogout: () -> Unit = {},
 ) {
     val extras = LocalRemindRxColors.current
-    var editedRoutine by remember(routine) { mutableStateOf(routine) }
-    val canSaveRoutine = editedRoutine != routine &&
-        editedRoutine.isNotEmpty() &&
-        editedRoutine.all { it.time.isValidTime() } &&
+    val normalizedRoutine = remember(routine) { routine.withRequiredSettingsItems() }
+    var editedRoutine by remember(normalizedRoutine) { mutableStateOf(normalizedRoutine) }
+    val canSaveRoutine = editedRoutine != normalizedRoutine &&
+        editedRoutine.all { it.time.isValidSettingsTime() } &&
         !isSavingRoutine
 
     Column(
@@ -66,38 +77,32 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier.size(46.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("TL", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(MockRepository.PATIENT_NAME, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    MockRepository.PATIENT_PHONE,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = extras.inkMuted,
-                    fontWeight = FontWeight.Normal,
-                )
-            }
-            Text("Sửa", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        }
-        Divider()
+        Text(
+            "Cài đặt",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(top = 22.dp, bottom = 16.dp),
+        )
+        SettingsDivider()
 
-        SettingsSection("Bảo mật") {
+        SettingsSection("Tài khoản") {
             SettingsActionRow(
+                icon = Icons.Filled.Lock,
                 title = "Đổi mã PIN",
                 subtitle = "Tạo mã PIN 6 chữ số mới",
                 onClick = onChangePin,
             )
         }
-        Divider()
+        SettingsDivider()
+
+        SettingsSection("Theo dõi dùng thuốc") {
+            SettingsActionRow(
+                icon = Icons.Filled.History,
+                title = "Lịch sử dùng thuốc",
+                subtitle = "Xem kết quả tuân thủ và các lần đã ghi nhận",
+                onClick = onOpenAdherenceHistory,
+            )
+        }
+        SettingsDivider()
 
         SettingsSection("Thói quen sinh hoạt") {
             Row(
@@ -112,7 +117,7 @@ fun SettingsScreen(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    "Sửa các mốc giờ để lịch nhắc thuốc phù hợp với sinh hoạt của bạn.",
+                    "Sửa các mốc giờ để tạo lại lịch nhắc thuốc phù hợp với sinh hoạt của bạn.",
                     style = MaterialTheme.typography.labelMedium,
                     color = extras.inkMuted,
                     fontWeight = FontWeight.Normal,
@@ -131,7 +136,7 @@ fun SettingsScreen(
                         value = item.time,
                         onValueChange = { value ->
                             editedRoutine = editedRoutine.toMutableList().also { items ->
-                                items[index] = item.copy(time = formatTimeInput(value))
+                                items[index] = item.copy(time = formatSettingsTimeInput(value))
                             }
                             onRoutineInputChanged()
                         },
@@ -140,15 +145,15 @@ fun SettingsScreen(
                         textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center),
                         placeholder = { Text("HH:mm") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        isError = item.time.length == 5 && !item.time.isValidTime(),
+                        isError = item.time.length == 5 && !item.time.isValidSettingsTime(),
                         singleLine = true,
                     )
                 }
             }
 
-            if (routineError != null) {
+            routineError?.let {
                 Text(
-                    routineError,
+                    it,
                     style = MaterialTheme.typography.bodyMedium,
                     color = extras.danger,
                     modifier = Modifier.padding(top = 8.dp),
@@ -156,51 +161,23 @@ fun SettingsScreen(
             }
 
             PrimaryButton(
-                text = if (isSavingRoutine) "Đang lưu…" else "Lưu thói quen sinh hoạt",
+                text = if (isSavingRoutine) "Đang lưu và tạo lại lịch…" else "Lưu thói quen sinh hoạt",
                 onClick = { onSaveRoutine(editedRoutine) },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 enabled = canSaveRoutine,
             )
         }
-        Divider()
+        SettingsDivider()
 
-        SettingsSection("Người liên hệ khẩn cấp") {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 7.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    "${MockRepository.emergencyContact.name} (${MockRepository.emergencyContact.relation})",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    MockRepository.emergencyContact.phone,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = extras.inkMuted,
-                    fontWeight = FontWeight.Normal,
-                )
-            }
-            Text(
-                "+ Thêm người liên hệ",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(vertical = 7.dp),
+        SettingsSection("Người chăm sóc") {
+            SettingsActionRow(
+                icon = Icons.Filled.People,
+                title = "Quản lý người chăm sóc",
+                subtitle = "Thêm hoặc gỡ tài khoản được liên kết",
+                onClick = onOpenCaregivers,
             )
         }
-        Divider()
-
-        SettingsSection("Kênh nhắc nhở") {
-            ToggleRow("Web Push", initiallyOn = true)
-            ToggleRow("Zalo", initiallyOn = true)
-            ToggleRow("Gọi điện khi khẩn cấp", initiallyOn = true)
-        }
-        Divider()
-
-        SettingsSection("Hiển thị") {
-            ToggleRow("Cỡ chữ lớn", initiallyOn = true)
-            ToggleRow("Độ tương phản cao", initiallyOn = false)
-        }
-        Divider()
+        SettingsDivider()
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
@@ -214,25 +191,39 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Normal,
             )
         }
-        Text(
-            "Đăng xuất",
-            style = MaterialTheme.typography.bodyMedium,
-            color = extras.danger,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !isLoggingOut, onClick = onLogout)
+                .padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = extras.danger)
+            Text(
+                if (isLoggingOut) "Đang đăng xuất…" else "Đăng xuất",
+                style = MaterialTheme.typography.bodyMedium,
+                color = extras.danger,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
 @Composable
-private fun SettingsActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun SettingsActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
     val extras = LocalRemindRxColors.current
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -261,35 +252,42 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ToggleRow(label: String, initiallyOn: Boolean) {
-    var on by remember { mutableStateOf(initiallyOn) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Switch(
-            checked = on,
-            onCheckedChange = { on = it },
-            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
-        )
-    }
-}
-
-@Composable
-private fun Divider() {
+private fun SettingsDivider() {
     val extras = LocalRemindRxColors.current
     Box(Modifier.fillMaxWidth().height(1.dp).background(extras.border))
 }
 
-private fun formatTimeInput(value: String): String {
+private fun List<RoutineItem>.withRequiredSettingsItems(): List<RoutineItem> {
+    val byKey = associateBy(RoutineItem::key)
+    return settingsRoutineDefaults.map { default ->
+        val existing = byKey[default.key]
+        default.copy(time = existing?.time?.take(5)?.takeIf { it.isNotBlank() } ?: default.time)
+    }
+}
+
+private fun formatSettingsTimeInput(value: String): String {
     val digits = value.filter(Char::isDigit).take(4)
     return if (digits.length <= 2) digits else "${digits.take(2)}:${digits.drop(2)}"
 }
 
-private fun String.isValidTime(): Boolean {
+private fun String.isValidSettingsTime(): Boolean {
     if (!matches(Regex("\\d{2}:\\d{2}"))) return false
     val (hour, minute) = split(':').map(String::toInt)
     return hour in 0..23 && minute in 0..59
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun SettingsScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    SettingsScreen(
+        routine = com.remindrx.app.ui.preview.previewRoutine,
+        isSavingRoutine = false,
+        routineError = null,
+        onRoutineInputChanged = {},
+        onSaveRoutine = {},
+        onChangePin = {},
+        onOpenCaregivers = {},
+        onOpenAdherenceHistory = {},
+        onLogout = {},
+    )
 }

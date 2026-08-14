@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.DoseToday
-import com.remindrx.app.data.MockRepository
 import com.remindrx.app.ui.components.GhostButton
 import com.remindrx.app.ui.components.SuccessButton
 import com.remindrx.app.ui.components.WarningOutlineButton
@@ -38,8 +37,29 @@ fun ReminderScreen(
     onAction: (doseId: String, action: String) -> Unit,
     onDone: () -> Unit,
 ) {
-    val currentDose = dose ?: MockRepository.todayDoses.first()
     val extras = LocalRemindRxColors.current
+
+    if (dose == null) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                "Không tìm thấy cữ thuốc này. Lịch có thể vừa được cập nhật.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+            )
+            GhostButton(
+                "Quay lại lịch hôm nay",
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+            )
+        }
+        return
+    }
+
+    val currentDose = dose
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 36.dp),
@@ -95,6 +115,11 @@ fun ReminderScreen(
                 onClick = { onAction(currentDose.id, "LATE"); onDone() },
                 modifier = Modifier.fillMaxWidth(),
             )
+            WarningOutlineButton(
+                "Nhắc lại sau",
+                onClick = { onAction(currentDose.id, "SNOOZE"); onDone() },
+                modifier = Modifier.fillMaxWidth(),
+            )
             GhostButton(
                 "Bỏ qua",
                 onClick = { onAction(currentDose.id, "SKIPPED"); onDone() },
@@ -109,4 +134,14 @@ fun ReminderScreen(
             )
         }
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun ReminderScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    ReminderScreen(
+        dose = com.remindrx.app.ui.preview.previewDoses[1],
+        onAction = { _, _ -> },
+        onDone = {},
+    )
 }

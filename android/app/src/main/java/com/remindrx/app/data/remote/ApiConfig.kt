@@ -1,7 +1,9 @@
 package com.remindrx.app.data.remote
 
+import com.remindrx.app.BuildConfig
+
 object ApiConfig {
-    // 10.0.2.2 là cách emulator Android truy cập localhost của máy host.
-    // Thiết bị thật cần đổi sang IP LAN của máy host hoặc URL đã deploy.
-    const val BASE_URL = "http://10.0.2.2:8000/api/v1/"
+    // Cấu hình theo build type tại app/build.gradle.kts. Debug dùng 10.0.2.2
+    // để vào host emulator; release chỉ chấp nhận endpoint HTTPS đã deploy.
+    val BASE_URL: String = BuildConfig.API_BASE_URL
 }

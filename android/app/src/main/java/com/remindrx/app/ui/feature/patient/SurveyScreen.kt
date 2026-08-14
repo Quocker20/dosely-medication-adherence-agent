@@ -29,20 +29,34 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.remindrx.app.data.MockRepository
 import com.remindrx.app.ui.components.PrimaryButton
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
 private enum class Severity(val label: String) { MILD("Nhẹ"), MODERATE("Vừa"), SEVERE("Nặng") }
 
+private data class SymptomOption(val code: String, val label: String)
+
+private val symptomOptions = listOf(
+    SymptomOption("NONE", "Không có"),
+    SymptomOption("DIZZINESS", "Chóng mặt"),
+    SymptomOption("NAUSEA", "Buồn nôn"),
+    SymptomOption("HEADACHE", "Đau đầu"),
+    SymptomOption("FATIGUE", "Mệt mỏi"),
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SurveyScreen(onSubmit: (mood: Int, symptom: String, severity: String) -> Unit) {
+fun SurveyScreen(
+    isSubmitting: Boolean = false,
+    isSubmitted: Boolean = false,
+    error: String? = null,
+    onInputChanged: () -> Unit = {},
+    onSubmit: (mood: Int, symptomCode: String, severity: String) -> Unit,
+) {
     val extras = LocalRemindRxColors.current
     var mood by remember { mutableIntStateOf(3) }
-    var selectedSymptom by remember { mutableStateOf(MockRepository.symptomOptions.first()) }
-    var severity by remember { mutableStateOf(Severity.SEVERE) }
-    var submitted by remember { mutableStateOf(false) }
+    var selectedSymptom by remember { mutableStateOf(symptomOptions.first()) }
+    var severity by remember { mutableStateOf(Severity.MILD) }
 
     Column(
         modifier = Modifier
@@ -61,7 +75,10 @@ fun SurveyScreen(onSubmit: (mood: Int, symptom: String, severity: String) -> Uni
         Text("Hôm nay bạn cảm thấy thế nào?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             (1..5).forEach { value ->
-                MoodDot(value, picked = mood == value, modifier = Modifier.weight(1f)) { mood = value }
+                MoodDot(value, picked = mood == value, modifier = Modifier.weight(1f)) {
+                    mood = value
+                    onInputChanged()
+                }
             }
         }
         Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 22.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -71,36 +88,61 @@ fun SurveyScreen(onSubmit: (mood: Int, symptom: String, severity: String) -> Uni
 
         Text("Có tác dụng phụ nào không?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 22.dp)) {
-            MockRepository.symptomOptions.forEach { symptom ->
-                SymptomChip(symptom, picked = selectedSymptom == symptom) { selectedSymptom = symptom }
+            symptomOptions.forEach { symptom ->
+                SymptomChip(symptom.label, picked = selectedSymptom == symptom) {
+                    selectedSymptom = symptom
+                    if (symptom.code == "NONE") severity = Severity.MILD
+                    onInputChanged()
+                }
             }
         }
 
-        Text("Mức độ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Severity.entries.forEach { level ->
-                SeverityOption(level, picked = severity == level, modifier = Modifier.weight(1f)) { severity = level }
+        if (selectedSymptom.code != "NONE") {
+            Text("Mức độ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Severity.entries.forEach { level ->
+                    SeverityOption(level, picked = severity == level, modifier = Modifier.weight(1f)) {
+                        severity = level
+                        onInputChanged()
+                    }
+                }
             }
-        }
-        if (severity == Severity.SEVERE) {
-            Text(
-                "⚠ Mức \"Nặng\" sẽ cảnh báo ngay cho bác sĩ điều trị.",
-                style = MaterialTheme.typography.labelMedium,
-                color = extras.danger,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
-            )
+            if (severity == Severity.SEVERE) {
+                Text(
+                    "⚠ Mức \"Nặng\" sẽ cảnh báo ngay cho bác sĩ điều trị.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = extras.danger,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+                )
+            } else {
+                Box(Modifier.padding(bottom = 20.dp))
+            }
         } else {
             Box(Modifier.padding(bottom = 20.dp))
         }
 
+        error?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = extras.danger,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+        }
+
         PrimaryButton(
-            if (submitted) "Đã gửi khảo sát" else "Gửi khảo sát",
+            text = when {
+                isSubmitting -> "Đang gửi…"
+                isSubmitted -> "Đã gửi khảo sát"
+                else -> "Gửi khảo sát"
+            },
             onClick = {
-                onSubmit(mood, selectedSymptom, severity.name)
-                submitted = true
+                val submittedSeverity = if (selectedSymptom.code == "NONE") Severity.MILD else severity
+                onSubmit(mood, selectedSymptom.code, submittedSeverity.name)
             },
             modifier = Modifier.fillMaxWidth(),
+            enabled = !isSubmitting && !isSubmitted,
         )
     }
 }
@@ -145,20 +187,26 @@ private fun SymptomChip(label: String, picked: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SeverityOption(level: Severity, picked: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val extras = LocalRemindRxColors.current
-    val isSevere = level == Severity.SEVERE && picked
+    val selectedColor = if (level == Severity.SEVERE) extras.danger else MaterialTheme.colorScheme.primary
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isSevere) extras.danger else Color.Transparent),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, if (isSevere) extras.danger else extras.border),
+        colors = CardDefaults.cardColors(containerColor = if (picked) selectedColor else Color.Transparent),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, if (picked) selectedColor else extras.border),
         onClick = onClick,
     ) {
         Text(
             level.label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (isSevere) Color.White else extras.inkMuted,
+            color = if (picked) Color.White else extras.inkMuted,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         )
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun SurveyScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    SurveyScreen(onSubmit = { _, _, _ -> })
 }

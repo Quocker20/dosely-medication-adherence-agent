@@ -31,36 +31,47 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.remindrx.app.data.MockRepository
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 import kotlinx.coroutines.delay
 
 private const val HOLD_MILLIS = 3000
 
 /**
- * Hold-to-confirm is deliberate: a plain tap SOS button is a false-alarm
- * risk for patients with reduced dexterity. 3s matches the mockup spec.
+ * Holding avoids accidental SOS events. The screen only reports the state of
+ * the backend alert; it does not imply a phone call, GPS sharing, or direct
+ * delivery to a relative.
  */
 @Composable
-fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
+fun SosScreen(
+    isSending: Boolean = false,
+    isSent: Boolean = false,
+    error: String? = null,
+    onTriggered: () -> Unit,
+    onCancel: () -> Unit,
+) {
     val extras = LocalRemindRxColors.current
     var pressed by remember { mutableStateOf(false) }
-    var triggered by remember { mutableStateOf(false) }
+    var requested by remember { mutableStateOf(false) }
+    val canTrigger = !requested && !isSending && !isSent
     val progress by animateFloatAsState(
-        targetValue = if (pressed && !triggered) 1f else 0f,
+        targetValue = if (pressed && canTrigger) 1f else 0f,
         animationSpec = if (pressed) tween(HOLD_MILLIS, easing = LinearEasing) else tween(150),
         label = "sos-hold",
     )
 
-    LaunchedEffect(pressed) {
-        if (pressed) {
+    LaunchedEffect(pressed, canTrigger) {
+        if (pressed && canTrigger) {
             delay(HOLD_MILLIS.toLong())
-            triggered = true
+            if (pressed) {
+                requested = true
+                pressed = false
+                onTriggered()
+            }
         }
     }
 
-    LaunchedEffect(triggered) {
-        if (triggered) onTriggered()
+    LaunchedEffect(error) {
+        if (error != null) requested = false
     }
 
     Box(
@@ -78,8 +89,8 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
                     .size(168.dp)
                     .background(Color.White.copy(alpha = 0.14f), CircleShape)
                     .padding(23.dp)
-                    .pointerInput(triggered) {
-                        if (!triggered) {
+                    .pointerInput(canTrigger) {
+                        if (canTrigger) {
                             detectTapGestures(
                                 onPress = {
                                     pressed = true
@@ -110,12 +121,16 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            if (triggered) "ĐANG GỌI" else "SOS",
+                            when {
+                                isSent -> "ĐÃ GỬI"
+                                requested || isSending -> "ĐANG GỬI"
+                                else -> "SOS"
+                            },
                             style = MaterialTheme.typography.headlineMedium,
                             color = extras.danger,
                         )
                         Text(
-                            if (triggered) "Chị Hoa..." else "GIỮ ĐỂ GỌI",
+                            if (isSent) "CẢNH BÁO SOS" else if (requested || isSending) "VUI LÒNG ĐỢI" else "GIỮ ĐỂ GỬI",
                             style = MaterialTheme.typography.labelSmall,
                             color = extras.danger,
                             fontWeight = FontWeight.Bold,
@@ -125,22 +140,40 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
             }
 
             Text(
-                if (triggered) "Đang gọi khẩn cấp và gửi vị trí" else "Giữ nút 3 giây để gọi khẩn cấp",
+                when {
+                    isSent -> "Cảnh báo SOS đã được gửi tới hệ thống"
+                    requested || isSending -> "Đang gửi cảnh báo SOS…"
+                    else -> "Giữ nút 3 giây để gửi cảnh báo SOS"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 20.dp),
             )
             Text(
-                "Sẽ gọi: ${MockRepository.emergencyContact.name} (${MockRepository.emergencyContact.relation})\nkèm vị trí hiện tại của bạn",
+                if (isSent) {
+                    "Hệ thống đã ghi nhận cảnh báo. Ứng dụng không tự gọi cấp cứu hoặc chia sẻ vị trí."
+                } else {
+                    "Yêu cầu sẽ được chuyển tới hệ thống chăm sóc sau khi bạn xác nhận."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.Normal,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            error?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
             Text(
-                "Huỷ",
+                if (isSent) "Đóng" else "Huỷ",
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White,
                 modifier = Modifier
@@ -149,4 +182,10 @@ fun SosScreen(onTriggered: () -> Unit, onCancel: () -> Unit) {
             )
         }
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun SosScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    SosScreen(onTriggered = {}, onCancel = {})
 }

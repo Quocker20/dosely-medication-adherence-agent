@@ -201,3 +201,14 @@ fun LoginScreen(
         }
     }
 }
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun LoginScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    LoginScreen(
+        isLoading = false,
+        error = null,
+        onInputChanged = {},
+        onLogin = { _, _ -> },
+    )
+}

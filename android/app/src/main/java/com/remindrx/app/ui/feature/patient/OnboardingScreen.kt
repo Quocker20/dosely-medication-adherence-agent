@@ -10,8 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Restaurant
@@ -20,25 +21,46 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.ui.components.PrimaryButton
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
+private val onboardingRoutineDefaults = listOf(
+    RoutineItem("wake_time", "Thức dậy", "06:30"),
+    RoutineItem("breakfast_time", "Ăn sáng", "07:00"),
+    RoutineItem("lunch_time", "Ăn trưa", "11:30"),
+    RoutineItem("dinner_time", "Ăn tối", "18:00"),
+    RoutineItem("sleep_time", "Đi ngủ", "22:00"),
+)
+
+/**
+ * Onboarding only captures routine times. Patient identity/profile data is
+ * intentionally absent because it is created by the care team before login.
+ */
 @Composable
 fun OnboardingScreen(
     routine: List<RoutineItem>,
-    isLoading: Boolean,
+    isSaving: Boolean,
     error: String?,
-    onDone: () -> Unit,
+    onInputChanged: () -> Unit,
+    onSaveRoutine: (List<RoutineItem>) -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
+    var editedRoutine by remember(routine) { mutableStateOf(routine.withRequiredOnboardingItems()) }
+    val canSave = !isSaving && editedRoutine.all { it.time.isValidOnboardingTime() }
 
     Column(
         modifier = Modifier
@@ -54,52 +76,72 @@ fun OnboardingScreen(
                     modifier = Modifier
                         .weight(1f)
                         .height(4.dp)
-                        .background(if (index < 2) MaterialTheme.colorScheme.primary else extras.border, RoundedCornerShape(4.dp)),
+                        .background(
+                            if (index < 2) MaterialTheme.colorScheme.primary else extras.border,
+                            RoundedCornerShape(4.dp),
+                        ),
                 )
             }
         }
 
+        Text("Thiết lập\nthói quen sinh hoạt", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Cho chúng tôi biết\nthói quen của bạn",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        Text(
-            "Giúp lịch nhắc thuốc phù hợp với sinh hoạt hằng ngày.",
+            "Chọn 5 mốc giờ để lịch nhắc thuốc phù hợp với sinh hoạt hằng ngày.",
             style = MaterialTheme.typography.bodyMedium,
             color = extras.inkMuted,
             modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
         )
 
         Column(modifier = Modifier.weight(1f)) {
-            routine.forEachIndexed { index, item ->
-                RoutineRow(item, icon = iconFor(item.label))
-                if (index != routine.lastIndex) {
+            editedRoutine.forEachIndexed { index, item ->
+                EditableRoutineRow(
+                    item = item,
+                    icon = onboardingIconFor(item.key),
+                    onTimeChanged = { value ->
+                        editedRoutine = editedRoutine.toMutableList().also { items ->
+                            items[index] = item.copy(time = formatOnboardingTimeInput(value))
+                        }
+                        onInputChanged()
+                    },
+                )
+                if (index != editedRoutine.lastIndex) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(extras.border))
                 }
             }
         }
 
-        if (isLoading) {
-            Text("Đang tải lịch sinh hoạt…", style = MaterialTheme.typography.bodyMedium, color = extras.inkMuted)
+        error?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = extras.danger,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
-        if (error != null) {
-            Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
-        }
-        PrimaryButton("Lưu & tạo lịch uống thuốc", onClick = onDone, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))
+        PrimaryButton(
+            text = if (isSaving) "Đang lưu và tạo lịch…" else "Lưu & tạo lịch uống thuốc",
+            onClick = { onSaveRoutine(editedRoutine) },
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            enabled = canSave,
+        )
     }
 }
 
-private fun iconFor(label: String): ImageVector = when (label) {
-    "Thức dậy" -> Icons.Filled.WbSunny
-    "Đi ngủ" -> Icons.Filled.Bedtime
+private fun onboardingIconFor(key: String): ImageVector = when (key) {
+    "wake_time" -> Icons.Filled.WbSunny
+    "sleep_time" -> Icons.Filled.Bedtime
     else -> Icons.Filled.Restaurant
 }
 
 @Composable
-private fun RoutineRow(item: RoutineItem, icon: ImageVector) {
+private fun EditableRoutineRow(
+    item: RoutineItem,
+    icon: ImageVector,
+    onTimeChanged: (String) -> Unit,
+) {
     val extras = LocalRemindRxColors.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 13.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
@@ -113,16 +155,47 @@ private fun RoutineRow(item: RoutineItem, icon: ImageVector) {
             }
         }
         Text(item.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Card(
+        OutlinedTextField(
+            value = item.time,
+            onValueChange = onTimeChanged,
+            modifier = Modifier.width(112.dp),
             shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = extras.surfaceAlt),
-        ) {
-            Text(
-                item.time,
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            )
-        }
+            textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            placeholder = { Text("HH:mm") },
+            isError = item.time.length == 5 && !item.time.isValidOnboardingTime(),
+            singleLine = true,
+        )
     }
+}
+
+private fun List<RoutineItem>.withRequiredOnboardingItems(): List<RoutineItem> {
+    val byKey = associateBy(RoutineItem::key)
+    return onboardingRoutineDefaults.map { default ->
+        val existing = byKey[default.key]
+        default.copy(time = existing?.time?.take(5)?.takeIf { it.isNotBlank() } ?: default.time)
+    }
+}
+
+private fun formatOnboardingTimeInput(value: String): String {
+    val digits = value.filter(Char::isDigit).take(4)
+    return if (digits.length <= 2) digits else "${digits.take(2)}:${digits.drop(2)}"
+}
+
+private fun String.isValidOnboardingTime(): Boolean {
+    if (!matches(Regex("\\d{2}:\\d{2}"))) return false
+    val (hour, minute) = split(':').map(String::toInt)
+    return hour in 0..23 && minute in 0..59
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun OnboardingScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    OnboardingScreen(
+        routine = com.remindrx.app.ui.preview.previewRoutine,
+        isSaving = false,
+        error = null,
+        onInputChanged = {},
+        onSaveRoutine = {},
+    )
 }

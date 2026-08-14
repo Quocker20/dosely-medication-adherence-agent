@@ -45,8 +45,6 @@ import com.remindrx.app.data.DosePeriod
 import com.remindrx.app.data.DoseStatus
 import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.MealRelation
-import com.remindrx.app.data.MockRepository
-import com.remindrx.app.ui.components.AlertBellButton
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.PrimaryButton
 import com.remindrx.app.ui.components.StatusChip
@@ -374,6 +372,7 @@ private fun buildInsights(doses: List<DoseToday>, nextDose: DoseToday?): List<Da
 
     val insights = mutableListOf<DashboardInsight>()
     val skippedCount = doses.count { it.status == DoseStatus.SKIPPED }
+    val missedCount = doses.count { it.status == DoseStatus.MISSED }
     val lateCount = doses.count { it.status == DoseStatus.LATE }
     val snoozedDose = doses.firstOrNull { it.status == DoseStatus.SNOOZED }
 
@@ -381,6 +380,13 @@ private fun buildInsights(doses: List<DoseToday>, nextDose: DoseToday?): List<Da
         insights += DashboardInsight(
             title = "$skippedCount cữ thuốc đã bị bỏ qua",
             message = "Nếu bạn hết thuốc hoặc cảm thấy khó chịu, hãy liên hệ bác sĩ để được hỗ trợ.",
+            tone = InsightTone.DANGER,
+        )
+    }
+    if (missedCount > 0) {
+        insights += DashboardInsight(
+            title = "$missedCount cữ thuốc đã bị lỡ",
+            message = "Không tự ý uống bù hoặc gấp đôi liều; hãy làm theo hướng dẫn của bác sĩ.",
             tone = InsightTone.DANGER,
         )
     }
@@ -442,7 +448,7 @@ private fun DashboardHeader() {
         verticalAlignment = Alignment.Top,
     ) {
         Column {
-            Text("Chào bác ${MockRepository.PATIENT_NAME}", style = MaterialTheme.typography.titleLarge)
+            Text("Chào bác", style = MaterialTheme.typography.titleLarge)
             Text(
                 today,
                 style = MaterialTheme.typography.labelMedium,
@@ -451,7 +457,6 @@ private fun DashboardHeader() {
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-        AlertBellButton(unreadCount = MockRepository.UNREAD_ALERTS_COUNT, onClick = {})
     }
 }
 
@@ -521,4 +526,18 @@ private fun AdherenceCard(takenCount: Int, totalCount: Int, adherenceRate: Int) 
             }
         }
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun DashboardScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    DashboardScreen(
+        doses = com.remindrx.app.ui.preview.previewDoses,
+        adherenceRate = 83,
+        isLoading = false,
+        error = null,
+        onRetry = {},
+        onDoseAction = { _, _, _ -> },
+        onOpenDose = {},
+    )
 }

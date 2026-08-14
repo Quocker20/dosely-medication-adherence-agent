@@ -1,6 +1,14 @@
 package com.remindrx.app.data.remote
 
-// Khớp src/modules/patients/schemas.py — thời gian gửi/nhận dạng "HH:mm".
+/**
+ * Wire models for the patient-facing FastAPI routes.
+ *
+ * Gson's LOWER_CASE_WITH_UNDERSCORES policy converts these camelCase names to
+ * the snake_case used by Pydantic. Map keys are deliberately written in their
+ * wire form because Gson naming policies do not transform map keys.
+ */
+
+// Patients / routine
 
 data class UpdateRoutineRequestDto(
     val wakeTime: String? = null,
@@ -21,13 +29,19 @@ data class PatientRoutineResponseDto(
     val updatedAt: String,
 )
 
-// Khớp src/modules/agents/schemas.py:ActiveScheduleResponse — doses là danh
-// sách dict thô ở backend (schema.md §6.4); model hoá thành DTO cụ thể cho
-// an toàn kiểu dữ liệu ở phía Android.
+// Schedules / agent runs
+
 data class DoseDto(
     val scheduledDoseId: String,
+    val prescriptionItemId: String,
+    val medicationId: String?,
     val medicationName: String,
     val currentScheduledAt: String,
+    // Nullable for schedules generated before backend migration 0011.
+    val doseSlot: String?,
+    val doseValue: Double?,
+    val doseUnit: String?,
+    val mealRelation: String?,
     val status: String,
     val snoozeCount: Int? = null,
 )
@@ -35,10 +49,32 @@ data class DoseDto(
 data class ScheduleResponseDto(
     val patientId: String,
     val date: String,
-    val doses: List<DoseDto>,
+    val doses: List<DoseDto> = emptyList(),
 )
 
-// Khớp src/modules/prescriptions/schemas.py
+data class RescheduleRequestDto(val reason: String? = null)
+
+data class AgentRunAsyncResponseDto(
+    val agentRunId: String,
+    val status: String,
+    val message: String,
+)
+
+data class AgentRunStatusResponseDto(
+    val id: String,
+    val agentType: String,
+    val patientId: String,
+    val prescriptionId: String?,
+    val triggerType: String,
+    val graphVersion: String,
+    val status: String,
+    val latencyMs: Int?,
+    val errorCode: String?,
+    val generatedDoseCount: Int?,
+    val createdAt: String,
+)
+
+// Prescriptions / medication catalog
 
 data class PrescriptionItemDto(
     val id: String,
@@ -52,14 +88,17 @@ data class PrescriptionItemDto(
     val bedtimeDose: Double?,
     val route: String,
     val mealRelation: String?,
+    val minimumIntervalMinutes: Int?,
     val startDate: String,
     val endDate: String?,
     val instructions: String?,
+    val createdAt: String,
 )
 
 data class PrescriptionDto(
     val id: String,
     val patientId: String,
+    val doctorId: String?,
     val status: String,
     val diagnosisNote: String?,
     val approvedAt: String?,
@@ -67,8 +106,20 @@ data class PrescriptionDto(
     val items: List<PrescriptionItemDto> = emptyList(),
 )
 
+data class MedicationDetailResponseDto(
+    val id: String,
+    val name: String,
+    val composition: String?,
+    val manufacturer: String?,
+    val uses: String?,
+    val sideEffects: String?,
+    val imageUrl: String?,
+    val sourceName: String,
+    val isActive: Boolean,
+)
+
 data class PageResponseDto<T>(
-    val content: List<T>,
+    val content: List<T> = emptyList(),
     val pageNo: Int,
     val pageSize: Int,
     val totalElements: Int,
@@ -76,44 +127,94 @@ data class PageResponseDto<T>(
     val last: Boolean,
 )
 
-// Slice 7 (api-contract.md) — CHƯA có route thật trên backend (không module
-// nào implement adherence/health-surveys/sos/alerts). Gọi theo đúng hợp đồng
-// đã tài liệu hoá; sẽ 404 cho tới khi backend bổ sung, và lỗi đó đã được
-// PatientViewModel bắt + hiển thị thông báo tiếng Việt (không crash app).
+// Caregivers
 
-data class RecordDoseActionRequestDto(val action: String, val note: String? = null)
+data class CreateCaregiverLinkRequestDto(
+    val caregiverPhone: String,
+    val relationship: String? = null,
+    val channels: List<String> = listOf("APP_NOTIFICATION"),
+)
+
+data class CaregiverLinkDetailResponseDto(
+    val id: String,
+    val patientId: String,
+    val caregiverUserId: String,
+    val relationship: String?,
+    val channels: List<String> = emptyList(),
+    val status: String,
+    val createdAt: String,
+    val tempPassword: String?,
+)
+
+data class MessageResponseDto(val message: String)
+
+// Adherence
+
+data class RecordDoseActionRequestDto(
+    val action: String,
+    val actionSource: String = "PATIENT_MOBILE_APP",
+    val payload: Map<String, Any?> = emptyMap(),
+)
 
 data class AdherenceLogDto(
     val id: String,
-    val scheduledDoseId: String,
+    val scheduledDoseId: String?,
+    val patientId: String,
     val action: String,
-    val note: String?,
-    val loggedAt: String,
+    val performedAt: String,
+    val actionSource: String,
+    val payload: Map<String, Any?> = emptyMap(),
+    val idempotencyKey: String?,
 )
 
 data class AdherenceSummaryDto(
     val patientId: String,
-    val adherenceRate: Int,
+    val fromDate: String,
+    val toDate: String,
+    val adherenceRate: Float,
+    val totalDoses: Int,
+    val takenDoses: Int,
+    val skippedDoses: Int,
+    val missedDoses: Int,
+)
+
+// Daily health survey
+
+data class SymptomEntryDto(
+    val symptomCode: String,
+    val severity: String,
+    val description: String? = null,
 )
 
 data class SubmitHealthSurveyRequestDto(
-    val mood: Int,
-    val symptoms: List<String>,
-    val severity: String,
+    val surveyDate: String,
+    val answersJson: Map<String, Any?>,
+    val symptoms: List<SymptomEntryDto> = emptyList(),
 )
 
 data class HealthSurveyDto(
     val id: String,
     val patientId: String,
-    val mood: Int,
-    val symptoms: List<String>,
-    val severity: String,
+    val surveyDate: String,
+    val status: String,
+    val submittedAt: String?,
 )
 
-data class TriggerSosRequestDto(val note: String?, val shareLocation: Boolean)
+// SOS
+
+data class TriggerSosRequestDto(
+    val message: String?,
+    val metadata: Map<String, Any?> = emptyMap(),
+)
 
 data class AlertDto(
     val id: String,
     val patientId: String,
-    val state: String,
+    val assignedDoctorId: String?,
+    val triggeredByType: String,
+    val alertType: String,
+    val severity: String,
+    val status: String,
+    val message: String?,
+    val createdAt: String,
 )
