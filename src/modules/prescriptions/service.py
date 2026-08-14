@@ -3,6 +3,8 @@ import math
 import secrets
 import string
 import uuid
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from typing import Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +18,7 @@ from src.common.exceptions import (
 from src.common.schemas import PageResponse
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
+from src.modules.agents.repository import ScheduledDoseRepository
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
 from src.modules.patients.repository import PatientRepository
@@ -93,6 +96,7 @@ class PrescriptionService:
         medication_repository: Optional[MedicationRepository] = None,
         auth_repository: Optional[AuthRepository] = None,
         patient_repository: Optional[PatientRepository] = None,
+        scheduled_dose_repository: Optional[ScheduledDoseRepository] = None,
     ) -> None:
         self._db = db
         self._rx_repo = prescription_repository
@@ -101,6 +105,7 @@ class PrescriptionService:
         self._medication_repo = medication_repository or MedicationRepository(db)
         self._auth_repo = auth_repository or AuthRepository(db)
         self._patient_repo = patient_repository or PatientRepository(db)
+        self._dose_repo = scheduled_dose_repository or ScheduledDoseRepository(db)
 
     @staticmethod
     def _generate_temp_pin() -> str:
@@ -389,6 +394,16 @@ class PrescriptionService:
                 await self._raise_not_owner_or_wrong_status(
                     prescription_id, doctor_id, _CANCELLABLE_STATUSES
                 )
+            # Without this, already-generated future PENDING doses for this
+            # prescription sit untouched — the missed-dose scan
+            # (MissedDoseScanService) would eventually mark them MISSED and
+            # raise a Red Alert for medication the patient is no longer even
+            # supposed to take. Scoped to this prescription only, not the
+            # whole patient — other still-active prescriptions' doses must
+            # survive (unlike reschedule's delete_future_pending).
+            await self._dose_repo.delete_future_pending_for_prescription(
+                prescription_id, now=datetime.now(dt_timezone.utc)
+            )
             await self._audit_repo.create_audit_log(
                 action="CANCEL_PRESCRIPTION",
                 entity_type="PRESCRIPTION",

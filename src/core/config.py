@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     min_dose_gap_minutes: int = Field(default=240, ge=0, le=1440)
     # D-01 chưa chốt (Brief "> 3" vs PRD "3") — baseline theo PRD, đổi bằng env.
     missed_dose_alert_threshold: int = Field(default=3, ge=1, le=10)
+    # Missed-dose scan job (Celery Beat) — see prbm.md #1 / planner.py trigger 1.
+    missed_dose_overdue_minutes: int = Field(default=60, ge=1, le=1440)
+    missed_dose_scan_interval_minutes: int = Field(default=15, ge=1, le=1440)
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     # Slice 6: rolling generation window. Bounds scheduled_doses row count for
     # open-ended prescriptions (nullable end_date) — a Beat job tops this up

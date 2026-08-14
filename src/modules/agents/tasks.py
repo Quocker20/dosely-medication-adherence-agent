@@ -18,8 +18,9 @@ from sqlalchemy.pool import NullPool
 
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
+from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
-from src.modules.agents.service import SchedulingService
+from src.modules.agents.service import MissedDoseScanService, SchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +50,26 @@ async def _execute(run_id: str, patient_id: str, is_reschedule: bool) -> None:
 @celery_app.task(name="agents.generate_schedule")
 def generate_schedule_task(run_id: str, patient_id: str, is_reschedule: bool) -> None:
     asyncio.run(_execute(run_id, patient_id, is_reschedule))
+
+
+async def _execute_missed_dose_scan() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(
+        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
+    )
+    try:
+        async with session_factory() as session:
+            service = MissedDoseScanService(
+                db=session,
+                scheduled_dose_repository=ScheduledDoseRepository(session),
+                alert_repository=AlertRepository(session),
+            )
+            await service.run_scan()
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="agents.scan_missed_doses")
+def scan_missed_doses_task() -> None:
+    asyncio.run(_execute_missed_dose_scan())
