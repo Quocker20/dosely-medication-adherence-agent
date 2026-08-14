@@ -359,7 +359,18 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `generated_dose_count` (Optional[int]): Số lượng cữ uống thuốc đã được tự động sinh ra.
   * `created_at` (datetime): Thời điểm chạy.
 
-### 6.4 ActiveScheduleResponse
+### 6.4 ChatRequest / ChatResponse / VoiceChatResponse
+* **Mục đích**: Trao đổi hội thoại giữa bệnh nhân và AI agent (`POST /chat`, `POST /chat/voice`).
+* **Module**: `src.modules.agents.schemas`
+* **Ràng buộc định danh**: `ChatRequest` **KHÔNG** có trường `patient_id`. Service luôn lấy `patient_id` từ claim `sub` của access token. Lý do: tool của agent có quyền ghi (`record_dose_action`, `trigger_red_alert`), nên nhận `patient_id` từ body sẽ mở đường ghi dữ liệu sang hồ sơ bệnh nhân khác. Trường thừa gửi kèm trong body bị bỏ qua.
+* **Cấu trúc thuộc tính**:
+  * `ChatRequest.message` (str, Field min_length=1, max_length=5000): Tin nhắn từ bệnh nhân.
+  * `ChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `VoiceChatResponse.transcript` (str): Văn bản nhận dạng từ giọng nói.
+  * `VoiceChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `VoiceChatResponse.audio_base64` (Optional[str]): Phản hồi dạng giọng nói (mp3, base64). `null` khi TTS lỗi (fail-open).
+
+### 6.5 ActiveScheduleResponse
 * **Mục đích**: Trả về danh sách các cữ uống thuốc cụ thể trong ngày (`scheduled_doses`) của bệnh nhân.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
@@ -424,11 +435,14 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `submitted_at` (datetime): Thời điểm nộp khảo sát.
 
 ### 7.6 TriggerSosRequest
-* **Mục đích**: Tiếp nhận tín hiệu cấp cứu một chạm (SOS Button) khẩn cấp từ bệnh nhân.
+* **Mục đích**: Tiếp nhận tín hiệu cấp cứu khẩn cấp cho bệnh nhân. Endpoint này phục vụ **hai nguồn**: bệnh nhân bấm nút SOS một chạm, và AI agent phát hiện triệu chứng nặng trong hội thoại (`trigger_red_alert`). Cả hai đều chạy dưới token của chính bệnh nhân nên RBAC không đổi.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
   * `message` (Optional[str]): Thông điệp khẩn cấp hoặc mô tả ngắn sự cố.
   * `metadata` (Dict[str, Any], default={}): Metadata vị trí GPS (`location_lat`, `location_lng`).
+  * `triggered_by_type` (Literal["SOS_BUTTON","SEVERE_SYMPTOM","MISSED_DOSES"], default="SOS_BUTTON"): Nguồn kích hoạt, ghi thẳng vào cột `alerts.triggered_by_type`. Không có trường này thì cảnh báo do agent phát hiện bị ghi nhận như bệnh nhân bấm nút, và dashboard bác sĩ không phân biệt được. Giá trị khớp `ck_alerts_triggered_by_type` (migration `0009_slice7_adherence_alerts`).
+  * `severity` (Literal["CRITICAL","HIGH","MEDIUM"], default="CRITICAL"): Mức độ nghiêm trọng, ghi vào cột `alerts.severity`. Giá trị khớp `ck_alerts_severity`.
+* **Ghi chú tương thích**: hai trường trên đều có default đúng bằng hành vi cũ (`SOS_BUTTON`/`CRITICAL`), nên client đang chạy không cần sửa gì.
 
 ### 7.7 ResolveAlertRequest
 * **Mục đích**: Bác sĩ gửi phương án xử lý để Đóng cảnh báo (`RESOLVED`).

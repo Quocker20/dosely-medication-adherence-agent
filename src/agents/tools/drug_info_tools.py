@@ -2,11 +2,12 @@
 
 STUB. This needs a real RAG pipeline (Chroma collection populated with drug
 info, `text-embedding-3-small` embeddings, similarity-threshold grounding
-per cong_viec.md §4.3) — none of that exists in this repo yet, only the
-`chroma_persist_dir` config value. Building the ingestion pipeline is a
-separate, larger piece of work (cong_viec.md §5 P1 item 10: "Grounding
-threshold + citation check"), not something to fake inside a single tool
-function. Wire this up once the Chroma collection exists.
+per cong_viec.md §4.3) — none of that exists in this repo yet; there is no
+Chroma collection and no `chroma_persist_dir` setting in src/core/config.py.
+Building the ingestion pipeline is a separate, larger piece of work
+(cong_viec.md §5 P1 item 10: "Grounding threshold + citation check"), not
+something to fake inside a single tool function. Wire this up once the Chroma
+collection exists.
 """
 from __future__ import annotations
 

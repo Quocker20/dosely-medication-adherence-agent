@@ -55,3 +55,31 @@ class ActiveScheduleResponse(BaseModel):
     patient_id: uuid.UUID
     date: date
     doses: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ChatRequest(BaseModel):
+    """Request schema for POST /chat (text chat with the patient AI agent).
+
+    No patient_id field: the agent always acts on the authenticated caller's
+    own record, taken from the access token's `sub`. Accepting it from the
+    body would let any caller converse — and write dose actions / raise
+    alerts — as an arbitrary patient.
+    """
+
+    message: str = Field(..., min_length=1, max_length=5000, description="Tin nhắn từ bệnh nhân")
+
+
+class ChatResponse(BaseModel):
+    """Response schema for POST /chat."""
+
+    response: str = Field(..., description="Phản hồi từ agent")
+
+
+class VoiceChatResponse(BaseModel):
+    """Response schema for POST /chat/voice."""
+
+    transcript: str = Field(..., description="Văn bản nhận dạng được từ giọng nói của bệnh nhân")
+    response: str = Field(..., description="Phản hồi từ agent (dạng chữ)")
+    audio_base64: Optional[str] = Field(
+        None, description="Phản hồi dạng giọng nói (mp3, base64) — null nếu TTS lỗi (fail-open)"
+    )

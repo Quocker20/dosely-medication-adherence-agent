@@ -70,10 +70,20 @@ class HealthSurveyDetailResponse(BaseModel):
 
 
 class TriggerSosRequest(BaseModel):
-    """Request schema for POST /patients/{patient_id}/sos."""
+    """Request schema for POST /patients/{patient_id}/sos.
+
+    triggered_by_type/severity default to the SOS-button case, so an existing
+    client that sends neither keeps its current behaviour. They exist because
+    the agent raises alerts through this same endpoint after detecting a severe
+    symptom in chat: without them every such alert is filed as a button press,
+    and the doctor's dashboard cannot tell a tap from a detection. Values match
+    ck_alerts_triggered_by_type / ck_alerts_severity — no migration needed.
+    """
 
     message: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    triggered_by_type: Literal["SOS_BUTTON", "SEVERE_SYMPTOM", "MISSED_DOSES"] = "SOS_BUTTON"
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM"] = "CRITICAL"
 
 
 class ResolveAlertRequest(BaseModel):

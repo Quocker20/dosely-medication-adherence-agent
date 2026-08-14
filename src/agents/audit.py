@@ -2,9 +2,9 @@
 đầy đủ: input, tool calls, output, timestamp".
 
 Đây CHỈ là log cục bộ qua `logging`, KHÔNG phải ghi vào bảng `agent_runs`
-thật — chưa có endpoint/DB write path (xem src/agents/tools/agent_run_tools.py,
-cùng khoảng trống đã biết ở cong_viec.md §3 câu hỏi 1). Khi có endpoint
-thật, hàm log_turn() dưới đây là chỗ duy nhất cần sửa để ghi thật thay vì
+thật. Bảng đó do SchedulingService.execute_run ghi cho các lần chạy Planning/
+Rescheduling Agent chạy nền; turn hội thoại chưa có chỗ persist tương ứng.
+Khi có, hàm log_turn() dưới đây là chỗ duy nhất cần sửa để ghi thật thay vì
 log.
 
 Cố tình KHÔNG log nội dung tin nhắn gốc của bệnh nhân — cong_viec.md §4.5:

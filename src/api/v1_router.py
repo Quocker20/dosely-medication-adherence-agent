@@ -5,8 +5,7 @@ from src.modules.adherence.router import (
     dose_actions_router,
     patients_adherence_router,
 )
-from src.modules.agents.router import agent_runs_router, schedules_router
-from src.modules.agents.router import agent_runs_router, schedules_router, chat_router
+from src.modules.agents.router import agent_runs_router, chat_router, schedules_router
 from src.modules.auth.router import router as auth_router
 from src.modules.patients.router import router as patients_router
 from src.modules.patients.router import self_router as patients_self_router

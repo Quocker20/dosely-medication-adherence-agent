@@ -48,13 +48,15 @@ class Settings(BaseSettings):
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
-    # Speech (STT/TTS) — src/agents/services/speech.py
+    # Speech (STT/TTS) — src/modules/planning/core/speech.py
     stt_model: str = "whisper-1"
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
 
-    # Backend HTTP client cho agent tools — src/agents/services/backend_client.py
+    # Backend HTTP client cho agent tools — src/modules/planning/core/backend_client.py
     api_base_url: str = "http://localhost:8000/api/v1"
+    # Fallback identity chỉ dùng ngoài request (worker nền). Trong luồng chat,
+    # backend_client ưu tiên token của chính người gọi — xem src/core/security.py.
     api_service_token: str = ""
     api_timeout_seconds: int = 10
 
