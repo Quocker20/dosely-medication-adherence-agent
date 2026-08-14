@@ -308,17 +308,26 @@ class ScheduledDoseRepository:
         return [(row[0], row[1], row[2]) for row in result.all()]
 
     async def get_recent_dose_statuses(
-        self, patient_ids: List[uuid.UUID], lookback: int
+        self, patient_ids: List[uuid.UUID], lookback: int, before: datetime
     ) -> Dict[uuid.UUID, List[Dict[str, str]]]:
-        """For each patient_id, fetch their most recent `lookback` doses by
-        current_scheduled_at (ascending, as {"status": ...} dicts — feeds
+        """For each patient_id, fetch their most recent `lookback` doses at
+        or before `before` (ascending, as {"status": ...} dicts — feeds
         count_missed_dose_streak directly). One query for all affected
         patients via ROW_NUMBER() OVER (PARTITION BY patient_id ...), not one
         query per patient. `lookback` is meant to be
         settings.missed_dose_alert_threshold — we only ever need to know
         whether the *last N* doses are all SKIPPED/MISSED, so fetching
         exactly N rows/patient bounds this query regardless of history
-        length."""
+        length.
+
+        `before` (pass the scan's own "now") is required, not optional: a
+        patient's rolling schedule already has PENDING doses generated days
+        into the future (schedule_horizon_days), and ORDER BY
+        current_scheduled_at DESC ranks a distant future timestamp above any
+        past one — without this filter the "most recent N" doses would
+        actually be the *furthest-future* N, all still PENDING, which zeroes
+        out count_missed_dose_streak on the very first (still-PENDING)
+        element and masks a real streak sitting just before them."""
         if not patient_ids:
             return {}
         rn = (
@@ -336,7 +345,10 @@ class ScheduledDoseRepository:
                 ScheduledDose.current_scheduled_at,
                 rn,
             )
-            .where(ScheduledDose.patient_id.in_(patient_ids))
+            .where(
+                ScheduledDose.patient_id.in_(patient_ids),
+                ScheduledDose.current_scheduled_at <= before,
+            )
             .subquery()
         )
         stmt = (
