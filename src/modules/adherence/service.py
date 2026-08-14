@@ -15,6 +15,7 @@ from src.common.exceptions import (
     ValidationException,
 )
 from src.common.schemas import PageResponse
+from src.core.redis import publish_dashboard_event
 from src.modules.admin.repository import AuditLogRepository
 from src.modules.adherence.repository import (
     AdherenceLogRepository,
@@ -337,9 +338,9 @@ class AlertService:
             async with self._db.begin():
                 alert = await self._alert_repo.create_alert(
                     patient_id=patient_id,
-                    triggered_by_type="SOS_BUTTON",
+                    triggered_by_type=request.triggered_by_type,
                     alert_type="RED_ALERT",
-                    severity="CRITICAL",
+                    severity=request.severity,
                     message=request.message,
                     metadata=request.metadata,
                     idempotency_key=idempotency_key,
@@ -347,10 +348,18 @@ class AlertService:
         except IntegrityError:
             existing = await self._alert_repo.get_by_idempotency_key(idempotency_key)
             if existing is not None:
+                # Idempotent replay: the alert already reached the dashboard on
+                # the first attempt, so re-publishing would double it there.
                 return AlertDetailResponse.model_validate(existing)
             raise
 
-        return AlertDetailResponse.model_validate(alert)
+        response = AlertDetailResponse.model_validate(alert)
+        # After the commit, never inside it. A frame announcing a row that then
+        # rolled back would leave the portal showing an alert nobody can open,
+        # and publish failures must not turn a persisted safety alert into a
+        # 500 the caller would retry (publish_dashboard_event is fail-open).
+        await publish_dashboard_event("alert.opened", response.model_dump(mode="json"))
+        return response
 
     async def acknowledge_alert(
         self,
@@ -374,7 +383,9 @@ class AlertService:
                 ip_address=ip_address,
             )
 
-        return AlertDetailResponse.model_validate(alert)
+        response = AlertDetailResponse.model_validate(alert)
+        await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
+        return response
 
     async def resolve_alert(
         self,
@@ -404,7 +415,9 @@ class AlertService:
                 ip_address=ip_address,
             )
 
-        return AlertDetailResponse.model_validate(alert)
+        response = AlertDetailResponse.model_validate(alert)
+        await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
+        return response
 
     async def _raise_not_found_or_conflict(
         self, alert_id: uuid.UUID, already: Optional[str] = None

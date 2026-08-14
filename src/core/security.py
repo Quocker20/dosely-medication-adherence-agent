@@ -1,4 +1,6 @@
 import re
+from contextvars import ContextVar
+from contextvars import Token as ContextToken
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
@@ -156,3 +158,38 @@ def require_roles(*allowed_roles: str) -> Callable:
         return payload
 
     return role_checker
+
+
+# ---------------------------------------------------------------------------
+# Actor token propagation
+# ---------------------------------------------------------------------------
+# The LangGraph agent runs in-process but reaches the backend over HTTP loopback
+# (src/modules/planning/core/backend_client.py). Those calls hit the same
+# require_roles guards as any client, so they need a real caller identity — a
+# static service token would need a role outside ck_users_role and would be able
+# to write any patient's data, which is exactly what the HITL boundary forbids.
+#
+# The caller's own bearer token is therefore carried through a ContextVar rather
+# than through AgentState: anything placed in AgentState ends up in the message
+# history and in the LLM prompt, where the model could echo it back in a reply.
+# A ContextVar keeps the credential out of the model's reach entirely while
+# staying automatically scoped to the request task.
+_actor_token: ContextVar[Optional[str]] = ContextVar("actor_token", default=None)
+
+
+def set_actor_token(token: Optional[str]) -> ContextToken:
+    """Bind the caller's bearer token for the current async context. Returns a
+    reset handle the caller MUST pass to reset_actor_token() when done."""
+    return _actor_token.set(token)
+
+
+def reset_actor_token(handle: ContextToken) -> None:
+    """Restore the previous actor token — always call in a finally block so a
+    failed turn cannot leak its credential into the next one."""
+    _actor_token.reset(handle)
+
+
+def get_actor_token() -> Optional[str]:
+    """Bearer token of the caller whose request is currently being served, or
+    None outside a request (e.g. a Celery worker)."""
+    return _actor_token.get()

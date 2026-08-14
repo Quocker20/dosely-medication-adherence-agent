@@ -12,8 +12,14 @@ services:
     env_file:
       - .env
     environment:
+      # .env holds the host-side URLs so pytest/alembic work outside a
+      # container; in-network hostnames are re-applied here.
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./data:/app/data
     depends_on:
@@ -43,7 +49,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-remindrx_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docs/database_v1_init.sql:/docker-entrypoint-initdb.d/init.sql # Tự động init schema khi chạy lần đầu
+      - ./docs/database_v1_init.sql:/docker-entrypoint-initdb.d/init.sql # Tự động init 21 bảng khi chạy lần đầu
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-remindrx} -d ${POSTGRES_DB:-remindrx_db}" ]
       interval: 10s
@@ -75,8 +81,39 @@ services:
     env_file:
       - .env
     environment:
+      # Same override as the backend service — see the comment there.
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 5. Celery Beat Service (Lên lịch quét missed-dose định kỳ — Red Alert Trigger 1)
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: remindrx_beat
+    command: celery -A src.core.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      # Same override as the backend/worker services — see the comment there.
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./data:/app/data
     depends_on:

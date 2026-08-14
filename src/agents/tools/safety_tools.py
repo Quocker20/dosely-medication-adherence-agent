@@ -2,15 +2,19 @@
 quan trọng nhất của sản phẩm". Two pure-code triggers plus one LLM-assisted
 trigger, all funneling into `trigger_red_alert`.
 
-IMPORTANT — send path is stubbed. api-contract.md has no endpoint for
-code/agent-initiated alert creation. The closest matches are
-`POST /patients/{id}/sos` (patient-initiated, TriggerSosRequest) and
-`GET /alerts` (doctor-only listing) — neither fits "system detects missed
-doses / severe symptom keyword and creates an alert". This is the exact gap
-cong_viec.md §3 flags as unresolved. Confirm the real endpoint with the
-backend team, then fill in `_send_alert` — everything else here (keyword
-matching, missed-dose streak, fail-open error handling) is real, working
-logic, not a stub.
+Send path goes through `POST /patients/{id}/sos` (TriggerSosRequest), which
+now carries `triggered_by_type` and `severity` so an agent-detected alert is
+distinguishable from a button press. api-contract.md still has no dedicated
+endpoint for code-initiated alerts; sharing the SOS route is the agreed interim
+(the call runs under the patient's own token, so RBAC is unchanged).
+
+Trigger 1 (missed-dose streak) is wired: src/modules/agents/service.py's
+MissedDoseScanService calls count_missed_dose_streak below on a Celery Beat
+schedule (settings.missed_dose_scan_interval_minutes). It writes alerts via
+AlertRepository directly rather than through trigger_red_alert/_send_alert —
+that HTTP path runs under a patient's own bearer token (see backend_client's
+get_actor_token), which a scheduled background job scanning every patient
+does not have.
 """
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ import logging
 
 from langchain_core.tools import tool
 
+from src.agents.tools.idempotency import alert_key
 from src.modules.planning.core.backend_client import post
 
 logger = logging.getLogger("safety")
@@ -90,9 +95,6 @@ SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "uống quá liều thuốc",
 )
 
-MISSED_DOSE_ALERT_THRESHOLD = 3
-
-
 def match_severe_symptom_keyword(text: str) -> str | None:
     """Lớp 1 (rule-based, LUÔN chạy trước LLM) — khớp câu mô tả triệu chứng
     của bệnh nhân với danh sách từ khóa nguy hiểm. Thuần code, không gọi LLM,
@@ -132,14 +134,39 @@ def count_missed_dose_streak(scheduled_doses: list[dict]) -> int:
     return streak
 
 
+def _triggered_by_type(reason: str) -> str:
+    """Map the caller's reason onto ck_alerts_triggered_by_type.
+
+    The reason strings are the ones the three triggers already pass in
+    (see trigger_red_alert's docstring); anything unrecognised falls back to
+    SOS_BUTTON, the value this call used unconditionally before.
+    """
+    upper = reason.upper()
+    if upper.startswith("SEVERE_SYMPTOM"):
+        return "SEVERE_SYMPTOM"
+    if upper.startswith("MISSED_DOSES"):
+        return "MISSED_DOSES"
+    return "SOS_BUTTON"
+
+
 async def _send_alert(patient_id: str, reason: str, severity: str, evidence: str) -> dict:
     """Gửi alert bằng cách dùng chung API SOS của hệ thống.
     Đại diện cho bệnh nhân tạo tín hiệu khẩn cấp khi phát hiện qua chat.
+
+    severity và triggered_by_type đi vào đúng cột của bảng `alerts` thay vì bị
+    nhét vào chuỗi `message` — bác sĩ lọc được cảnh báo do agent phát hiện tách
+    khỏi cảnh báo do bệnh nhân bấm nút.
     """
     message = f"[{severity}] {reason} (Bằng chứng: {evidence})"
     return await post(
         f"/patients/{patient_id}/sos",
-        json={"message": message, "metadata": {"source": "agent_auto_detect"}},
+        json={
+            "message": message,
+            "metadata": {"source": "agent_auto_detect"},
+            "triggered_by_type": _triggered_by_type(reason),
+            "severity": severity,
+        },
+        headers={"Idempotency-Key": alert_key(patient_id, reason)},
     )
 
 

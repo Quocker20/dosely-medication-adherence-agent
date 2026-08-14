@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+from src.agents.tools.idempotency import dose_action_key
 from src.modules.planning.core.backend_client import BackendAPIError, post
 
 
@@ -67,6 +68,7 @@ async def record_dose_action(scheduled_dose_id: str, action: str, note: str = ""
                 "action_source": "AGENT",
                 "payload": payload,
             },
+            headers={"Idempotency-Key": dose_action_key(scheduled_dose_id, action)},
         )
     except BackendAPIError as e:
         return f"Không ghi nhận được: {e.detail}"
