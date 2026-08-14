@@ -82,6 +82,10 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (date) | 200 OK / ActiveScheduleResponse |
 | POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
+| POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |
+| POST | /chat/voice | Required (PATIENT) | multipart/form-data (audio: UploadFile) | 200 OK / VoiceChatResponse |
+
+**Chat AI notes.** Both endpoints act on the authenticated caller's own record: `patient_id` is read from the access token's `sub` and is never accepted from the request body or form. The agent's tools can record dose actions and raise alerts, so a caller-supplied id would be a write path into another patient's data. Both responses use the standard envelope like every other endpoint. `/chat/voice` returns `502` when the STT vendor fails and `422` when the audio yields an empty transcript; TTS failure is fail-open — the reply still returns `200` with `audio_base64: null`.
 
 ### SLICE 7: ADHERENCE LOGGING & SAFETY ALERTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |

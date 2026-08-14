@@ -2,7 +2,7 @@
 
 Đặt tên trường bám theo mục 7.4 (Data dictionary) và mục 8 (API spec) trong
 docs/RemindRx_Tong_Hop_Tai_Lieu.md. Không đưa logic nghiệp vụ vào đây —
-validator nằm ở src/agents/services/prescription_validator.py.
+validator nằm ở src/modules/planning/core/prescription_validator.py.
 """
 
 from __future__ import annotations

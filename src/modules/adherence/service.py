@@ -337,9 +337,9 @@ class AlertService:
             async with self._db.begin():
                 alert = await self._alert_repo.create_alert(
                     patient_id=patient_id,
-                    triggered_by_type="SOS_BUTTON",
+                    triggered_by_type=request.triggered_by_type,
                     alert_type="RED_ALERT",
-                    severity="CRITICAL",
+                    severity=request.severity,
                     message=request.message,
                     metadata=request.metadata,
                     idempotency_key=idempotency_key,
