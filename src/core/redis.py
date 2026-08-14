@@ -33,10 +33,30 @@ async def get_redis_client() -> aioredis.Redis:
 
 
 async def close_redis_connection() -> None:
-    """Close active Redis connection pool on app shutdown."""
+    """Release the Redis pool on app shutdown, never raising.
+
+    The client is a module-level singleton, so it binds to whichever event loop
+    first built it. Closing it from a different loop raises, and because this
+    runs inside the lifespan context that exception escapes as a failed
+    shutdown — the process reports a crash on the way out even though the app
+    ran fine. Nothing downstream can act on a failure here anyway: the process
+    is ending and the server closes the socket regardless.
+
+    The global is cleared in a finally so a failed close still leaves the next
+    get_redis_client() free to build a fresh client rather than handing back a
+    half-torn-down one.
+    """
     global redis_client
-    if redis_client is not None:
-        await redis_client.close()
+    if redis_client is None:
+        return
+    try:
+        # aclose() is the non-deprecated spelling in redis-py 5+; keep the old
+        # one as a fallback so a pinned 4.x install still shuts down cleanly.
+        closer = getattr(redis_client, "aclose", None) or redis_client.close
+        await closer()
+    except Exception:  # noqa: BLE001 — see docstring: shutdown must not raise
+        logger.warning("Could not close the Redis connection cleanly", exc_info=True)
+    finally:
         redis_client = None
 
 

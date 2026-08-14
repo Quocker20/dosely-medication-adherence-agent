@@ -44,6 +44,12 @@ class AuditLog(Base):
             "entity_type",
             text("created_at DESC"),
         ),
+        # Named to match what database_v1_init.sql already created. Declaring
+        # it via `index=True` on the column instead would have SQLAlchemy
+        # generate the name `ix_audit_logs_actor_user_id`, which autogenerate
+        # then sees as missing and proposes adding — a second index over the
+        # same column.
+        Index("idx_audit_logs_actor_user_id", "actor_user_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -56,7 +62,6 @@ class AuditLog(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)

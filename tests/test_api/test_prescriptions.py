@@ -1,0 +1,531 @@
+"""Slice 5: prescriptions and their line items.
+
+The Human-in-the-Loop rule lives here: only the prescribing doctor may write,
+and an APPROVED prescription is frozen. These tests pin both, plus the
+find-or-create-patient-by-phone flow that POST /prescriptions runs.
+"""
+import uuid
+from datetime import date, timedelta
+
+import pytest
+import pytest_asyncio
+from sqlalchemy import delete, select
+
+from src.core.database import AsyncSessionLocal, engine
+from src.core.security import hash_password
+from src.modules.admin.models import DoctorProfile
+from src.modules.admin.repository import DoctorRepository
+from src.modules.agents.models import ScheduledDose
+from src.modules.auth.models import User
+from src.modules.auth.repository import AuthRepository
+from src.modules.patients.models import PatientProfile
+from src.modules.patients.repository import PatientRepository
+from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
+
+DOCTOR_PHONE = "+84900800001"
+OTHER_DOCTOR_PHONE = "+84900800002"
+PATIENT_PHONE = "+84900800010"
+OTHER_PATIENT_PHONE = "+84900800012"
+NEW_PATIENT_PHONE = "+84900800011"
+PIN = "123456"
+MED_SOURCE_KEY = "TEST-SLICE5-MED"
+
+_TEST_PHONES = [
+    DOCTOR_PHONE,
+    OTHER_DOCTOR_PHONE,
+    PATIENT_PHONE,
+    OTHER_PATIENT_PHONE,
+    NEW_PATIENT_PHONE,
+]
+
+
+async def _purge() -> None:
+    """Clear everything hanging off this module's fixed phone numbers.
+
+    Runs on both sides of every test rather than in a finally block: a test
+    that dies while building fixtures never reaches its own cleanup, and the
+    leftover User rows then collide with users_phone_key on the next run,
+    turning one failure into a permanently red file.
+    """
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            ids = (
+                (await db.execute(select(User.id).where(User.phone.in_(_TEST_PHONES))))
+                .scalars()
+                .all()
+            )
+            if ids:
+                rx_ids = (
+                    (
+                        await db.execute(
+                            select(Prescription.id).where(
+                                Prescription.patient_id.in_(ids)
+                                | Prescription.doctor_id.in_(ids)
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                if rx_ids:
+                    item_ids = (
+                        (
+                            await db.execute(
+                                select(PrescriptionItem.id).where(
+                                    PrescriptionItem.prescription_id.in_(rx_ids)
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if item_ids:
+                        await db.execute(
+                            delete(ScheduledDose).where(
+                                ScheduledDose.prescription_item_id.in_(item_ids)
+                            )
+                        )
+                    await db.execute(
+                        delete(PrescriptionItem).where(
+                            PrescriptionItem.prescription_id.in_(rx_ids)
+                        )
+                    )
+                    await db.execute(delete(Prescription).where(Prescription.id.in_(rx_ids)))
+                await db.execute(delete(PatientProfile).where(PatientProfile.user_id.in_(ids)))
+                await db.execute(delete(DoctorProfile).where(DoctorProfile.user_id.in_(ids)))
+                await db.execute(delete(User).where(User.id.in_(ids)))
+            await db.execute(
+                delete(Medication).where(Medication.source_record_key == MED_SOURCE_KEY)
+            )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_slate():
+    """Fresh pool, then a clean slate, on both sides of every test.
+
+    The dispose has to come first: pytest-asyncio gives each test its own event
+    loop, and a pooled asyncpg connection opened under the previous one raises
+    "another operation is in progress" as soon as the purge query touches it.
+    """
+    await engine.dispose()
+    await _purge()
+    yield
+    await _purge()
+    await engine.dispose()
+
+
+async def _create_doctor(phone: str, name: str, license_no: str) -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            user = await AuthRepository(db).create_user(
+                phone=phone, hashed_password=hash_password(PIN), role="DOCTOR"
+            )
+            await DoctorRepository(db).create_doctor_profile(
+                user_id=user.id, name=name, license_no=license_no
+            )
+        return user.id
+
+
+async def _create_patient(phone: str, name: str) -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            user = await AuthRepository(db).create_user(
+                phone=phone, hashed_password=hash_password(PIN), role="PATIENT"
+            )
+            # Through the repository: timezone is NOT NULL with no server
+            # default, and the repository is where its value is decided.
+            await PatientRepository(db).create_patient_profile(user_id=user.id, name=name)
+        return user.id
+
+
+async def _create_medication(name: str = "Amlodipin 5mg") -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            med = Medication(
+                name=name,
+                composition="Amlodipine besylate 5mg",
+                uses="Hạ huyết áp",
+                source_name="TEST",
+                source_record_key=MED_SOURCE_KEY,
+                is_active=True,
+            )
+            db.add(med)
+            await db.flush()
+            return med.id
+
+
+async def _login(client, phone: str) -> dict[str, str]:
+    response = await client.post(
+        "/api/v1/auth/login", json={"phone": phone, "password": PIN}
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+def _item_payload(medication_id: uuid.UUID, **overrides) -> dict:
+    payload = {
+        "medication_id": str(medication_id),
+        "dose_unit": "VIEN",
+        "morning_dose": 1,
+        "evening_dose": 1,
+        "route": "ORAL",
+        "meal_relation": "AFTER_MEAL",
+        "start_date": date.today().isoformat(),
+        "end_date": (date.today() + timedelta(days=30)).isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# POST /prescriptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_requires_authentication(client):
+    response = await client.post("/api/v1/prescriptions", json={"phone": PATIENT_PHONE})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_patient_role(client):
+    """HITL: only a doctor may write a prescription."""
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    headers = await _login(client, PATIENT_PHONE)
+    response = await client.post(
+        "/api/v1/prescriptions", json={"phone": PATIENT_PHONE}, headers=headers
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_starts_as_draft_for_existing_patient(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json={
+            "phone": PATIENT_PHONE,
+            "diagnosis_note": "I10 - Tăng huyết áp",
+            "items": [_item_payload(med_id)],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    rx = data["prescription"]
+    assert rx["status"] == "DRAFT"
+    assert rx["patient_id"] == str(patient_id)
+    assert rx["approved_at"] is None
+    assert len(rx["items"]) == 1
+    # display_name is snapshotted server-side from the catalog, never client input.
+    assert rx["items"][0]["display_name"] == "Amlodipin 5mg"
+    # The patient already existed, so no account was provisioned.
+    assert data["temp_password"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_provisions_account_for_unknown_phone(client):
+    """Find-or-create: an unknown phone gets a PATIENT account in the same
+    transaction, and the one-time PIN comes back exactly once."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json={"phone": NEW_PATIENT_PHONE, "items": [_item_payload(med_id)]},
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert len(data["temp_password"]) == 6
+    assert data["temp_password"].isdigit()
+
+    async with AsyncSessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.phone == NEW_PATIENT_PHONE))
+        ).scalar_one()
+        assert user.role == "PATIENT"
+        assert str(user.id) == data["prescription"]["patient_id"]
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_unknown_medication(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json={"phone": PATIENT_PHONE, "items": [_item_payload(uuid.uuid4())]},
+        headers=headers,
+    )
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Approval and the frozen-after-approval rule
+# ---------------------------------------------------------------------------
+
+
+async def _draft_with_item(client, headers, med_id) -> dict:
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json={"phone": PATIENT_PHONE, "items": [_item_payload(med_id)]},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    return response.json()["data"]["prescription"]
+
+
+@pytest.mark.asyncio
+async def test_approve_stamps_time_and_freezes_the_prescription(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    approved = await client.post(
+        f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers
+    )
+    assert approved.status_code == 200
+    body = approved.json()["data"]
+    assert body["status"] == "APPROVED"
+    assert body["approved_at"] is not None
+
+    # Items are locked once approved — the whole point of the HITL boundary.
+    add_item = await client.post(
+        f"/api/v1/prescriptions/{draft['id']}/items",
+        json=_item_payload(med_id),
+        headers=headers,
+    )
+    assert add_item.status_code == 422
+
+    delete_item = await client.delete(
+        f"/api/v1/prescriptions/{draft['id']}/items/{draft['items'][0]['id']}",
+        headers=headers,
+    )
+    assert delete_item.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_approving_twice_is_rejected(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    first = await client.post(f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers)
+    assert first.status_code == 200
+    second = await client.post(f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers)
+    assert second.status_code in (409, 422)
+
+
+@pytest.mark.asyncio
+async def test_another_doctor_cannot_approve_or_edit(client):
+    """A doctor's write access is scoped to prescriptions they wrote."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_doctor(OTHER_DOCTOR_PHONE, "Dr Rx B", "LIC-RX-B")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+
+    owner_headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, owner_headers, med_id)
+
+    intruder_headers = await _login(client, OTHER_DOCTOR_PHONE)
+    approve = await client.post(
+        f"/api/v1/prescriptions/{draft['id']}/approve", headers=intruder_headers
+    )
+    assert approve.status_code in (403, 404)
+
+    update = await client.put(
+        f"/api/v1/prescriptions/{draft['id']}",
+        json={"diagnosis_note": "hijacked"},
+        headers=intruder_headers,
+    )
+    assert update.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_cancel_clears_future_pending_doses(client):
+    """A cancelled prescription must not leave doses behind for the
+    missed-dose scan to flag as MISSED later."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+    await client.post(f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers)
+
+    from datetime import datetime, timezone
+
+    future = datetime.now(timezone.utc) + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            db.add(
+                ScheduledDose(
+                    prescription_item_id=uuid.UUID(draft["items"][0]["id"]),
+                    patient_id=patient_id,
+                    original_scheduled_at=future,
+                    current_scheduled_at=future,
+                    status="PENDING",
+                )
+            )
+
+    cancelled = await client.post(
+        f"/api/v1/prescriptions/{draft['id']}/cancel",
+        json={"cancel_reason": "Đổi phác đồ"},
+        headers=headers,
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["data"]["status"] == "CANCELLED"
+
+    async with AsyncSessionLocal() as db:
+        remaining = (
+            await db.execute(
+                select(ScheduledDose).where(ScheduledDose.patient_id == patient_id)
+            )
+        ).scalars().all()
+    assert remaining == []
+
+
+# ---------------------------------------------------------------------------
+# Reading prescriptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_patient_can_read_own_prescriptions(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    await _draft_with_item(client, doctor_headers, med_id)
+
+    patient_headers = await _login(client, PATIENT_PHONE)
+    response = await client.get(
+        f"/api/v1/patients/{patient_id}/prescriptions", headers=patient_headers
+    )
+    assert response.status_code == 200
+    page = response.json()["data"]
+    assert page["total_elements"] == 1
+    assert page["content"][0]["patient_id"] == str(patient_id)
+
+
+@pytest.mark.asyncio
+async def test_patient_cannot_read_another_patients_prescriptions(client):
+    """Out-of-scope reads come back as an empty page, not 403/404 — the same
+    list-style filtering the dashboard roster uses, which avoids confirming
+    which patient ids exist. What matters is that no row leaks."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    await _draft_with_item(client, doctor_headers, med_id)
+
+    victim_id = await _create_patient(OTHER_PATIENT_PHONE, "Bệnh nhân B")
+    intruder_headers = await _login(client, PATIENT_PHONE)
+
+    response = await client.get(
+        f"/api/v1/patients/{victim_id}/prescriptions", headers=intruder_headers
+    )
+    assert response.status_code == 200
+    page = response.json()["data"]
+    assert page["content"] == []
+    assert page["total_elements"] == 0
+
+
+@pytest.mark.asyncio
+async def test_patient_cannot_read_another_patients_prescription_by_id(client):
+    """The detail route is the one that could leak a specific record."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    victims_rx = await _draft_with_item(client, doctor_headers, med_id)
+
+    await _create_patient(OTHER_PATIENT_PHONE, "Bệnh nhân B")
+    intruder_headers = await _login(client, OTHER_PATIENT_PHONE)
+
+    response = await client.get(
+        f"/api/v1/prescriptions/{victims_rx['id']}", headers=intruder_headers
+    )
+    assert response.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_unknown_prescription_returns_404(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    headers = await _login(client, DOCTOR_PHONE)
+    response = await client.get(f"/api/v1/prescriptions/{uuid.uuid4()}", headers=headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_add_item_to_draft_succeeds(client):
+    """POST /prescriptions/{id}/items is the documented way to build a DRAFT
+    up incrementally, so it must work on a DRAFT prescription."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+
+    created = await client.post(
+        "/api/v1/prescriptions", json={"phone": PATIENT_PHONE}, headers=headers
+    )
+    assert created.status_code == 201
+    rx_id = created.json()["data"]["prescription"]["id"]
+
+    response = await client.post(
+        f"/api/v1/prescriptions/{rx_id}/items",
+        json=_item_payload(med_id),
+        headers=headers,
+    )
+    assert response.status_code == 201
+    item = response.json()["data"]
+    assert item["display_name"] == "Amlodipin 5mg"
+    assert item["prescription_id"] == rx_id
+
+
+@pytest.mark.asyncio
+async def test_update_item_on_draft_resnapshots_display_name(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    response = await client.put(
+        f"/api/v1/prescriptions/{draft['id']}/items/{draft['items'][0]['id']}",
+        json=_item_payload(med_id, morning_dose=2),
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert float(response.json()["data"]["morning_dose"]) == 2.0
+
+
+@pytest.mark.asyncio
+async def test_delete_item_from_draft(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    response = await client.delete(
+        f"/api/v1/prescriptions/{draft['id']}/items/{draft['items'][0]['id']}",
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+    detail = await client.get(f"/api/v1/prescriptions/{draft['id']}", headers=headers)
+    assert detail.json()["data"]["items"] == []

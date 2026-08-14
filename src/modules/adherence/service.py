@@ -1,7 +1,8 @@
 import logging
 import math
 import uuid
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -16,7 +17,6 @@ from src.common.exceptions import (
 )
 from src.common.schemas import PageResponse
 from src.core.redis import publish_dashboard_event
-from src.modules.admin.repository import AuditLogRepository
 from src.modules.adherence.repository import (
     AdherenceLogRepository,
     AlertRepository,
@@ -32,6 +32,7 @@ from src.modules.adherence.schemas import (
     SubmitHealthSurveyRequest,
     TriggerSosRequest,
 )
+from src.modules.admin.repository import AuditLogRepository
 from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)
@@ -140,10 +141,18 @@ class AdherenceLogService:
         except IntegrityError:
             existing_log = await self._repo.get_log_by_idempotency_key(idempotency_key)
             if existing_log is not None:
+                # Idempotent replay: the dashboard already saw this action on
+                # the first attempt, so re-publishing would double it there.
                 return AdherenceLogDetailResponse.model_validate(existing_log)
             raise
 
-        return AdherenceLogDetailResponse.model_validate(log)
+        response = AdherenceLogDetailResponse.model_validate(log)
+        # After the commit, never inside it — a frame announcing a row that
+        # then rolled back would leave the portal showing intake that never
+        # happened. publish_dashboard_event is fail-open, so a Redis outage
+        # costs the portal its liveness and not the clinical write.
+        await publish_dashboard_event("adherence.updated", response.model_dump(mode="json"))
+        return response
 
     async def get_adherence_summary(
         self,

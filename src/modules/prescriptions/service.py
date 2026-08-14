@@ -444,6 +444,13 @@ class PrescriptionService:
         Prescription MUST be DRAFT."""
         doctor_id = uuid.UUID(actor_payload["sub"])
         fields = await self._snapshot_item_fields(request.model_dump())
+        if self._db.in_transaction():
+            # _snapshot_item_fields' SELECT autobegins an implicit transaction;
+            # without closing it the begin() below raises "A transaction is
+            # already begun on this Session" and the endpoint 500s on every
+            # call. commit(), not rollback(): nothing was written. Same guard
+            # create_prescription already carries.
+            await self._db.commit()
 
         async with self._db.begin():
             await self._lock_draft_or_raise(prescription_id, doctor_id)
@@ -471,6 +478,9 @@ class PrescriptionService:
         Prescription MUST be DRAFT."""
         doctor_id = uuid.UUID(actor_payload["sub"])
         fields = await self._snapshot_item_fields(request.model_dump())
+        if self._db.in_transaction():
+            # Same autobegin guard as add_item — see the note there.
+            await self._db.commit()
 
         async with self._db.begin():
             await self._lock_draft_or_raise(prescription_id, doctor_id)
