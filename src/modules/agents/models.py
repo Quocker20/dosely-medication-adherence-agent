@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +42,18 @@ class ScheduledDose(Base):
     current_scheduled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # Immutable prescription/slot snapshot selected by the planner. These
+    # fields are nullable only for rows generated before migration 0011; never
+    # infer a legacy row's slot-specific amount from the current item.
+    dose_slot: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    medication_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    dose_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 3), nullable=True
+    )
+    dose_unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    meal_relation: Mapped[str | None] = mapped_column(String(30), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="PENDING"
     )

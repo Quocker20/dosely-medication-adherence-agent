@@ -7,7 +7,6 @@ class ChatRequest(BaseModel):
     """Request schema cho POST /chat (chat AI bằng chữ)."""
 
     message: str = Field(..., min_length=1, max_length=5000, description="Tin nhắn từ bệnh nhân")
-    patient_id: str = Field(..., description="ID bệnh nhân, dùng làm context cho agent")
 
 
 class ChatResponse(BaseModel):
