@@ -21,15 +21,18 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     # PostgreSQL Database
+    # Defaults are the host-side view (pytest/alembic/uvicorn run on the
+    # developer's machine); docker-compose overrides them with the in-network
+    # hostnames for the backend and worker containers.
     postgres_user: str
     postgres_password: str
     postgres_db: str
-    postgres_host: str = "postgres"
+    postgres_host: str = "localhost"
     postgres_port: int = 5432
     database_url: str
 
     # Redis Cache & Message Broker
-    redis_host: str = "redis"
+    redis_host: str = "localhost"
     redis_port: int = 6379
     redis_url: str
 
