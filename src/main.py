@@ -10,6 +10,7 @@ from src.common.middleware import RequestContextMiddleware
 from src.core.config import get_settings
 from src.core.redis import close_redis_connection
 from src.api.v1_router import v1_router
+from src.modules.dashboard.router import ws_router as dashboard_ws_router
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -47,6 +48,11 @@ register_exception_handlers(app)
 
 # Register API v1 Router
 app.include_router(v1_router, prefix="/api/v1")
+
+# WebSocket handlers sit at the app root, not under /api/v1 — api-contract.md
+# registers the dashboard feed as /ws/dashboard. Registered before the static
+# mount below so the catch-all does not shadow it.
+app.include_router(dashboard_ws_router)
 
 
 @app.get("/health")

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from celery import Celery
+
 from src.core.config import get_settings
 
 settings = get_settings()
@@ -16,4 +19,10 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="Asia/Ho_Chi_Minh",
     enable_utc=True,
+    beat_schedule={
+        "scan-missed-doses": {
+            "task": "agents.scan_missed_doses",
+            "schedule": timedelta(minutes=settings.missed_dose_scan_interval_minutes),
+        },
+    },
 )
