@@ -160,8 +160,14 @@ class SchedulingService:
         doses = [
             {
                 "scheduled_dose_id": dose.id,
+                "prescription_item_id": dose.prescription_item_id,
+                "medication_id": dose.medication_id,
                 "medication_name": display_name,
                 "current_scheduled_at": dose.current_scheduled_at,
+                "dose_slot": dose.dose_slot,
+                "dose_value": dose.dose_value,
+                "dose_unit": dose.dose_unit,
+                "meal_relation": dose.meal_relation,
                 "status": dose.status,
                 "snooze_count": dose.snooze_count,
             }
@@ -207,6 +213,8 @@ class SchedulingService:
                 plannable_items = [
                     PlannableItem(
                         id=item.id,
+                        medication_id=item.medication_id,
+                        dose_unit=item.dose_unit,
                         morning_dose=item.morning_dose,
                         noon_dose=item.noon_dose,
                         evening_dose=item.evening_dose,
@@ -239,6 +247,11 @@ class SchedulingService:
                 row_dicts = [
                     {
                         "prescription_item_id": row.prescription_item_id,
+                        "medication_id": row.medication_id,
+                        "dose_slot": row.dose_slot,
+                        "dose_value": row.dose_value,
+                        "dose_unit": row.dose_unit,
+                        "meal_relation": row.meal_relation,
                         "patient_id": patient_id,
                         "original_scheduled_at": row.original_scheduled_at,
                         "current_scheduled_at": row.current_scheduled_at,

@@ -121,7 +121,7 @@ async def get_agent_run_status(
 # Patient Chat AI (FR-3.2, Voice/Text)
 # --------------------------------------------------------------------------
 import base64
-from fastapi import File, Form, HTTPException, UploadFile
+from fastapi import File, HTTPException, UploadFile
 from langchain_core.messages import HumanMessage
 from src.agents.audit import log_turn
 from src.agents.graph import agent
@@ -147,20 +147,22 @@ async def _run_agent(message: str, patient_id: str) -> str:
     return response_text
 
 @chat_router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
-    """Chat với AI agent bằng chữ."""
+async def chat(request: ChatRequest, current_user: PatientUserDep) -> ChatResponse:
+    """Chat với AI agent bằng chữ cho chính bệnh nhân trong access token."""
+    patient_id = str(current_user["sub"])
     try:
-        response_text = await _run_agent(request.message, request.patient_id)
+        response_text = await _run_agent(request.message, patient_id)
         return ChatResponse(response=response_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @chat_router.post("/chat/voice", response_model=VoiceChatResponse)
 async def chat_voice(
-    patient_id: str = Form(...),
+    current_user: PatientUserDep,
     audio: UploadFile = File(...),
 ) -> VoiceChatResponse:
-    """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
+    """Chat giọng nói cho chính bệnh nhân trong access token."""
+    patient_id = str(current_user["sub"])
     audio_bytes = await audio.read()
 
     try:

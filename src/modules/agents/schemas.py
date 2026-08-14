@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from decimal import Decimal
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,15 +44,34 @@ class AgentRunStatusResponse(BaseModel):
     created_at: datetime
 
 
+class ActiveDoseResponse(BaseModel):
+    """A concrete scheduled dose with its generation-time prescription data.
+
+    Snapshot fields are optional so pre-0011 rows remain readable. A null
+    dose_value must be presented as unknown, never reconstructed by choosing
+    one of the parent prescription item's four dose columns.
+    """
+
+    scheduled_dose_id: uuid.UUID
+    prescription_item_id: uuid.UUID
+    medication_id: Optional[uuid.UUID] = None
+    medication_name: str
+    current_scheduled_at: datetime
+    dose_slot: Optional[str] = None
+    dose_value: Optional[Decimal] = None
+    dose_unit: Optional[str] = None
+    meal_relation: Optional[str] = None
+    status: str
+    snooze_count: int
+
+
 class ActiveScheduleResponse(BaseModel):
     """Response schema for GET /patients/{patient_id}/schedules?date=.
 
-    doses stays List[Dict[str, Any]] per schema.md §6.4 rather than a typed
-    row model — each dict carries scheduled_dose_id, medication_name (joined
-    from PrescriptionItem.display_name), current_scheduled_at, status,
-    snooze_count.
+    Each row carries stable item/catalog identifiers and the exact
+    slot-specific prescription snapshot selected during generation.
     """
 
     patient_id: uuid.UUID
     date: date
-    doses: List[Dict[str, Any]] = Field(default_factory=list)
+    doses: List[ActiveDoseResponse] = Field(default_factory=list)

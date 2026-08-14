@@ -274,14 +274,19 @@ class PatientService:
         request: UpdateRoutineRequest,
         actor_payload: dict,
     ) -> PatientRoutineResponse:
-        """PATIENT self-only. 404 if onboarding hasn't created the routine row
-        yet — there is nothing to update."""
+        """Create or update a PATIENT's own daily routine.
+
+        Doctor-created patient profiles do not initially have a routine row.
+        The mobile onboarding flow intentionally collects routine data only,
+        so PUT is an idempotent upsert instead of requiring the legacy
+        /patients/me/profile endpoint to run first.
+        """
         actor_id = uuid.UUID(actor_payload["sub"])
         if actor_id != patient_id:
             raise NotFoundException(message="Routine not found")
 
         async with self._db.begin():
-            routine = await self._patient_repo.update_routine(
+            routine = await self._patient_repo.upsert_routine(
                 patient_id=patient_id,
                 wake_time=request.wake_time,
                 breakfast_time=request.breakfast_time,
@@ -289,8 +294,6 @@ class PatientService:
                 dinner_time=request.dinner_time,
                 sleep_time=request.sleep_time,
             )
-        if routine is None:
-            raise NotFoundException(message="Routine not found. Complete onboarding first")
         return self._to_routine_response(routine)
 
     async def _resolve_or_create_caregiver(self, cleaned_phone: str) -> tuple:
