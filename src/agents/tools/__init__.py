@@ -6,13 +6,15 @@ Deliberately NOT implemented as LLM-callable tools (cong_viec.md §2.3):
     those tables, not by anything in this package.
   - Direct SMS/Zalo send: must go through trigger_red_alert -> backend, so
     the backend can rate-limit and audit.
+  - Updating agent_runs metadata: SchedulingService.execute_run already writes
+    the run's status/latency/dose count from inside the worker that produced
+    them. api-contract.md exposes only GET /agent-runs/{id}, and an outside
+    writer would race the worker for the same row.
 
 Note: `record_dose_action` is added per user request, despite original
 plan constraints regarding prompt injection risks.
 """
-from src.agents.tools.agent_run_tools import update_agent_run
 from src.agents.tools.drug_info_tools import search_drug_info
-from src.agents.tools.example_tool import search_knowledge
 from src.agents.tools.health_tools import record_health_survey
 from src.agents.tools.patient_tools import (
     get_adherence_stats,
@@ -35,21 +37,15 @@ WRITE_TOOLS = [
     reschedule_remaining_doses,
     record_health_survey,
     trigger_red_alert,
-    update_agent_run,
     record_dose_action,
 ]
 
 ALL_TOOLS = READ_ONLY_TOOLS + WRITE_TOOLS
 
-# Tool set cho patient-facing chat agent. Loại update_agent_run: đó là
-# metadata cho job chạy nền (Planning Agent), không phải thứ bệnh nhân
-# trò chuyện sẽ cần — không có lý do gì để đưa nó vào tay LLM hội thoại.
-CHAT_TOOLS = READ_ONLY_TOOLS + [
-    reschedule_remaining_doses,
-    record_health_survey,
-    trigger_red_alert,
-    record_dose_action,
-]
+# Tool set cho patient-facing chat agent — hiện trùng ALL_TOOLS, giữ tên riêng
+# vì đây là danh sách được đưa vào tay LLM hội thoại: thêm tool nền (job
+# metadata, batch...) thì thêm vào ALL_TOOLS, không mặc định vào đây.
+CHAT_TOOLS = READ_ONLY_TOOLS + WRITE_TOOLS
 
 __all__ = [
     "get_prescriptions",
@@ -60,9 +56,7 @@ __all__ = [
     "reschedule_remaining_doses",
     "record_health_survey",
     "trigger_red_alert",
-    "update_agent_run",
     "record_dose_action",
-    "search_knowledge",
     "READ_ONLY_TOOLS",
     "WRITE_TOOLS",
     "ALL_TOOLS",

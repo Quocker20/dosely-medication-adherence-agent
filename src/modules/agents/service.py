@@ -1,14 +1,26 @@
+import base64
 import logging
 import time as time_module
 import uuid
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from fastapi import status
+from langchain_core.messages import HumanMessage
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
+from src.agents.audit import log_turn
+from src.agents.graph import agent
+from src.common.exceptions import (
+    AppException,
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+    ValidationException,
+)
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.modules.agents.planner import PlannableItem, RoutineTimes, expand_schedule
@@ -17,10 +29,17 @@ from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
+    ChatResponse,
     GenerateScheduleRequest,
     RescheduleRequest,
+    VoiceChatResponse,
 )
 from src.modules.patients.repository import PatientRepository
+from src.modules.planning.core.speech import (
+    SpeechServiceError,
+    synthesize_speech,
+    transcribe_audio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -261,3 +280,63 @@ class SchedulingService:
                 await self._agent_run_repo.mark_failed(
                     run_id, latency_ms, error_code=type(exc).__name__[:100]
                 )
+
+
+class ChatService:
+    """Patient-facing conversational agent (FR-3.2), text and voice.
+
+    Stateless and DB-free: the LangGraph agent reaches persistence through its
+    own tools over the backend HTTP API, so this service only orchestrates
+    transcribe -> agent -> synthesize and never touches AsyncSession.
+    """
+
+    async def handle_text_chat(self, message: str, patient_id: str) -> ChatResponse:
+        response_text = await self._run_agent(message, patient_id)
+        return ChatResponse(response=response_text)
+
+    async def handle_voice_chat(
+        self, audio_bytes: bytes, filename: str, patient_id: str
+    ) -> VoiceChatResponse:
+        try:
+            transcript = await transcribe_audio(audio_bytes, filename=filename)
+        except SpeechServiceError as e:
+            raise AppException(
+                message=str(e), code=status.HTTP_502_BAD_GATEWAY
+            ) from e
+
+        if not transcript:
+            raise ValidationException(
+                message="Không nhận được nội dung giọng nói, vui lòng nói lại."
+            )
+
+        response_text = await self._run_agent(transcript, patient_id)
+
+        audio_base64 = None
+        try:
+            audio_reply = await synthesize_speech(response_text)
+            audio_base64 = base64.b64encode(audio_reply).decode("ascii")
+        except SpeechServiceError:
+            # fail-open: a broken TTS vendor must not cost the patient the
+            # text answer they already have.
+            logger.warning("TTS failed, returning text-only reply")
+
+        return VoiceChatResponse(
+            transcript=transcript, response=response_text, audio_base64=audio_base64
+        )
+
+    @staticmethod
+    async def _run_agent(message: str, patient_id: str) -> str:
+        result = await agent.ainvoke(
+            {
+                "messages": [HumanMessage(content=message)],
+                "patient_id": patient_id,
+            }
+        )
+        response_text = result["messages"][-1].content
+        log_turn(
+            patient_id=patient_id,
+            intent=result.get("intent"),
+            escalated=bool(result.get("escalated")),
+            response_length=len(response_text),
+        )
+        return response_text

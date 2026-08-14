@@ -7,7 +7,6 @@ from src.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    generate_otp_code,
     validate_phone_number,
 )
 from src.common.exceptions import ValidationException
@@ -18,8 +17,11 @@ def test_settings_load():
     settings = get_settings()
     assert settings.app_name == "ADHE REMIND API"
     assert settings.jwt_algorithm == "HS256"
-    assert settings.postgres_host == "postgres"
-    assert settings.redis_host == "redis"
+    # Deliberately no assertion on postgres_host/redis_host: those differ
+    # between a host-side run and a container, and nothing in the code reads
+    # them anyway — database_url/redis_url carry the real connection.
+    assert settings.database_url
+    assert settings.redis_url
 
 
 def test_phone_validation():
@@ -29,12 +31,6 @@ def test_phone_validation():
     
     with pytest.raises(ValidationException):
         validate_phone_number("12345")
-
-
-def test_otp_generation():
-    otp = generate_otp_code()
-    assert len(otp) == 6
-    assert otp.isdigit()
 
 
 def test_jwt_tokens_phone_otp():

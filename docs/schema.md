@@ -359,13 +359,32 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `generated_dose_count` (Optional[int]): Số lượng cữ uống thuốc đã được tự động sinh ra.
   * `created_at` (datetime): Thời điểm chạy.
 
-### 6.4 ActiveScheduleResponse
+### 6.4 ChatRequest / ChatResponse / VoiceChatResponse
+* **Mục đích**: Trao đổi hội thoại giữa bệnh nhân và AI agent (`POST /chat`, `POST /chat/voice`).
+* **Module**: `src.modules.agents.schemas`
+* **Ràng buộc định danh**: `ChatRequest` **KHÔNG** có trường `patient_id`. Service luôn lấy `patient_id` từ claim `sub` của access token. Lý do: tool của agent có quyền ghi (`record_dose_action`, `trigger_red_alert`), nên nhận `patient_id` từ body sẽ mở đường ghi dữ liệu sang hồ sơ bệnh nhân khác. Trường thừa gửi kèm trong body bị bỏ qua.
+* **Cấu trúc thuộc tính**:
+  * `ChatRequest.message` (str, Field min_length=1, max_length=5000): Tin nhắn từ bệnh nhân.
+  * `ChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `VoiceChatResponse.transcript` (str): Văn bản nhận dạng từ giọng nói.
+  * `VoiceChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `VoiceChatResponse.audio_base64` (Optional[str]): Phản hồi dạng giọng nói (mp3, base64). `null` khi TTS lỗi (fail-open).
+
+### 6.5 ActiveScheduleResponse
 * **Mục đích**: Trả về danh sách các cữ uống thuốc cụ thể trong ngày (`scheduled_doses`) của bệnh nhân.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
   * `patient_id` (UUID): Mã bệnh nhân.
   * `date` (date): Ngày truy vấn lịch.
   * `doses` (List[Dict[str, Any]]): Mảng các cữ uống thuốc đã được rải lịch (Bao gồm `scheduled_dose_id`, `medication_name`, `current_scheduled_at`, `status`, `snooze_count`).
+
+### 6.6 search_drug_info — tool nội bộ, KHÔNG phải HTTP schema
+* **Mục đích**: Tra cứu công dụng/hoạt chất thuốc, chỉ gọi được từ bên trong lượt hội thoại `POST /chat`/`/chat/voice` — LLM tự quyết định gọi tool này khi bệnh nhân hỏi về một loại thuốc. Không có route riêng, không nằm trong API contract Slice 8 (đã dời khỏi đó — xem api-contract.md §Slice 8), không nhận request body từ client.
+* **Module**: `src.agents.tools.drug_info_tools`
+* **Input/Output thật của tool** (không phải Pydantic DTO, chỉ để tham khảo khi debug):
+  * `query` (str): tên thuốc hoặc câu hỏi, LLM tự trích từ hội thoại.
+  * Trả về (str): **STUB** — hiện luôn trả cố định "Tôi không tìm thấy thông tin đáng tin cậy về thuốc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ." bất kể `query` là gì.
+* **Chưa tồn tại**: pipeline RAG thật (Chroma collection, embedding, similarity-threshold grounding, citation) — không có `chroma_persist_dir` trong `src/core/config.py`, không có script ingest. `matched_medication_id`/`citations` từng xuất hiện trong bản đặc tả cũ đã bị xoá vì không phản ánh hành vi thật — đừng dựng client mong đợi cấu trúc đó.
 
 ---
 
@@ -424,11 +443,14 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `submitted_at` (datetime): Thời điểm nộp khảo sát.
 
 ### 7.6 TriggerSosRequest
-* **Mục đích**: Tiếp nhận tín hiệu cấp cứu một chạm (SOS Button) khẩn cấp từ bệnh nhân.
+* **Mục đích**: Tiếp nhận tín hiệu cấp cứu khẩn cấp cho bệnh nhân. Endpoint này phục vụ **hai nguồn**: bệnh nhân bấm nút SOS một chạm, và AI agent phát hiện triệu chứng nặng trong hội thoại (`trigger_red_alert`). Cả hai đều chạy dưới token của chính bệnh nhân nên RBAC không đổi.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
   * `message` (Optional[str]): Thông điệp khẩn cấp hoặc mô tả ngắn sự cố.
   * `metadata` (Dict[str, Any], default={}): Metadata vị trí GPS (`location_lat`, `location_lng`).
+  * `triggered_by_type` (Literal["SOS_BUTTON","SEVERE_SYMPTOM","MISSED_DOSES"], default="SOS_BUTTON"): Nguồn kích hoạt, ghi thẳng vào cột `alerts.triggered_by_type`. Không có trường này thì cảnh báo do agent phát hiện bị ghi nhận như bệnh nhân bấm nút, và dashboard bác sĩ không phân biệt được. Giá trị khớp `ck_alerts_triggered_by_type` (migration `0009_slice7_adherence_alerts`).
+  * `severity` (Literal["CRITICAL","HIGH","MEDIUM"], default="CRITICAL"): Mức độ nghiêm trọng, ghi vào cột `alerts.severity`. Giá trị khớp `ck_alerts_severity`.
+* **Ghi chú tương thích**: hai trường trên đều có default đúng bằng hành vi cũ (`SOS_BUTTON`/`CRITICAL`), nên client đang chạy không cần sửa gì.
 
 ### 7.7 ResolveAlertRequest
 * **Mục đích**: Bác sĩ gửi phương án xử lý để Đóng cảnh báo (`RESOLVED`).
@@ -452,56 +474,38 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 
 ---
 
-## PHÂN HỆ 8: OCR, RAG & DASHBOARD REALTIME
+## PHÂN HỆ 8: DASHBOARD REALTIME (Doctor Portal)
 
-### 8.1 CreateOcrJobMultipartRequest
-* **Mục đích**: Cấu trúc dữ liệu Multipart Form gửi tệp ảnh nhãn thuốc để xử lý OCR + RAG.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `file` (UploadFile): Tệp tin hình ảnh nhãn thuốc (`image/jpeg`, `image/png`).
-  * `engine` (str, default="PADDLE_OCR"): Trình xuất văn bản OCR.
+Slice thuần backend — không có phần nào của agent service tham gia (dashboard chỉ đọc lại dữ liệu adherence/alert như bất kỳ client nào khác). Đã triển khai trong `src/modules/dashboard/`.
 
-### 8.2 OcrJobAsyncResponse
-* **Mục đích**: Phản hồi mã tác vụ xử lý ảnh bất đồng bộ từ bảng `ocr_jobs`.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `ocr_job_id` (UUID): Mã job OCR.
-  * `status` (str): Trạng thái tiến trình (`PROCESSING`, `SUCCESS`, `FAILED`).
-  * `message` (str): Thông báo trạng thái.
+Đã xoá khỏi phân hệ này: `CreateOcrJobMultipartRequest`, `OcrJobAsyncResponse`, `OcrJobDetailResponse` (OCR nhãn thuốc + RAG). Không có `ocr_rag` module, không route, không pipeline OCR/Chroma nào tồn tại — giữ lại chỉ tạo ảo giác về một tính năng đang chạy. Đường tra cứu thuốc thật hiện chỉ có `search_drug_info` (xem §6.6), và nó là stub.
 
-### 8.3 OcrJobDetailResponse
-* **Mục đích**: Trả về kết quả bóc tách văn bản OCR kèm kết quả truy vấn tri thức RAG nhãn thuốc.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `id` (UUID): Mã job OCR.
-  * `status` (str): Trạng thái.
-  * `raw_text` (Optional[str]): Văn bản thô quét được.
-  * `confidence` (Optional[float]): Độ tin cậy của thuật toán OCR (Thang điểm: `0.0` - `1.0`).
-  * `rag_result` (Optional[Dict[str, Any]]): Kết quả RAG (Bao gồm thuốc khớp trong CSDL `matched_medication_id`, tóm tắt thông tin thuốc và các đoạn trích dẫn nguồn `citations`).
+> **Đổi module so với bản đặc tả trước.** Ba schema dưới đây từng được ghi là thuộc `src.modules.admin.schemas` / `src.modules.adherence.schemas`. Chúng nằm trong `src.modules.dashboard.schemas` — dashboard là một domain riêng (đọc tổng hợp cho portal bác sĩ), không phải quản trị tài khoản bác sĩ hay ghi nhận tuân thủ; nhét vào 2 module kia là phá nguyên tắc vertical-slice isolation của `structure.md`.
 
-### 8.4 DashboardPatientListResponse
+### 8.1 DashboardPatientListResponse
 * **Mục đích**: Phản hồi từng item trong danh sách bệnh nhân theo dõi phân trang `PageResponse[DashboardPatientListResponse]` cho Portal Bác sĩ.
-* **Module**: `src.modules.admin.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
   * `patient_id` (UUID): Mã bệnh nhân.
   * `patient_name` (str): Tên bệnh nhân.
-  * `adherence_rate` (float): Tỷ lệ tuân thủ điều trị.
-  * `open_alerts_count` (int): Số lượng cảnh báo chưa xử lý.
-  * `last_survey_date` (Optional[date]): Ngày khảo sát gần nhất.
+  * `adherence_rate` (float): Tỷ lệ tuân thủ (%) trong cửa sổ trượt `DASHBOARD_ADHERENCE_WINDOW_DAYS` ngày gần nhất (mặc định 7), **không** phải theo khoảng ngày do client chọn.
+  * `open_alerts_count` (int): Số cảnh báo còn `OPEN` **hoặc** `ACKNOWLEDGED`. `ACKNOWLEDGED` vẫn tính: bác sĩ đã xem không đồng nghĩa tình trạng bệnh nhân đã xong, ẩn đi sẽ khiến danh sách trông "yên" hơn thực tế.
+  * `last_survey_date` (Optional[date]): Ngày khảo sát sức khỏe gần nhất, `null` nếu chưa từng nộp.
 
-### 8.5 DashboardPatientDetailResponse
+### 8.2 DashboardPatientDetailResponse
 * **Mục đích**: Phản hồi chi tiết chỉ số tổng hợp của một bệnh nhân trên màn hình Dashboard Bác sĩ.
-* **Module**: `src.modules.admin.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
-  * `patient` (Dict[str, Any]): Thông tin cá nhân cơ bản (`user_id`, `name`, `phone`).
-  * `active_prescriptions_count` (int): Số đơn thuốc đang hiệu lực.
-  * `adherence_summary` (Dict[str, Any]): Thống kê tuân thủ (`adherence_rate`, `total_doses`).
-  * `recent_alerts` (List[AlertDetailResponse]): Danh sách các cảnh báo gần đây.
+  * `patient` (DashboardPatientSummary): `user_id` (UUID), `name` (str), `phone` (str). Là schema có kiểu, không phải `Dict[str, Any]` như bản đặc tả cũ.
+  * `active_prescriptions_count` (int): Số đơn thuốc trạng thái `APPROVED`. `DRAFT` chưa có hiệu lực và `CANCELLED` đã hết hiệu lực nên không tính.
+  * `adherence_summary` (DashboardAdherenceSummary): `adherence_rate` (float), `total_doses` (int), `taken_doses` (int), `skipped_doses` (int), `missed_doses` (int), `window_days` (int). Có `window_days` để client biết con số này ứng với bao nhiêu ngày, không bị đọc nhầm thành "toàn thời gian".
+  * `recent_alerts` (List[AlertDetailResponse]): Cảnh báo gần nhất, mọi trạng thái, tối đa `DASHBOARD_RECENT_ALERTS_LIMIT` (mặc định 5).
 
-### 8.6 WebSocketEventStream
+### 8.3 WebSocketEventStream
 * **Mục đích**: Khối dữ liệu Payload đẩy thời gian thực từ Server xuống Client qua kết nối WebSocket (`/ws/dashboard`).
-* **Module**: `src.modules.adherence.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
-  * `event_type` (str): Tên sự kiện (`alert.opened`, `adherence.updated`, `schedule.updated`).
-  * `timestamp` (datetime): Mốc thời gian phát sinh sự kiện.
-  * `data` (Dict[str, Any]): Nội dung dữ liệu sự kiện thời gian thực.
+  * `event_type` (str): Tên sự kiện. Hiện phát ra: `alert.opened` (SOS hoặc agent phát hiện triệu chứng nặng), `alert.updated` (bác sĩ acknowledge/resolve). `adherence.updated`/`schedule.updated` từng được liệt kê nhưng chưa có publisher nào — đừng dựng client chờ chúng.
+  * `timestamp` (datetime): Mốc thời gian phát sinh sự kiện (UTC, ISO 8601).
+  * `data` (Dict[str, Any]): Nội dung sự kiện. Với `alert.*` là nguyên `AlertDetailResponse` đã serialize.
+* **Đường phát**: envelope do `src.core.redis.publish_dashboard_event` dựng, không phải module dashboard. Lý do: publisher là write path của slice khác (adherence) — bắt chúng import module dashboard chỉ để bắn một event chính là kiểu coupling mà vertical-slice isolation cần tránh. Cùng lý do `src/core/response.py` sở hữu envelope HTTP. Phía dashboard validate lại theo schema này trước khi đẩy xuống socket.

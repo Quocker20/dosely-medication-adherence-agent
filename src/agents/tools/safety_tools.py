@@ -2,15 +2,15 @@
 quan trọng nhất của sản phẩm". Two pure-code triggers plus one LLM-assisted
 trigger, all funneling into `trigger_red_alert`.
 
-IMPORTANT — send path is stubbed. api-contract.md has no endpoint for
-code/agent-initiated alert creation. The closest matches are
-`POST /patients/{id}/sos` (patient-initiated, TriggerSosRequest) and
-`GET /alerts` (doctor-only listing) — neither fits "system detects missed
-doses / severe symptom keyword and creates an alert". This is the exact gap
-cong_viec.md §3 flags as unresolved. Confirm the real endpoint with the
-backend team, then fill in `_send_alert` — everything else here (keyword
-matching, missed-dose streak, fail-open error handling) is real, working
-logic, not a stub.
+Send path goes through `POST /patients/{id}/sos` (TriggerSosRequest), which
+now carries `triggered_by_type` and `severity` so an agent-detected alert is
+distinguishable from a button press. api-contract.md still has no dedicated
+endpoint for code-initiated alerts; sharing the SOS route is the agreed interim
+(the call runs under the patient's own token, so RBAC is unchanged).
+
+Still open: `count_missed_dose_streak` below has no caller — nothing scans for
+overdue doses yet, so trigger 1 does not fire in practice. Wiring that scan is a
+separate piece of work, not something this module can do on its own.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import logging
 
 from langchain_core.tools import tool
 
+from src.agents.tools.idempotency import alert_key
 from src.modules.planning.core.backend_client import post
 
 logger = logging.getLogger("safety")
@@ -132,14 +133,39 @@ def count_missed_dose_streak(scheduled_doses: list[dict]) -> int:
     return streak
 
 
+def _triggered_by_type(reason: str) -> str:
+    """Map the caller's reason onto ck_alerts_triggered_by_type.
+
+    The reason strings are the ones the three triggers already pass in
+    (see trigger_red_alert's docstring); anything unrecognised falls back to
+    SOS_BUTTON, the value this call used unconditionally before.
+    """
+    upper = reason.upper()
+    if upper.startswith("SEVERE_SYMPTOM"):
+        return "SEVERE_SYMPTOM"
+    if upper.startswith("MISSED_DOSES"):
+        return "MISSED_DOSES"
+    return "SOS_BUTTON"
+
+
 async def _send_alert(patient_id: str, reason: str, severity: str, evidence: str) -> dict:
     """Gửi alert bằng cách dùng chung API SOS của hệ thống.
     Đại diện cho bệnh nhân tạo tín hiệu khẩn cấp khi phát hiện qua chat.
+
+    severity và triggered_by_type đi vào đúng cột của bảng `alerts` thay vì bị
+    nhét vào chuỗi `message` — bác sĩ lọc được cảnh báo do agent phát hiện tách
+    khỏi cảnh báo do bệnh nhân bấm nút.
     """
     message = f"[{severity}] {reason} (Bằng chứng: {evidence})"
     return await post(
         f"/patients/{patient_id}/sos",
-        json={"message": message, "metadata": {"source": "agent_auto_detect"}},
+        json={
+            "message": message,
+            "metadata": {"source": "agent_auto_detect"},
+            "triggered_by_type": _triggered_by_type(reason),
+            "severity": severity,
+        },
+        headers={"Idempotency-Key": alert_key(patient_id, reason)},
     )
 
 
