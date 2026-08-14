@@ -1,4 +1,4 @@
-package com.remindrx.app.ui
+package com.remindrx.app.ui.feature.patient
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +7,7 @@ import com.remindrx.app.data.MockRepository
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.data.repository.PatientHome
 import com.remindrx.app.data.repository.PatientRepository
+import com.remindrx.app.ui.toVietnameseUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
