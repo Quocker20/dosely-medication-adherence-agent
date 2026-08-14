@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -70,9 +71,14 @@ fun AssistantScreen(
     val focusManager = LocalFocusManager.current
     var input by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) onStartRecording() }
+    val isPreview = LocalInspectionMode.current
+    val micPermissionLauncher = if (isPreview) {
+        null
+    } else {
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted -> if (granted) onStartRecording() }
+    }
 
     LaunchedEffect(state.messages.size, state.isReplying) {
         val lastIndex = state.messages.lastIndex + if (state.isReplying) 1 else 0
@@ -211,7 +217,7 @@ fun AssistantScreen(
                             context,
                             Manifest.permission.RECORD_AUDIO,
                         ) == PackageManager.PERMISSION_GRANTED -> onStartRecording()
-                        else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        else -> micPermissionLauncher?.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 enabled = !state.isReplying,
@@ -280,4 +286,15 @@ private fun ChatBubble(message: ChatMessage) {
             }
         }
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun AssistantScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    AssistantScreen(
+        state = com.remindrx.app.ui.preview.previewAssistantState,
+        onSend = {},
+        onNewChat = {},
+        onOpenHistory = {},
+    )
 }
