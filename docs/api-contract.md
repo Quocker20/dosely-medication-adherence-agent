@@ -82,6 +82,12 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (date) | 200 OK / ActiveScheduleResponse |
 | POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
+| POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |
+| POST | /chat/voice | Required (PATIENT) | multipart/form-data (audio: UploadFile) | 200 OK / VoiceChatResponse |
+
+**Chat AI notes.** Both endpoints act on the authenticated caller's own record: `patient_id` is read from the access token's `sub` and is never accepted from the request body or form. The agent's tools can record dose actions and raise alerts, so a caller-supplied id would be a write path into another patient's data. Both responses use the standard envelope like every other endpoint. `/chat/voice` returns `502` when the STT vendor fails and `422` when the audio yields an empty transcript; TTS failure is fail-open — the reply still returns `200` with `audio_base64: null`.
+
+**Drug info lookup — not a separate endpoint.** The agent has one more capability reachable only through `POST /chat`/`/chat/voice`: the `search_drug_info` tool, called by the LLM mid-conversation when the patient asks about a medication. There is no dedicated HTTP route for it and none is planned — it is not part of the request/response contract above, only of the agent's internal tool-calling loop. Today it is a stub: every call returns a fixed Vietnamese fallback ("không tìm thấy thông tin đáng tin cậy, hỏi bác sĩ/dược sĩ") regardless of the query, because no retrieval pipeline exists yet (no Chroma collection, no embedding step, no citation data). Do not build a client against a `rag_result`/citation shape for this — none is produced.
 
 ### SLICE 7: ADHERENCE LOGGING & SAFETY ALERTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
@@ -95,21 +101,28 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | POST | /alerts/{alert_id}/acknowledge | Required (DOCTOR) | Path Param (alert_id: UUID) | 200 OK / AlertDetailResponse |
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
 
-### SLICE 8: OCR, RAG KNOWLEDGE BASE & DASHBOARD REALTIME
+### SLICE 8: DASHBOARD REALTIME (Doctor Portal)
+Backend-only slice — no agent involvement (the doctor dashboard reads adherence/alert data the same way any other client would). Implemented in `src/modules/dashboard/`.
+
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /patients/{patient_id}/drug-label-ocr | Required (PATIENT/DOCTOR) | Path Param (patient_id: UUID) + CreateOcrJobMultipartRequest | 202 Accepted / OcrJobAsyncResponse |
-| GET | /ocr-jobs/{ocr_job_id} | Required (PATIENT/DOCTOR) | Path Param (ocr_job_id: UUID) | 200 OK / OcrJobDetailResponse |
 | GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponse[DashboardPatientListResponse] |
 | GET | /dashboard/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / DashboardPatientDetailResponse |
-| WS | /ws/dashboard | Handshake Protocol | Initial Socket Connection Handshake (Query Token) | WebSocket Connection Established |
-| STREAM | /ws/dashboard/events | Active Socket Connection | Stream events via WebSocket Connection | JSON Event Frame (WebSocketEventStream) |
+| WS | /ws/dashboard | Required (DOCTOR/ADMIN) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of WebSocketEventStream frames |
+
+**Scope.** A doctor sees only patients they have written at least one prescription for; an ADMIN sees all. The roster returns an empty page for an out-of-scope caller rather than 403, and `/dashboard/patients/{id}` returns **404** for both "no such patient" and "not your patient" — a distinct status would confirm which UUIDs exist. Rows are ordered by open alert count descending, so the patients needing attention are on page 1.
+
+**Adherence figures** cover a rolling window ending now (`DASHBOARD_ADHERENCE_WINDOW_DAYS`, default 7), not a caller-supplied date range — use `GET /patients/{id}/adherence` for an explicit `[from, to]`. `open_alerts_count` counts `OPEN` **and** `ACKNOWLEDGED`: a doctor having seen an alert does not mean the patient's situation is closed. `active_prescriptions_count` counts only `APPROVED`.
+
+**WS /ws/dashboard.** Note this path is **not** under `/api/v1`. The token travels as a query parameter because the browser WebSocket API cannot set an `Authorization` header; keep those tokens short-lived, since query strings reach proxy and browser-history logs far more readily than headers do. Authorisation happens before `accept()` — a missing, non-access, or non-DOCTOR/ADMIN token closes with code **1008** (policy violation) rather than opening a socket that immediately dies. Frames currently published: `alert.opened` (SOS or agent-detected alert raised) and `alert.updated` (acknowledged or resolved). Publishing is fail-open: a Redis outage costs the portal its liveness, never the underlying clinical write. There is no separate `/ws/dashboard/events` route — the events *are* this connection's frames; the earlier two-row listing described one endpoint as two.
+
+**OCR removed from this contract.** The former `POST /patients/{id}/drug-label-ocr` + `GET /ocr-jobs/{id}` pair (image-of-label -> OCR -> RAG lookup) has no code behind it anywhere — no router, no `ocr_rag` module, no OCR engine wired, no Chroma collection to ground a result against. It was speculative and is dropped rather than left to imply a working feature. Re-add it here only once there is a real pipeline to document; until then, the only drug-lookup path is the `search_drug_info` chat tool described under Slice 6.
 
 ---
 
 ## 3. GLOBAL STATUS & EXCEPTION RESPONSE INTERFACE
 * 200 OK / 201 Created: Business transactions completed successfully.
-* 202 Accepted: Asynchronous job accepted for background processing (e.g., Planning Agent, Rescheduling Agent, OCR Worker).
+* 202 Accepted: Asynchronous job accepted for background processing (e.g., Planning Agent, Rescheduling Agent).
 * 400 Bad Request: Structural validation constraint breaches or malformed JSON payloads (handled via FastAPI RequestValidationError / Custom Exception Handlers).
 * 401 Unauthorized: Lack of valid authentication credentials, expired Access Token, or unverified OTP signature.
 * 403 Forbidden: Authenticated user lacks appropriate administrative or clinical privileges (e.g., Patient attempting Doctor-only endpoints).
