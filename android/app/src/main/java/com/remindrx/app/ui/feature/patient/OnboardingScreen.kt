@@ -1,4 +1,4 @@
-package com.remindrx.app.ui.screens
+package com.remindrx.app.ui.feature.patient
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

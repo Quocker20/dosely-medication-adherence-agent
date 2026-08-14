@@ -1,4 +1,4 @@
-package com.remindrx.app.ui.screens
+package com.remindrx.app.ui.feature.assistant
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.remindrx.app.data.ChatMessage
 import com.remindrx.app.data.ChatRole
-import com.remindrx.app.ui.AssistantUiState
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
 @Composable
