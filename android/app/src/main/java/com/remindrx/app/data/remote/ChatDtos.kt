@@ -1,7 +1,8 @@
 package com.remindrx.app.data.remote
 
-// Khớp src/models/schemas.py — /chat và /chat/voice trả thẳng model này,
-// KHÔNG bọc trong ApiEnvelope (khác mọi endpoint khác của backend).
+// Khớp src/modules/agents/schemas.py. /chat và /chat/voice bọc trong
+// ApiEnvelope như mọi endpoint khác — router gọi success_response()
+// (src/modules/agents/router.py), đúng như api-contract.md Slice 6 mô tả.
 
 data class ChatRequestDto(val message: String)
 
@@ -10,5 +11,6 @@ data class ChatResponseDto(val response: String)
 data class VoiceChatResponseDto(
     val transcript: String,
     val response: String,
+    // null khi TTS lỗi — backend fail-open, vẫn trả 200 kèm phần chữ.
     val audioBase64: String?,
 )

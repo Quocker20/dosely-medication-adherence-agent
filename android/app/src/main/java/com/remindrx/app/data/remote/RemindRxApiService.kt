@@ -29,6 +29,12 @@ interface RemindRxApiService {
         @Body request: ChangePasswordRequestDto,
     ): ApiEnvelope<Unit?>
 
+    // Bệnh nhân tự onboarding lần đầu — server lấy patient_id từ token, không nhận từ body.
+    @POST("patients/me/profile")
+    suspend fun onboardPatient(
+        @Body request: PatientOnboardingRequestDto,
+    ): ApiEnvelope<PatientProfileDetailResponseDto>
+
     @GET("patients/{patientId}/routine")
     suspend fun getRoutine(@Path("patientId") patientId: String): ApiEnvelope<PatientRoutineResponseDto>
 
@@ -121,13 +127,12 @@ interface RemindRxApiService {
         @Path("agentRunId") agentRunId: String,
     ): ApiEnvelope<AgentRunStatusResponseDto>
 
-    // /chat và /chat/voice trả model trần (không ApiEnvelope) — xem ChatDtos.kt
     @POST("chat")
-    suspend fun sendChatMessage(@Body request: ChatRequestDto): ChatResponseDto
+    suspend fun sendChatMessage(@Body request: ChatRequestDto): ApiEnvelope<ChatResponseDto>
 
     @Multipart
     @POST("chat/voice")
     suspend fun sendVoiceChatMessage(
         @Part audio: MultipartBody.Part,
-    ): VoiceChatResponseDto
+    ): ApiEnvelope<VoiceChatResponseDto>
 }

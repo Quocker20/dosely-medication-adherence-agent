@@ -1,8 +1,12 @@
 package com.remindrx.app.data.mapper
 
+import com.remindrx.app.data.OnboardingResult
+import com.remindrx.app.data.PatientProfile
 import com.remindrx.app.data.RoutineItem
+import com.remindrx.app.data.remote.PatientProfileDetailResponseDto
 import com.remindrx.app.data.remote.PatientRoutineResponseDto
 import com.remindrx.app.data.remote.UpdateRoutineRequestDto
+import java.time.LocalDate
 
 fun PatientRoutineResponseDto.toRoutineItems(): List<RoutineItem> = listOf(
     RoutineItem("wake_time", "Thức dậy", wakeTime?.take(5).orEmpty()),
@@ -29,3 +33,17 @@ fun List<RoutineItem>.toRoutineRequestDto(): UpdateRoutineRequestDto {
         sleepTime = requiredTime("sleep_time"),
     )
 }
+
+fun PatientProfileDetailResponseDto.toDomain(): OnboardingResult = OnboardingResult(
+    profile = PatientProfile(
+        userId = profile.userId,
+        phone = profile.phone,
+        name = profile.name,
+        // Backend trả date dạng ISO; dữ liệu hỏng không nên làm sập màn onboarding.
+        dob = profile.dob?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+        sex = profile.sex,
+        timezone = profile.timezone,
+        emergencyNote = profile.emergencyNote,
+    ),
+    routine = routine.toRoutineItems(),
+)

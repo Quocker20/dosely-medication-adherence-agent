@@ -8,7 +8,9 @@ import com.remindrx.app.data.DoseAction
 import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.HealthSurvey
 import com.remindrx.app.data.MedicationDetail
+import com.remindrx.app.data.OnboardingResult
 import com.remindrx.app.data.PageResult
+import com.remindrx.app.data.PatientSex
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.data.RoutineUpdateResult
 import com.remindrx.app.data.SurveySymptom
@@ -17,9 +19,11 @@ import com.remindrx.app.data.mapper.toDoseToday
 import com.remindrx.app.data.mapper.toDomain
 import com.remindrx.app.data.mapper.toMedications
 import com.remindrx.app.data.mapper.toRequestDto
+import com.remindrx.app.data.mapper.toRoutineRequestDto
 import com.remindrx.app.data.mapper.toSosRequestDto
 import com.remindrx.app.data.mapper.toSurveyRequestDto
 import com.remindrx.app.data.remote.CreateCaregiverLinkRequestDto
+import com.remindrx.app.data.remote.PatientOnboardingRequestDto
 import com.remindrx.app.data.remote.RemindRxApiService
 import com.remindrx.app.data.remote.requireData
 import java.time.DayOfWeek
@@ -37,6 +41,29 @@ class RemotePatientRepositoryImpl @Inject constructor(
 ) : PatientRepository {
 
     override suspend fun getRoutine(): List<RoutineItem> = routineRepository.getRoutine()
+
+    override suspend fun onboard(
+        name: String,
+        routine: List<RoutineItem>,
+        dob: LocalDate?,
+        sex: PatientSex?,
+        emergencyNote: String?,
+        timezone: String,
+    ): OnboardingResult {
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "Tên bệnh nhân không được để trống." }
+
+        return api.onboardPatient(
+            PatientOnboardingRequestDto(
+                name = trimmedName,
+                dob = dob?.toString(),
+                sex = sex?.wireValue,
+                timezone = timezone,
+                emergencyNote = emergencyNote?.trim()?.takeIf(String::isNotEmpty),
+                routine = routine.toRoutineRequestDto(),
+            ),
+        ).requireData("Hoàn tất hồ sơ bệnh nhân").toDomain()
+    }
 
     override suspend fun loadHome(): PatientHome = coroutineScope {
         val patientId = sessionStore.requirePatientId()

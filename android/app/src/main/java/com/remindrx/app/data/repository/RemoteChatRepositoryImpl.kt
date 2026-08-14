@@ -2,6 +2,7 @@ package com.remindrx.app.data.repository
 
 import com.remindrx.app.data.remote.ChatRequestDto
 import com.remindrx.app.data.remote.RemindRxApiService
+import com.remindrx.app.data.remote.requireData
 import java.io.File
 import javax.inject.Inject
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -14,13 +15,13 @@ class RemoteChatRepositoryImpl @Inject constructor(
 
     override suspend fun sendText(message: String): String {
         val request = ChatRequestDto(message = message)
-        return api.sendChatMessage(request).response
+        return api.sendChatMessage(request).requireData("Gửi tin nhắn").response
     }
 
     override suspend fun sendVoice(audioFile: File, mimeType: String): VoiceChatResult {
         val audioBody = audioFile.asRequestBody(mimeType.toMediaTypeOrNull())
         val audioPart = MultipartBody.Part.createFormData("audio", audioFile.name, audioBody)
-        val result = api.sendVoiceChatMessage(audioPart)
+        val result = api.sendVoiceChatMessage(audioPart).requireData("Gửi tin nhắn thoại")
         return VoiceChatResult(
             transcript = result.transcript,
             responseText = result.response,

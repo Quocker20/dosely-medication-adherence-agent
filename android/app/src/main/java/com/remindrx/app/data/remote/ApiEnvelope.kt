@@ -1,6 +1,6 @@
 package com.remindrx.app.data.remote
 
-/** Khớp src/core/response.py:APIResponse — envelope chung cho mọi endpoint FastAPI, trừ /chat và /chat/voice. */
+/** Khớp src/core/response.py:APIResponse — envelope chung cho mọi endpoint FastAPI. */
 data class ApiEnvelope<T>(
     val success: Boolean,
     val code: Int,

@@ -26,6 +26,28 @@ data class AdherenceSummary(
     val missedDoses: Int,
 )
 
+enum class PatientSex(val wireValue: String, val displayLabel: String) {
+    MALE("MALE", "Nam"),
+    FEMALE("FEMALE", "Nữ"),
+    OTHER("OTHER", "Khác"),
+}
+
+/** Hồ sơ bệnh nhân trả về sau khi onboarding (POST /patients/me/profile). */
+data class PatientProfile(
+    val userId: String,
+    val phone: String,
+    val name: String,
+    val dob: LocalDate?,
+    val sex: String?,
+    val timezone: String,
+    val emergencyNote: String?,
+)
+
+data class OnboardingResult(
+    val profile: PatientProfile,
+    val routine: List<RoutineItem>,
+)
+
 data class PageResult<T>(
     val content: List<T>,
     val page: Int,

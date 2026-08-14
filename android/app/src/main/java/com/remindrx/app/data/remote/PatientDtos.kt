@@ -29,6 +29,40 @@ data class PatientRoutineResponseDto(
     val updatedAt: String,
 )
 
+/**
+ * Onboarding lần đầu của bệnh nhân (POST /patients/me/profile).
+ * Bệnh nhân lấy từ token nên không có patientId trong body.
+ * `sex` chỉ nhận MALE | FEMALE | OTHER; `dob` dạng YYYY-MM-DD.
+ */
+data class PatientOnboardingRequestDto(
+    val name: String,
+    val dob: String? = null,
+    val sex: String? = null,
+    val timezone: String = "Asia/Ho_Chi_Minh",
+    val emergencyNote: String? = null,
+    val routine: UpdateRoutineRequestDto,
+)
+
+data class PatientProfileDto(
+    val userId: String,
+    val phone: String,
+    val role: String,
+    val status: String,
+    val name: String,
+    val dob: String?,
+    val sex: String?,
+    val timezone: String,
+    val privacyConsentStatus: String?,
+    val emergencyNote: String?,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+data class PatientProfileDetailResponseDto(
+    val profile: PatientProfileDto,
+    val routine: PatientRoutineResponseDto,
+)
+
 // Schedules / agent runs
 
 data class DoseDto(

@@ -1,41 +1,110 @@
-import type { AlertKind, DoseStatus, PatientStatus, Timing } from "../types";
+import type { AlertSeverity, AlertStatus, AlertTriggeredBy } from "../types";
 
-export const PATIENT_STATUS: Record<PatientStatus, { label: string; tone: "crit" | "warn" | "ok"; row: string }> = {
-  RED_ALERT: { label: "RED ALERT", tone: "crit", row: "sev-red" },
-  SOS: { label: "SOS", tone: "crit", row: "sev-red" },
-  WATCH: { label: "Theo dõi", tone: "warn", row: "sev-watch" },
-  STABLE: { label: "Ổn định", tone: "ok", row: "sev-ok" },
+type Tone = "crit" | "warn" | "ok";
+
+/** alerts.status — khớp ck_alerts_status (OPEN | ACKNOWLEDGED | RESOLVED). */
+export const ALERT_STATUS: Record<AlertStatus, { label: string; tone: Tone }> = {
+  OPEN: { label: "Đang mở", tone: "crit" },
+  ACKNOWLEDGED: { label: "Đã tiếp nhận", tone: "warn" },
+  RESOLVED: { label: "Đã xử lý", tone: "ok" },
 };
 
-export const ALERT_KIND: Record<AlertKind, string> = {
-  MISSED_STREAK: "Chuỗi bỏ liều",
-  SOS: "SOS",
+/** alerts.severity — khớp ck_alerts_severity. */
+export const ALERT_SEVERITY: Record<AlertSeverity, { label: string; tone: Tone }> = {
+  CRITICAL: { label: "Nguy kịch", tone: "crit" },
+  HIGH: { label: "Cao", tone: "crit" },
+  MEDIUM: { label: "Trung bình", tone: "warn" },
+};
+
+/** alerts.triggered_by_type — khớp ck_alerts_triggered_by_type. */
+export const ALERT_TRIGGER: Record<AlertTriggeredBy, string> = {
+  SOS_BUTTON: "Bệnh nhân bấm SOS",
   SEVERE_SYMPTOM: "Triệu chứng nặng",
+  MISSED_DOSES: "Chuỗi bỏ liều",
 };
 
-export const TIMING_LABEL: Record<Timing, string> = {
-  BEFORE_BREAKFAST: "Trước ăn sáng",
-  AFTER_BREAKFAST: "Sau ăn sáng",
-  AFTER_LUNCH: "Sau ăn trưa",
-  AFTER_DINNER: "Sau ăn tối",
-  BEDTIME: "Trước khi ngủ",
-};
+export function alertStatusView(status: string): { label: string; tone: Tone } {
+  return ALERT_STATUS[status as AlertStatus] ?? { label: status, tone: "warn" };
+}
 
-export const TIMINGS = Object.keys(TIMING_LABEL) as Timing[];
+export function alertSeverityView(severity: string): { label: string; tone: Tone } {
+  return ALERT_SEVERITY[severity as AlertSeverity] ?? { label: severity, tone: "warn" };
+}
 
-/** Ô lưới 7 ngày: gom các trạng thái liều về 3 nhóm màu. */
-export function doseCell(status: DoseStatus): { cls: string; glyph: string; title: string } {
-  if (status === "TAKEN") return { cls: "taken", glyph: "✓", title: "Đã uống" };
-  if (status === "LATE") return { cls: "late", glyph: "~", title: "Uống muộn" };
-  if (status === "MISSED" || status === "SKIPPED") {
-    return { cls: "miss", glyph: "✕", title: "Bỏ qua / không phản hồi" };
-  }
-  return { cls: "", glyph: "·", title: "Chưa tới giờ" };
+export function alertTriggerLabel(trigger: string): string {
+  return ALERT_TRIGGER[trigger as AlertTriggeredBy] ?? trigger;
 }
 
 /** Ngưỡng màu cho tỷ lệ tuân thủ — KPI MVP là 70%. */
-export function adherenceTone(value: number): "ok" | "warn" | "crit" {
+export function adherenceTone(value: number): Tone {
   if (value >= 85) return "ok";
   if (value >= 70) return "warn";
   return "crit";
+}
+
+/** Xếp mức ưu tiên một dòng bệnh nhân từ số cảnh báo mở + tỷ lệ tuân thủ. */
+export function patientPriority(
+  openAlerts: number,
+  adherenceRate: number,
+): { label: string; tone: Tone; row: string } {
+  if (openAlerts > 0) return { label: "Cần xử lý", tone: "crit", row: "sev-red" };
+  if (adherenceRate < 70) return { label: "Theo dõi", tone: "warn", row: "sev-watch" };
+  return { label: "Ổn định", tone: "ok", row: "sev-ok" };
+}
+
+/**
+ * Bệnh nhân được tạo tự động lúc bác sĩ kê đơn (find-or-create theo số điện
+ * thoại) có patient_profiles.name là chuỗi literal "NULL" — placeholder cố ý
+ * của backend, bệnh nhân tự sửa khi onboarding (POST /patients/me/profile).
+ * Đừng hiển thị nguyên chuỗi đó cho bác sĩ.
+ */
+export function patientDisplayName(name: string | null | undefined): string {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed || trimmed === "NULL") return "Chưa có hồ sơ";
+  return trimmed;
+}
+
+/** Hai chữ cái đầu để dựng avatar — backend không trả sẵn initials. */
+export function initialsOf(name: string): string {
+  const trimmedName = patientDisplayName(name);
+  if (trimmedName === "Chưa có hồ sơ") return "–";
+  const parts = trimmedName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** ISO datetime -> "HH:MM DD/MM" theo giờ máy bác sĩ. */
+export function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+/** ISO datetime -> "HH:MM" giờ địa phương. Cắt chuỗi ISO sẽ ra giờ UTC. */
+export function formatTime(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatDate(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** YYYY-MM-DD theo giờ địa phương (toISOString sẽ lệch ngày do đổi sang UTC). */
+export function isoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
