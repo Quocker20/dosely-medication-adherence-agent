@@ -7,13 +7,14 @@
 * Local Development Base URL: http://localhost:8000/api/v1
 * Default Content-Type: application/json (Except multipart/form-data for file uploads)
 * Authentication Scheme: Bearer Token (JWT) transmitted via HTTP Header "Authorization: Bearer <token>"
+* Unless explicitly marked as bare, HTTP bodies use `{ "success": boolean, "code": integer, "message": string, "data": any|null }`. Android repositories must require both `success == true` and non-null `data` for data-bearing endpoints.
 
 ### Global Pagination Envelope (PageResponse)
 All list-retrieval endpoints utilizing pagination must return data wrapped inside the following metadata structure:
 ```json
 {
   "content": [],
-  "page_no": 0,
+  "page_no": 1,
   "page_size": 10,
   "total_elements": 150,
   "total_pages": 15,
@@ -28,10 +29,10 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /auth/login | Public | LoginRequest | 200 OK / AuthTokenResponse |
-| POST | /auth/change-password | Required (Authenticated) | ChangePasswordRequest | 200 OK / MessageResponse |
-| POST | /auth/refresh | Public | RefreshTokenRequest | 200 OK / AuthTokenResponse |
-| POST | /auth/logout | Required (Authenticated) | LogoutRequest | 200 OK / MessageResponse |
+| POST | /auth/login | Public | `{ "phone": string, "password": 6-digit PIN }` | 200 / envelope `data`: `access_token`, `refresh_token`, `token_type`, `expires_in`, `is_first_login`, `user` |
+| POST | /auth/change-password | Required (Authenticated) | `{ "current_password": 6-digit PIN, "new_password": 6-digit PIN }` | 200 / envelope `data: null`; human message is in envelope `message` |
+| POST | /auth/refresh | Public | `{ "refresh_token": string }` | 200 / envelope `data`: a rotated `AuthTokenResponse` pair |
+| POST | /auth/logout | Required (Authenticated) | Bearer + `{ "refresh_token": string }` | 200 / envelope `data: null`; human message is in envelope `message` |
 
 ### SLICE 2: ADMIN & DOCTOR MANAGEMENT
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
@@ -55,11 +56,11 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### SLICE 4: PATIENT PROFILE, ROUTINE & CAREGIVER LINKS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /patients/me/profile | Required (PATIENT) | PatientOnboardingRequest | 200 OK / PatientProfileDetailResponse |
+| POST | /patients/me/profile | Required (PATIENT) | Legacy full-profile onboarding for other clients. The Android patient app MUST NOT call this endpoint. | 200 OK / PatientProfileDetailResponse |
 | GET | /patients/{patient_id}/routine | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) | 200 OK / PatientRoutineResponse |
-| PUT | /patients/{patient_id}/routine | Required (PATIENT) | Path Param (patient_id: UUID) + UpdateRoutineRequest | 200 OK / PatientRoutineResponse |
-| POST | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR) | Path Param (patient_id: UUID) + CreateCaregiverLinkRequest | 201 Created / CaregiverLinkDetailResponse |
-| GET | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / List[CaregiverLinkDetailResponse] |
+| PUT | /patients/{patient_id}/routine | Required (PATIENT self) | Idempotent create-or-update. Path Param (patient_id: UUID) + UpdateRoutineRequest (`wake_time`, `breakfast_time`, `lunch_time`, `dinner_time`, `sleep_time`, each nullable `HH:mm`) | 200 OK / PatientRoutineResponse |
+| POST | /patients/{patient_id}/caregivers | Required (PATIENT self) | Path Param + `{ "caregiver_phone": string, "relationship": string?, "channels": ["APP_NOTIFICATION"] }` | 201 Created / CaregiverLinkDetailResponse; `temp_password` is one-time and nullable |
+| GET | /patients/{patient_id}/caregivers | Required (PATIENT self/ADMIN) | Path Param (patient_id: UUID) | 200 OK / List[CaregiverLinkDetailResponse] |
 | DELETE | /patients/{patient_id}/caregivers/{caregiver_link_id} | Required (PATIENT/ADMIN) | Path Params (patient_id: UUID, caregiver_link_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 5: PRESCRIPTIONS & PRESCRIPTION ITEMS
@@ -79,18 +80,20 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /patients/{patient_id}/schedules/generate | Required (DOCTOR/SYSTEM) | Path Param (patient_id: UUID) + GenerateScheduleRequest | 202 Accepted / AgentRunAsyncResponse |
-| GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (date) | 200 OK / ActiveScheduleResponse |
-| POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
+| GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param + optional local-date Query Param `date` | 200 OK / ActiveScheduleResponse; each dose includes `scheduled_dose_id`, `prescription_item_id`, `medication_id`, `medication_name`, `current_scheduled_at`, `dose_slot`, `dose_value`, `dose_unit`, `meal_relation`, `status`, `snooze_count` (snapshot fields nullable for legacy rows) |
+| POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest (`reason` optional) | 202 Accepted / AgentRunAsyncResponse (`agent_run_id`, `status`, `message`) |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
+| POST | /chat | Required (PATIENT) | `{ "message": string }`; patient identity comes only from JWT `sub` | 200 OK / bare ChatResponse (not ApiEnvelope) |
+| POST | /chat/voice | Required (PATIENT) | Multipart `audio`; patient identity comes only from JWT `sub` | 200 OK / bare VoiceChatResponse (not ApiEnvelope) |
 
 ### SLICE 7: ADHERENCE LOGGING & SAFETY ALERTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /scheduled-doses/{scheduled_dose_id}/actions | Required (PATIENT) | Path Param (scheduled_dose_id: UUID) + RecordDoseActionRequest (Header: Idempotency-Key) | 201 Created / AdherenceLogDetailResponse |
-| GET | /patients/{patient_id}/adherence | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to) | 200 OK / AdherenceSummaryResponse |
-| GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponse[AdherenceLogDetailResponse] |
-| POST | /patients/{patient_id}/health-surveys | Required (PATIENT) | Path Param (patient_id: UUID) + SubmitHealthSurveyRequest | 201 Created / HealthSurveyDetailResponse |
-| POST | /patients/{patient_id}/sos | Required (PATIENT) | Path Param (patient_id: UUID) + TriggerSosRequest (Header: Idempotency-Key) | 201 Created / AlertDetailResponse |
+| POST | /scheduled-doses/{scheduled_dose_id}/actions | Required (PATIENT) | Path Param + Header `Idempotency-Key` + `RecordDoseActionRequest` (`action`: `TAKEN`/`SNOOZE`/`SKIPPED`, `action_source`, `payload`) | 201 Created / AdherenceLogDetailResponse (`performed_at`, `payload`, `idempotency_key`) |
+| GET | /patients/{patient_id}/adherence | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param + required inclusive local-date Query Params `from`, `to` (`YYYY-MM-DD`) | 200 OK / AdherenceSummaryResponse (`adherence_rate` is decimal percent plus dose counts) |
+| GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param + required inclusive Query Params `from`, `to`; optional `page`, `size` | 200 OK / PageResponse[AdherenceLogDetailResponse] |
+| POST | /patients/{patient_id}/health-surveys | Required (PATIENT) | `SubmitHealthSurveyRequest`: `survey_date`, `answers_json`, `symptoms[]` (`symptom_code`, `severity`, optional `description`) | 201 Created / HealthSurveyDetailResponse |
+| POST | /patients/{patient_id}/sos | Required (PATIENT) | Header `Idempotency-Key` + `TriggerSosRequest` (`message` optional, `metadata` object) | 201 Created / AlertDetailResponse (uses `status`, not `state`) |
 | GET | /alerts | Required (DOCTOR/ADMIN) | Query Params (page, size, status, patientId) | 200 OK / PageResponse[AlertDetailResponse] |
 | POST | /alerts/{alert_id}/acknowledge | Required (DOCTOR) | Path Param (alert_id: UUID) | 200 OK / AlertDetailResponse |
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
@@ -107,7 +110,20 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 
 ---
 
-## 3. GLOBAL STATUS & EXCEPTION RESPONSE INTERFACE
+## 3. ANDROID PATIENT WIRE RULES
+
+* Onboarding only reads/writes the five routine timestamps through `GET/PUT /patients/{id}/routine`. `PUT` is a self-only, idempotent upsert so a doctor-created profile does not need `/patients/me/profile` first.
+* After every successful routine `PUT`, call `POST .../schedules/reschedule`, then poll `GET /agent-runs/{id}` every 2 seconds for at most 60 seconds. A failed/timed-out run does not roll back the saved routine.
+* A UI action `LATE` is a client concept: send wire action `TAKEN`, `action_source: "PATIENT_MOBILE_APP"`, and `payload.taken_late: true`. Any note is `payload.note`. `SNOOZE` and `SKIPPED` remain their wire actions.
+* Adherence requests always send inclusive Monday-to-today `from`/`to` dates for the current week. `adherence_rate` is a floating-point percent and is rounded only for integer UI display.
+* Survey mood is sent as `answers_json.mood`. A symptom uses a stable `symptom_code`, `severity` (`MILD`, `MODERATE`, `SEVERE`) and optional `description`. `NONE` means an empty `symptoms` list; only a real `SEVERE` symptom creates a red alert.
+* SOS location consent is `metadata.share_location`; the response field is `status`. The Android app currently sends `false` because native GPS collection is out of scope.
+* Access tokens are attached as Bearer credentials. On one 401, refresh once and replay once; refresh failure clears the local session. Logout revokes the refresh token before clearing local encrypted state.
+* Backend timestamps are offsets/UTC. Android renders patient-facing dose and adherence times in `Asia/Ho_Chi_Minh` using an instant-preserving timezone conversion.
+
+---
+
+## 4. GLOBAL STATUS & EXCEPTION RESPONSE INTERFACE
 * 200 OK / 201 Created: Business transactions completed successfully.
 * 202 Accepted: Asynchronous job accepted for background processing (e.g., Planning Agent, Rescheduling Agent, OCR Worker).
 * 400 Bad Request: Structural validation constraint breaches or malformed JSON payloads (handled via FastAPI RequestValidationError / Custom Exception Handlers).

@@ -226,6 +226,18 @@ CREATE TABLE scheduled_doses (
     patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
     original_scheduled_at TIMESTAMPTZ NOT NULL,
     current_scheduled_at TIMESTAMPTZ NOT NULL,
+    -- Generation-time snapshot used by patient clients. Nullable only for
+    -- schedules created before migration 0011.
+    dose_slot VARCHAR(20)
+        CONSTRAINT ck_scheduled_doses_dose_slot
+        CHECK (dose_slot IS NULL OR dose_slot IN ('MORNING','NOON','EVENING','BEDTIME')),
+    medication_id UUID,
+    dose_value NUMERIC(10,3)
+        CONSTRAINT ck_scheduled_doses_dose_value CHECK (dose_value IS NULL OR dose_value > 0),
+    dose_unit VARCHAR(30),
+    meal_relation VARCHAR(30)
+        CONSTRAINT ck_scheduled_doses_meal_relation
+        CHECK (meal_relation IS NULL OR meal_relation IN ('BEFORE_MEAL','AFTER_MEAL','WITH_MEAL')),
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
         CHECK (status IN ('PENDING','TAKEN','SKIPPED','MISSED')),
     snooze_count INTEGER NOT NULL DEFAULT 0 CHECK (snooze_count >= 0),
@@ -537,3 +549,12 @@ CREATE TABLE messages (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- This canonical bootstrap already contains every migration through 0011.
+-- Stamping fresh databases lets a future `alembic upgrade head` start from
+-- the next revision instead of replaying DDL that is already present.
+CREATE TABLE IF NOT EXISTS alembic_version (
+    version_num VARCHAR(32) NOT NULL PRIMARY KEY
+);
+DELETE FROM alembic_version;
+INSERT INTO alembic_version(version_num) VALUES ('0011_schedule_snapshots');
