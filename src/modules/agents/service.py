@@ -317,9 +317,8 @@ class MissedDoseScanService:
     async def run_scan(self) -> None:
         settings = get_settings()
         threshold = settings.missed_dose_alert_threshold
-        cutoff = datetime.now(dt_timezone.utc) - timedelta(
-            minutes=settings.missed_dose_overdue_minutes
-        )
+        now = datetime.now(dt_timezone.utc)
+        cutoff = now - timedelta(minutes=settings.missed_dose_overdue_minutes)
 
         async with self._db.begin():
             affected = await self._dose_repo.mark_overdue_pending_as_missed(cutoff)
@@ -338,7 +337,7 @@ class MissedDoseScanService:
         patient_ids = list(last_dose_by_patient)
         async with self._db.begin():
             streaks = await self._dose_repo.get_recent_dose_statuses(
-                patient_ids, lookback=threshold
+                patient_ids, lookback=threshold, before=now
             )
 
         for patient_id in patient_ids:
