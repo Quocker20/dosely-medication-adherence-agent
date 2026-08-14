@@ -473,3 +473,24 @@ def test_socket_delivers_published_frames(role):
     assert frame["event_type"] == "alert.opened"
     assert frame["data"] == {"id": "alert-1", "status": "OPEN"}
     assert frame["timestamp"]
+
+
+@pytest.mark.parametrize(
+    "event_type,data",
+    [
+        ("alert.updated", {"id": "alert-1", "status": "ACKNOWLEDGED"}),
+        ("adherence.updated", {"patient_id": "p-1", "action": "TAKEN"}),
+        ("schedule.updated", {"patient_id": "p-1", "generated_dose_count": 42}),
+    ],
+)
+def test_socket_delivers_every_published_event_type(event_type, data):
+    """The four event types the write paths emit all reach the portal through
+    the same channel and envelope."""
+    with TestClient(app) as tc:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('DOCTOR')}") as ws:
+            time.sleep(0.5)
+            _publish_from_test_thread(event_type, data)
+            frame = ws.receive_json()
+
+    assert frame["event_type"] == event_type
+    assert frame["data"] == data

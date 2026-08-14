@@ -96,6 +96,17 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Overrides the image's HEALTHCHECK, which probes http://localhost:8000/health
+    # — right for the backend, but this container serves no HTTP, so it inherited
+    # a probe that could only ever fail and reported "unhealthy" while the worker
+    # was running fine. `inspect ping` is the real liveness signal: it round-trips
+    # through the broker, so it fails exactly when the worker cannot take work.
+    healthcheck:
+      test: [ "CMD", "celery", "-A", "src.core.celery_app", "inspect", "ping" ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
 
   # 5. Celery Beat Service (Lên lịch quét missed-dose định kỳ — Red Alert Trigger 1)
   beat:
@@ -122,6 +133,15 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Disabled rather than replaced. Beat is a scheduler, not a worker: it has
+    # no inspect protocol to answer, and it serves no HTTP, so the image's
+    # /health probe could only ever fail here. A substitute probe would have to
+    # be something that passes whenever the process is up — which is what Docker
+    # already tracks — so it would add the appearance of verification without
+    # any. If beat stops emitting, the missed-dose scan silently stops with it;
+    # catch that by alerting on scan freshness, not on a container flag.
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:
