@@ -9,7 +9,9 @@ import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.HealthSurvey
 import com.remindrx.app.data.Medication
 import com.remindrx.app.data.MedicationDetail
+import com.remindrx.app.data.OnboardingResult
 import com.remindrx.app.data.PageResult
+import com.remindrx.app.data.PatientSex
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.data.RoutineUpdateResult
 import com.remindrx.app.data.SurveySymptom
@@ -29,6 +31,20 @@ data class PatientHome(
 interface PatientRepository {
     /** Used to decide routine-only onboarding independently from first-login PIN state. */
     suspend fun getRoutine(): List<RoutineItem>
+
+    /**
+     * First-login self-onboarding: writes profile details and the initial routine
+     * in one call. The backend takes patient_id from the access token, so this
+     * only ever writes the caller's own record.
+     */
+    suspend fun onboard(
+        name: String,
+        routine: List<RoutineItem>,
+        dob: LocalDate? = null,
+        sex: PatientSex? = null,
+        emergencyNote: String? = null,
+        timezone: String = "Asia/Ho_Chi_Minh",
+    ): OnboardingResult
 
     suspend fun loadHome(): PatientHome
 

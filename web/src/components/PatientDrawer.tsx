@@ -1,43 +1,71 @@
-import { Fragment, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
-import { doseCell, PATIENT_STATUS } from "../lib/labels";
-import type { PatientDetail, PatientRoutine } from "../types";
+import {
+  adherenceTone,
+  alertSeverityView,
+  alertStatusView,
+  alertTriggerLabel,
+  formatDateTime,
+  patientDisplayName,
+} from "../lib/labels";
+import type { ActiveSchedule, DashboardPatientDetail, PatientRoutine } from "../types";
 
 interface Props {
-  detail: PatientDetail | null;
+  detail: DashboardPatientDetail | null;
+  routine: PatientRoutine | null;
+  schedule: ActiveSchedule | null;
   open: boolean;
+  busy: boolean;
   onClose: () => void;
-  onPrescribe: (patientId: string) => void;
+  onPrescribe: (phone: string) => void;
   onReschedule: (patientId: string) => void;
 }
 
-const DAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+/** "HH:MM:SS" -> "HH:MM"; null khi bệnh nhân chưa onboarding. */
+function shortTime(value: string | null): string {
+  if (!value) return "—";
+  return value.slice(0, 5);
+}
 
-export function RoutinePills({ routine }: { routine: PatientRoutine }) {
-  const entries: [string, string][] = [
-    ["Thức dậy", routine.wake],
-    ["Ăn sáng", routine.breakfast],
-    ["Ăn trưa", routine.lunch],
-    ["Ăn tối", routine.dinner],
-    ["Đi ngủ", routine.sleep],
+export function RoutinePills({ routine }: { routine: PatientRoutine | null }) {
+  if (!routine) {
+    return <p className="rail-note">Bệnh nhân chưa khai báo lịch sinh hoạt.</p>;
+  }
+
+  const entries: [string, string | null][] = [
+    ["Thức dậy", routine.wake_time],
+    ["Ăn sáng", routine.breakfast_time],
+    ["Ăn trưa", routine.lunch_time],
+    ["Ăn tối", routine.dinner_time],
+    ["Đi ngủ", routine.sleep_time],
   ];
+
   return (
     <div className="routine">
       {entries.map(([label, time]) => (
         <span className="pill" key={label}>
-          {label} <b>{time}</b>
+          {label} <b>{shortTime(time)}</b>
         </span>
       ))}
     </div>
   );
 }
 
-export default function PatientDrawer({ detail, open, onClose, onPrescribe, onReschedule }: Props) {
+export default function PatientDrawer({
+  detail,
+  routine,
+  schedule,
+  open,
+  busy,
+  onClose,
+  onPrescribe,
+  onReschedule,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
-  }, [open, detail?.patient.id]);
+  }, [open, detail?.patient.user_id]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -48,7 +76,7 @@ export default function PatientDrawer({ detail, open, onClose, onPrescribe, onRe
   }, [onClose]);
 
   const patient = detail?.patient;
-  const rows = detail ? [...new Set(detail.week.map((cell) => cell.row))] : [];
+  const adherence = detail?.adherence_summary;
 
   return (
     <>
@@ -56,9 +84,9 @@ export default function PatientDrawer({ detail, open, onClose, onPrescribe, onRe
       <aside className={`drawer ${open ? "open" : ""}`} aria-hidden={!open} aria-label="Hồ sơ bệnh nhân">
         <div className="drawer-head">
           <div style={{ minWidth: 0 }}>
-            <h2>{patient?.name ?? "—"}</h2>
+            <h2>{patient ? patientDisplayName(patient.name) : "—"}</h2>
             <p className="topbar-meta">
-              {patient ? `${patient.age} tuổi · ${patient.diagnosis} · mã BN ${patient.id.toUpperCase()}` : ""}
+              {patient ? `${patient.phone} · mã BN ${patient.user_id.slice(0, 8)}` : ""}
             </p>
           </div>
           <button ref={closeRef} className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={onClose}>
@@ -66,80 +94,95 @@ export default function PatientDrawer({ detail, open, onClose, onPrescribe, onRe
           </button>
         </div>
 
-        {detail && patient && (
+        {detail && patient && adherence && (
           <div className="drawer-body">
             <div className="drawer-sec">
               <div className="routine">
-                <span className={`pill ${PATIENT_STATUS[patient.status].tone}`}>
+                <span className={`pill ${adherenceTone(adherence.adherence_rate)}`}>
                   <span className="dot" />
-                  {PATIENT_STATUS[patient.status].label}
+                  Tuân thủ {Math.round(adherence.adherence_rate)}%
                 </span>
-                <span className="pill mono">Tuân thủ 7 ngày {patient.adherence_rate}%</span>
-                <span className="pill mono">Chuỗi bỏ liều: {patient.consecutive_miss}</span>
+                <span className="pill mono">{adherence.window_days} ngày gần nhất</span>
+                <span className="pill mono">{detail.active_prescriptions_count} đơn đang hiệu lực</span>
               </div>
             </div>
 
             <div className="drawer-sec">
-              <div className="eyebrow">Lịch uống 7 ngày gần nhất</div>
-              <div className="week">
-                <div className="week-h" />
-                {DAYS.map((day) => (
-                  <div className="week-h" key={day}>
-                    {day}
-                  </div>
-                ))}
-                {rows.map((row) => (
-                  <Fragment key={row}>
-                    <div className="week-t">{row}</div>
-                    {detail.week
-                      .filter((cell) => cell.row === row)
-                      .sort((a, b) => a.day - b.day)
-                      .map((cell) => {
-                        const view = doseCell(cell.status);
-                        return (
-                          <div className={`cellbox ${view.cls}`} key={`${row}-${cell.day}`} title={view.title}>
-                            {view.glyph}
-                          </div>
-                        );
-                      })}
-                  </Fragment>
-                ))}
-              </div>
-              <div className="week-legend">
-                <span>✓ đã uống</span>
-                <span>~ uống muộn</span>
-                <span>✕ bỏ qua / MISSED</span>
+              <div className="eyebrow">Thống kê liều (cửa sổ {adherence.window_days} ngày)</div>
+              <div className="routine">
+                <span className="pill mono">Tổng {adherence.total_doses}</span>
+                <span className="pill ok">Đã uống {adherence.taken_doses}</span>
+                <span className="pill warn">Bỏ qua {adherence.skipped_doses}</span>
+                <span className="pill crit">Không phản hồi {adherence.missed_doses}</span>
               </div>
             </div>
 
             <div className="drawer-sec">
               <div className="eyebrow">Lịch sinh hoạt (đầu vào Planning Agent)</div>
-              <RoutinePills routine={detail.routine} />
+              <RoutinePills routine={routine} />
             </div>
 
             <div className="drawer-sec">
-              <div className="eyebrow">Nhật ký tuân thủ (append-only)</div>
-              <div className="log">
-                {detail.logs.map((log, index) => {
-                  const tone =
-                    log.status === "MISSED" || log.status === "SKIPPED" ? "miss" : log.status === "LATE" ? "late" : "";
-                  return (
-                    <div className="log-row" key={`${log.at}-${index}`}>
-                      <div className="log-time">{log.at}</div>
-                      <div className={`log-what ${tone}`}>{log.message}</div>
+              <div className="eyebrow">Lịch uống hôm nay</div>
+              {!schedule || schedule.doses.length === 0 ? (
+                <p className="rail-note">
+                  Chưa có cữ nào hôm nay. Lịch chỉ sinh sau khi có đơn APPROVED và Planning Agent chạy xong.
+                </p>
+              ) : (
+                <div className="log">
+                  {schedule.doses.map((dose) => (
+                    <div className="log-row" key={dose.scheduled_dose_id}>
+                      <div className="log-time">{formatDateTime(dose.current_scheduled_at)}</div>
+                      <div
+                        className={`log-what ${
+                          dose.status === "MISSED" || dose.status === "SKIPPED"
+                            ? "miss"
+                            : dose.status === "LATE"
+                              ? "late"
+                              : ""
+                        }`}
+                      >
+                        {dose.medication_name} · {dose.status}
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="drawer-sec">
+              <div className="eyebrow">Cảnh báo gần đây</div>
+              {detail.recent_alerts.length === 0 ? (
+                <p className="rail-note">Không có cảnh báo nào gần đây.</p>
+              ) : (
+                <div className="log">
+                  {detail.recent_alerts.map((alert) => {
+                    const statusView = alertStatusView(alert.status);
+                    const severityView = alertSeverityView(alert.severity);
+                    return (
+                      <div className="log-row" key={alert.id}>
+                        <div className="log-time">{formatDateTime(alert.created_at)}</div>
+                        <div className="log-what">
+                          {alertTriggerLabel(alert.triggered_by_type)}
+                          {" · "}
+                          <span style={{ color: `var(--${severityView.tone})` }}>{severityView.label}</span>
+                          {" · "}
+                          <span style={{ color: `var(--${statusView.tone})` }}>{statusView.label}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="drawer-sec">
               <div className="row-actions">
-                <button className="btn primary" onClick={() => onPrescribe(patient.id)}>
+                <button className="btn primary" onClick={() => onPrescribe(patient.phone)}>
                   Kê đơn cho bệnh nhân này
                 </button>
-                <button className="btn" onClick={() => onReschedule(patient.id)}>
-                  Yêu cầu Rescheduling Agent dời giờ
+                <button className="btn" disabled={busy} onClick={() => onReschedule(patient.user_id)}>
+                  {busy ? "Đang gửi…" : "Yêu cầu Rescheduling Agent dời giờ"}
                 </button>
               </div>
               <p className="rail-note">

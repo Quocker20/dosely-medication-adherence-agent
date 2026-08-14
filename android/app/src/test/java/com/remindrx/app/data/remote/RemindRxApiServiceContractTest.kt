@@ -259,6 +259,109 @@ class RemindRxApiServiceContractTest {
         assertTrue(medication?.isActive == true)
     }
 
+    @Test
+    fun `chat endpoints unwrap the standard envelope`() = runBlocking {
+        // src/modules/agents/router.py trả success_response() cho cả /chat và
+        // /chat/voice, nên payload nằm trong data — đọc thẳng model trần sẽ ra null.
+        enqueueSuccess("""{"response": "Liều tiếp theo lúc 20:00."}""")
+
+        val reply = api.sendChatMessage(ChatRequestDto(message = "Liều tiếp theo lúc mấy giờ?"))
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/chat", request.requestUrl?.encodedPath)
+        assertTrue(reply.success)
+        assertEquals("Liều tiếp theo lúc 20:00.", reply.data?.response)
+    }
+
+    @Test
+    fun `voice chat keeps a null audio payload when TTS fails open`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "transcript": "Tôi quên uống thuốc",
+              "response": "Đừng uống bù gấp đôi.",
+              "audio_base64": null
+            }
+            """.trimIndent(),
+        )
+
+        val part = okhttp3.MultipartBody.Part.createFormData(
+            "audio",
+            "audio.webm",
+            okhttp3.RequestBody.create(null, ByteArray(0)),
+        )
+        val reply = api.sendVoiceChatMessage(part).data
+
+        val request = server.takeRequest()
+        assertEquals("/api/v1/chat/voice", request.requestUrl?.encodedPath)
+        assertEquals("Tôi quên uống thuốc", reply?.transcript)
+        assertEquals("Đừng uống bù gấp đôi.", reply?.response)
+        assertEquals(null, reply?.audioBase64)
+    }
+
+    @Test
+    fun `onboarding posts profile and routine to the self route`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "profile": {
+                "user_id": "patient-1",
+                "phone": "0901234567",
+                "role": "PATIENT",
+                "status": "ACTIVE",
+                "name": "Nguyen Van B",
+                "dob": "1958-04-02",
+                "sex": "MALE",
+                "timezone": "Asia/Ho_Chi_Minh",
+                "privacy_consent_status": null,
+                "emergency_note": null,
+                "created_at": "2026-08-14T08:00:00Z",
+                "updated_at": "2026-08-14T08:00:00Z"
+              },
+              "routine": {
+                "id": "routine-1",
+                "patient_id": "patient-1",
+                "wake_time": "06:30:00",
+                "breakfast_time": "07:00:00",
+                "lunch_time": "11:30:00",
+                "dinner_time": "18:00:00",
+                "sleep_time": "22:00:00",
+                "updated_at": "2026-08-14T08:00:00Z"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val result = api.onboardPatient(
+            PatientOnboardingRequestDto(
+                name = "Nguyen Van B",
+                dob = "1958-04-02",
+                sex = "MALE",
+                emergencyNote = null,
+                routine = UpdateRoutineRequestDto(
+                    wakeTime = "06:30",
+                    breakfastTime = "07:00",
+                    lunchTime = "11:30",
+                    dinnerTime = "18:00",
+                    sleepTime = "22:00",
+                ),
+            ),
+        ).data
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        // patient_id lấy từ token, không nằm trong path lẫn body.
+        assertEquals("/api/v1/patients/me/profile", request.requestUrl?.encodedPath)
+
+        val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+        assertFalse(body.has("patient_id"))
+        assertEquals("Nguyen Van B", body.get("name").asString)
+        assertEquals("06:30", body.getAsJsonObject("routine").get("wake_time").asString)
+        assertEquals("Nguyen Van B", result?.profile?.name)
+        assertEquals("06:30:00", result?.routine?.wakeTime)
+    }
+
     private fun enqueueSuccess(data: String, statusCode: Int = 200) {
         server.enqueue(
             MockResponse()

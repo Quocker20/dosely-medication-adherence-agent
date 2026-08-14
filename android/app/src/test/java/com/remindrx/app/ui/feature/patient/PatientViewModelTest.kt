@@ -7,7 +7,9 @@ import com.remindrx.app.data.CaregiverLink
 import com.remindrx.app.data.DoseAction
 import com.remindrx.app.data.HealthSurvey
 import com.remindrx.app.data.MedicationDetail
+import com.remindrx.app.data.OnboardingResult
 import com.remindrx.app.data.PageResult
+import com.remindrx.app.data.PatientSex
 import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.data.RoutineUpdateResult
 import com.remindrx.app.data.ScheduleUpdateStatus
@@ -155,6 +157,15 @@ private class FakePatientRepository : PatientRepository {
         val saved = lastSubmittedRoutine
         return if (saved == null) homeResponse else patientHome(saved)
     }
+
+    override suspend fun onboard(
+        name: String,
+        routine: List<RoutineItem>,
+        dob: LocalDate?,
+        sex: PatientSex?,
+        emergencyNote: String?,
+        timezone: String,
+    ): OnboardingResult = error("Not used")
 
     override suspend fun updateRoutine(routine: List<RoutineItem>): RoutineUpdateResult {
         updateRoutineCalls += 1
