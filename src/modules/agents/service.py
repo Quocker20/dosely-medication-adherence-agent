@@ -24,6 +24,8 @@ from src.common.exceptions import (
 )
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
+from src.core.redis import publish_dashboard_event
+from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.planner import (
     PlannableItem,
     RoutineTimes,
@@ -40,7 +42,6 @@ from src.modules.agents.schemas import (
     RescheduleRequest,
     VoiceChatResponse,
 )
-from src.modules.adherence.repository import AlertRepository
 from src.modules.patients.repository import PatientRepository
 from src.modules.planning.core.speech import (
     SpeechServiceError,
@@ -288,6 +289,21 @@ class SchedulingService:
                 await self._agent_run_repo.mark_failed(
                     run_id, latency_ms, error_code=type(exc).__name__[:100]
                 )
+            return
+
+        # After the commit, and only on success — the portal must not be told a
+        # schedule exists for a run that then failed. Carries counts rather than
+        # the doses themselves: a horizon of generated doses is far too large for
+        # a socket frame, and the dashboard re-reads the schedule endpoint anyway.
+        await publish_dashboard_event(
+            "schedule.updated",
+            {
+                "patient_id": str(patient_id),
+                "agent_run_id": str(run_id),
+                "generated_dose_count": inserted_count,
+                "is_reschedule": is_reschedule,
+            },
+        )
 
 
 _MISSED_DOSE_TRIGGERED_BY_TYPE = "MISSED_DOSES"
