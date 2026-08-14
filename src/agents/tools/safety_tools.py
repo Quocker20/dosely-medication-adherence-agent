@@ -8,9 +8,13 @@ distinguishable from a button press. api-contract.md still has no dedicated
 endpoint for code-initiated alerts; sharing the SOS route is the agreed interim
 (the call runs under the patient's own token, so RBAC is unchanged).
 
-Still open: `count_missed_dose_streak` below has no caller — nothing scans for
-overdue doses yet, so trigger 1 does not fire in practice. Wiring that scan is a
-separate piece of work, not something this module can do on its own.
+Trigger 1 (missed-dose streak) is wired: src/modules/agents/service.py's
+MissedDoseScanService calls count_missed_dose_streak below on a Celery Beat
+schedule (settings.missed_dose_scan_interval_minutes). It writes alerts via
+AlertRepository directly rather than through trigger_red_alert/_send_alert —
+that HTTP path runs under a patient's own bearer token (see backend_client's
+get_actor_token), which a scheduled background job scanning every patient
+does not have.
 """
 from __future__ import annotations
 
@@ -90,9 +94,6 @@ SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "uống nhầm thuốc quá liều",
     "uống quá liều thuốc",
 )
-
-MISSED_DOSE_ALERT_THRESHOLD = 3
-
 
 def match_severe_symptom_keyword(text: str) -> str | None:
     """Lớp 1 (rule-based, LUÔN chạy trước LLM) — khớp câu mô tả triệu chứng

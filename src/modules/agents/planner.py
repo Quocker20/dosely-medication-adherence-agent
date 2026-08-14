@@ -77,6 +77,38 @@ class ScheduleRow:
     snooze_count: int = 0
 
 
+class FrequencyGuardrailError(ValueError):
+    """Raised by validate_frequency_guardrails when a PlannableItem requests
+    more doses/day than settings.max_frequency_per_day allows. A distinct
+    type (not a bare ValueError) so SchedulingService.execute_run's
+    error_code (type(exc).__name__) is meaningful on GET /agent-runs/{id}
+    rather than a generic 'ValueError'."""
+
+
+def validate_frequency_guardrails(items: List[PlannableItem], max_per_day: int) -> None:
+    """Code-enforced guardrail (src/core/config.py: max_frequency_per_day) —
+    not LLM-enforced. Counts non-null/non-zero dose columns per item, which
+    is exactly the item's doses/day, and rejects the whole run if any item
+    exceeds max_per_day. Called before expand_schedule so a violating item
+    never reaches date-expansion at all.
+
+    The "dose is not None and dose > 0" test deliberately mirrors
+    _candidate_slots_for_day's own slot-inclusion check below, so "frequency"
+    here means precisely what expand_schedule will actually schedule.
+    """
+    for item in items:
+        frequency = sum(
+            1
+            for dose in (item.morning_dose, item.noon_dose, item.evening_dose, item.bedtime_dose)
+            if dose is not None and dose > 0
+        )
+        if frequency > max_per_day:
+            raise FrequencyGuardrailError(
+                f"PrescriptionItem {item.id}: {frequency} doses/day requested, "
+                f"exceeds max_frequency_per_day={max_per_day}"
+            )
+
+
 def _item_horizon(
     item: PlannableItem, today: date, horizon_days: int, max_treatment_days: int
 ) -> Optional[tuple[date, date]]:
