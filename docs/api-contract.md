@@ -102,14 +102,19 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
 
 ### SLICE 8: DASHBOARD REALTIME (Doctor Portal)
-Backend-only slice — no agent involvement (the doctor dashboard reads adherence/alert data the same way any other client would). Not yet implemented: no router, service, or schema exists for any row below.
+Backend-only slice — no agent involvement (the doctor dashboard reads adherence/alert data the same way any other client would). Implemented in `src/modules/dashboard/`.
 
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponse[DashboardPatientListResponse] |
 | GET | /dashboard/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / DashboardPatientDetailResponse |
-| WS | /ws/dashboard | Handshake Protocol | Initial Socket Connection Handshake (Query Token) | WebSocket Connection Established |
-| STREAM | /ws/dashboard/events | Active Socket Connection | Stream events via WebSocket Connection | JSON Event Frame (WebSocketEventStream) |
+| WS | /ws/dashboard | Required (DOCTOR/ADMIN) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of WebSocketEventStream frames |
+
+**Scope.** A doctor sees only patients they have written at least one prescription for; an ADMIN sees all. The roster returns an empty page for an out-of-scope caller rather than 403, and `/dashboard/patients/{id}` returns **404** for both "no such patient" and "not your patient" — a distinct status would confirm which UUIDs exist. Rows are ordered by open alert count descending, so the patients needing attention are on page 1.
+
+**Adherence figures** cover a rolling window ending now (`DASHBOARD_ADHERENCE_WINDOW_DAYS`, default 7), not a caller-supplied date range — use `GET /patients/{id}/adherence` for an explicit `[from, to]`. `open_alerts_count` counts `OPEN` **and** `ACKNOWLEDGED`: a doctor having seen an alert does not mean the patient's situation is closed. `active_prescriptions_count` counts only `APPROVED`.
+
+**WS /ws/dashboard.** Note this path is **not** under `/api/v1`. The token travels as a query parameter because the browser WebSocket API cannot set an `Authorization` header; keep those tokens short-lived, since query strings reach proxy and browser-history logs far more readily than headers do. Authorisation happens before `accept()` — a missing, non-access, or non-DOCTOR/ADMIN token closes with code **1008** (policy violation) rather than opening a socket that immediately dies. Frames currently published: `alert.opened` (SOS or agent-detected alert raised) and `alert.updated` (acknowledged or resolved). Publishing is fail-open: a Redis outage costs the portal its liveness, never the underlying clinical write. There is no separate `/ws/dashboard/events` route — the events *are* this connection's frames; the earlier two-row listing described one endpoint as two.
 
 **OCR removed from this contract.** The former `POST /patients/{id}/drug-label-ocr` + `GET /ocr-jobs/{id}` pair (image-of-label -> OCR -> RAG lookup) has no code behind it anywhere — no router, no `ocr_rag` module, no OCR engine wired, no Chroma collection to ground a result against. It was speculative and is dropped rather than left to imply a working feature. Re-add it here only once there is a real pipeline to document; until then, the only drug-lookup path is the `search_drug_info` chat tool described under Slice 6.
 
