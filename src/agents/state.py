@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -25,20 +25,3 @@ class AgentState(TypedDict, total=False):
     intent: str
     error: str
     metadata: dict
-
-
-class PlanningState(TypedDict, total=False):
-    """State cho Planning Agent (FR-2.1).
-
-    Agent chỉ được sinh `candidates[*]["times"]`. Mọi trường lâm sàng đi kèm
-    (liều, số cữ, số ngày) là bản sao read-only của đơn đã duyệt và sẽ bị
-    validator đối chiếu lại ở `validate_candidate_node`.
-    """
-
-    prescription: Any  # modules.planning.core.clinical.Prescription
-    routine: Any  # modules.planning.core.clinical.PatientRoutine
-    anchors: dict[str, str]
-    candidates: list[dict[str, Any]]
-    review_notes: list[str]
-    slots: list[Any]  # modules.planning.core.clinical.ScheduleSlot
-    error: str
