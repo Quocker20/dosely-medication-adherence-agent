@@ -60,7 +60,35 @@ bash scripts/setup_hooks.sh
 
 Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
 
-### Bước 4: Chạy server
+### Bước 4: Chạy hạ tầng (Postgres + Redis)
+
+```bash
+docker compose up -d postgres redis
+```
+
+Lần đầu chạy, Postgres tự nạp `docs/database_v1_init.sql` (25 bảng) từ
+`docker-entrypoint-initdb.d`. Việc này **chỉ xảy ra khi volume còn trống** — nếu
+`p-216_postgres_data` đã tồn tại từ trước, container bỏ qua bước init.
+
+Đưa schema lên bản mới nhất:
+
+```bash
+alembic upgrade head
+```
+
+Nếu DB được tạo bằng `database_v1_init.sql` mà chưa có bảng `alembic_version`,
+đánh dấu baseline trước (chỉ làm một lần):
+
+```bash
+alembic stamp 0001_baseline
+```
+
+> `.env` dùng hostname phía **host** (`localhost`) để `pytest`/`alembic`/`uvicorn`
+> chạy được ngoài container. Container `backend`/`worker` tự ghi đè thành
+> `postgres`/`redis` trong `docker-compose.yml` — đừng đổi `.env` về hostname
+> nội bộ Docker, sẽ làm test ngoài container mất kết nối.
+
+### Bước 5: Chạy server
 
 ```bash
 # Chạy FastAPI backend
@@ -70,7 +98,16 @@ uvicorn src.main:app --reload --port 8000
 # http://localhost:8000/docs
 ```
 
-### Bước 5: Đọc hướng dẫn
+### Bước 6: Chạy test
+
+```bash
+pytest -q
+```
+
+Cần Postgres ở Bước 4 đang chạy — các test của slice 3/4 ghi/xoá dữ liệu thật.
+Test tự dọn sau mỗi case nên chạy lại nhiều lần vẫn xanh.
+
+### Bước 7: Đọc hướng dẫn
 
 📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
 

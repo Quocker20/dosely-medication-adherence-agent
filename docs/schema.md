@@ -378,6 +378,14 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `date` (date): Ngày truy vấn lịch.
   * `doses` (List[Dict[str, Any]]): Mảng các cữ uống thuốc đã được rải lịch (Bao gồm `scheduled_dose_id`, `medication_name`, `current_scheduled_at`, `status`, `snooze_count`).
 
+### 6.6 search_drug_info — tool nội bộ, KHÔNG phải HTTP schema
+* **Mục đích**: Tra cứu công dụng/hoạt chất thuốc, chỉ gọi được từ bên trong lượt hội thoại `POST /chat`/`/chat/voice` — LLM tự quyết định gọi tool này khi bệnh nhân hỏi về một loại thuốc. Không có route riêng, không nằm trong API contract Slice 8 (đã dời khỏi đó — xem api-contract.md §Slice 8), không nhận request body từ client.
+* **Module**: `src.agents.tools.drug_info_tools`
+* **Input/Output thật của tool** (không phải Pydantic DTO, chỉ để tham khảo khi debug):
+  * `query` (str): tên thuốc hoặc câu hỏi, LLM tự trích từ hội thoại.
+  * Trả về (str): **STUB** — hiện luôn trả cố định "Tôi không tìm thấy thông tin đáng tin cậy về thuốc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ." bất kể `query` là gì.
+* **Chưa tồn tại**: pipeline RAG thật (Chroma collection, embedding, similarity-threshold grounding, citation) — không có `chroma_persist_dir` trong `src/core/config.py`, không có script ingest. `matched_medication_id`/`citations` từng xuất hiện trong bản đặc tả cũ đã bị xoá vì không phản ánh hành vi thật — đừng dựng client mong đợi cấu trúc đó.
+
 ---
 
 ## PHÂN HỆ 7: DIỂM DANH TUÂN THỦ & AN TOÀN (ADHERENCE & SAFETY)
@@ -466,34 +474,13 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 
 ---
 
-## PHÂN HỆ 8: OCR, RAG & DASHBOARD REALTIME
+## PHÂN HỆ 8: DASHBOARD REALTIME (Doctor Portal)
 
-### 8.1 CreateOcrJobMultipartRequest
-* **Mục đích**: Cấu trúc dữ liệu Multipart Form gửi tệp ảnh nhãn thuốc để xử lý OCR + RAG.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `file` (UploadFile): Tệp tin hình ảnh nhãn thuốc (`image/jpeg`, `image/png`).
-  * `engine` (str, default="PADDLE_OCR"): Trình xuất văn bản OCR.
+Slice thuần backend — không có phần nào của agent service tham gia (dashboard chỉ đọc lại dữ liệu adherence/alert như bất kỳ client nào khác). **Chưa triển khai**: không có router/service/schema nào cho các mục dưới đây tồn tại trong code.
 
-### 8.2 OcrJobAsyncResponse
-* **Mục đích**: Phản hồi mã tác vụ xử lý ảnh bất đồng bộ từ bảng `ocr_jobs`.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `ocr_job_id` (UUID): Mã job OCR.
-  * `status` (str): Trạng thái tiến trình (`PROCESSING`, `SUCCESS`, `FAILED`).
-  * `message` (str): Thông báo trạng thái.
+Đã xoá khỏi phân hệ này: `CreateOcrJobMultipartRequest`, `OcrJobAsyncResponse`, `OcrJobDetailResponse` (OCR nhãn thuốc + RAG). Không có `ocr_rag` module, không route, không pipeline OCR/Chroma nào tồn tại — giữ lại chỉ tạo ảo giác về một tính năng đang chạy. Đường tra cứu thuốc thật hiện chỉ có `search_drug_info` (xem §6.6), và nó là stub.
 
-### 8.3 OcrJobDetailResponse
-* **Mục đích**: Trả về kết quả bóc tách văn bản OCR kèm kết quả truy vấn tri thức RAG nhãn thuốc.
-* **Module**: `src.modules.ocr_rag.schemas`
-* **Cấu trúc thuộc tính**:
-  * `id` (UUID): Mã job OCR.
-  * `status` (str): Trạng thái.
-  * `raw_text` (Optional[str]): Văn bản thô quét được.
-  * `confidence` (Optional[float]): Độ tin cậy của thuật toán OCR (Thang điểm: `0.0` - `1.0`).
-  * `rag_result` (Optional[Dict[str, Any]]): Kết quả RAG (Bao gồm thuốc khớp trong CSDL `matched_medication_id`, tóm tắt thông tin thuốc và các đoạn trích dẫn nguồn `citations`).
-
-### 8.4 DashboardPatientListResponse
+### 8.1 DashboardPatientListResponse
 * **Mục đích**: Phản hồi từng item trong danh sách bệnh nhân theo dõi phân trang `PageResponse[DashboardPatientListResponse]` cho Portal Bác sĩ.
 * **Module**: `src.modules.admin.schemas`
 * **Cấu trúc thuộc tính**:
@@ -503,7 +490,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `open_alerts_count` (int): Số lượng cảnh báo chưa xử lý.
   * `last_survey_date` (Optional[date]): Ngày khảo sát gần nhất.
 
-### 8.5 DashboardPatientDetailResponse
+### 8.2 DashboardPatientDetailResponse
 * **Mục đích**: Phản hồi chi tiết chỉ số tổng hợp của một bệnh nhân trên màn hình Dashboard Bác sĩ.
 * **Module**: `src.modules.admin.schemas`
 * **Cấu trúc thuộc tính**:
@@ -512,7 +499,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `adherence_summary` (Dict[str, Any]): Thống kê tuân thủ (`adherence_rate`, `total_doses`).
   * `recent_alerts` (List[AlertDetailResponse]): Danh sách các cảnh báo gần đây.
 
-### 8.6 WebSocketEventStream
+### 8.3 WebSocketEventStream
 * **Mục đích**: Khối dữ liệu Payload đẩy thời gian thực từ Server xuống Client qua kết nối WebSocket (`/ws/dashboard`).
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
