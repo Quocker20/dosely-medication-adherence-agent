@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user_payload, get_db, require_roles
 from src.core.response import success_response
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
+from src.modules.agents.repository import ScheduledDoseRepository
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import MessageResponse
 from src.modules.patients.repository import PatientRepository
@@ -49,6 +50,7 @@ def get_prescription_service(
         medication_repository=MedicationRepository(db),
         auth_repository=AuthRepository(db),
         patient_repository=PatientRepository(db),
+        scheduled_dose_repository=ScheduledDoseRepository(db),
     )
 
 

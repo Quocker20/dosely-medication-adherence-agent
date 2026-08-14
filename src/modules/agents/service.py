@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.audit import log_turn
 from src.agents.graph import agent
+from src.agents.tools.safety_tools import count_missed_dose_streak
 from src.common.exceptions import (
     AppException,
     ConflictException,
@@ -23,7 +24,12 @@ from src.common.exceptions import (
 )
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
-from src.modules.agents.planner import PlannableItem, RoutineTimes, expand_schedule
+from src.modules.agents.planner import (
+    PlannableItem,
+    RoutineTimes,
+    expand_schedule,
+    validate_frequency_guardrails,
+)
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
@@ -34,6 +40,7 @@ from src.modules.agents.schemas import (
     RescheduleRequest,
     VoiceChatResponse,
 )
+from src.modules.adherence.repository import AlertRepository
 from src.modules.patients.repository import PatientRepository
 from src.modules.planning.core.speech import (
     SpeechServiceError,
@@ -237,6 +244,7 @@ class SchedulingService:
                     )
                     for item, _prescription_id in item_pairs
                 ]
+                validate_frequency_guardrails(plannable_items, settings.max_frequency_per_day)
                 routine_times = RoutineTimes(
                     wake=routine.wake_time if routine else None,
                     breakfast=routine.breakfast_time if routine else None,
@@ -279,6 +287,83 @@ class SchedulingService:
             async with self._db.begin():
                 await self._agent_run_repo.mark_failed(
                     run_id, latency_ms, error_code=type(exc).__name__[:100]
+                )
+
+
+_MISSED_DOSE_TRIGGERED_BY_TYPE = "MISSED_DOSES"
+_MISSED_DOSE_ALERT_TYPE = "RED_ALERT"
+_MISSED_DOSE_ALERT_SEVERITY = "HIGH"
+
+
+class MissedDoseScanService:
+    """Celery-Beat-driven periodic scan (see tasks.py:scan_missed_doses_task).
+    Trigger 1 of the Red Alert safety mechanism (cong_viec.md §4.1) — pure
+    code, no LLM. Runs outside any authenticated HTTP request (there is no
+    single patient's bearer token for a scan touching every patient), so it
+    writes through AlertRepository directly rather than POST /patients/{id}/sos
+    (the path chat-detected alerts use, which runs under the caller's own
+    token — see safety_tools.py's _send_alert)."""
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        scheduled_dose_repository: ScheduledDoseRepository,
+        alert_repository: AlertRepository,
+    ) -> None:
+        self._db = db
+        self._dose_repo = scheduled_dose_repository
+        self._alert_repo = alert_repository
+
+    async def run_scan(self) -> None:
+        settings = get_settings()
+        threshold = settings.missed_dose_alert_threshold
+        cutoff = datetime.now(dt_timezone.utc) - timedelta(
+            minutes=settings.missed_dose_overdue_minutes
+        )
+
+        async with self._db.begin():
+            affected = await self._dose_repo.mark_overdue_pending_as_missed(cutoff)
+        if not affected:
+            return
+
+        # Keep each patient's most-recently-missed dose id (for the alert's
+        # triggered_by_id / idempotency key) — a single scan can flip several
+        # overdue doses per patient at once.
+        last_dose_by_patient: dict[uuid.UUID, tuple[uuid.UUID, datetime]] = {}
+        for patient_id, dose_id, scheduled_at in affected:
+            prev = last_dose_by_patient.get(patient_id)
+            if prev is None or scheduled_at > prev[1]:
+                last_dose_by_patient[patient_id] = (dose_id, scheduled_at)
+
+        patient_ids = list(last_dose_by_patient)
+        async with self._db.begin():
+            streaks = await self._dose_repo.get_recent_dose_statuses(
+                patient_ids, lookback=threshold
+            )
+
+        for patient_id in patient_ids:
+            doses = streaks.get(patient_id, [])
+            if len(doses) < threshold or count_missed_dose_streak(doses) < threshold:
+                continue
+            last_dose_id, _ = last_dose_by_patient[patient_id]
+            idempotency_key = f"missed-dose-streak:{patient_id}:{last_dose_id}"
+            try:
+                async with self._db.begin():
+                    await self._alert_repo.create_alert(
+                        patient_id=patient_id,
+                        triggered_by_type=_MISSED_DOSE_TRIGGERED_BY_TYPE,
+                        triggered_by_id=last_dose_id,
+                        alert_type=_MISSED_DOSE_ALERT_TYPE,
+                        severity=_MISSED_DOSE_ALERT_SEVERITY,
+                        message=f"{threshold}+ liều liên tiếp bị bỏ lỡ/quá giờ.",
+                        idempotency_key=idempotency_key,
+                    )
+            except IntegrityError:
+                # Idempotent replay: this streak already raised an alert
+                # (still OPEN/unresolved) on a prior scan tick.
+                logger.info(
+                    "Missed-dose alert already exists for patient %s (idempotent replay)",
+                    patient_id,
                 )
 
 

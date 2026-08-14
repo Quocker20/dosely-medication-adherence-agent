@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Exists, delete, or_, select, update
+from sqlalchemy import Exists, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -226,6 +226,28 @@ class ScheduledDoseRepository:
         )
         await self._db.execute(stmt)
 
+    async def delete_future_pending_for_prescription(
+        self, prescription_id: uuid.UUID, now: datetime
+    ) -> None:
+        """Wipe only this prescription's future PENDING doses, ahead of a
+        cancel — sibling of delete_future_pending, scoped to one
+        prescription instead of the whole patient (the patient can have
+        other still-active prescriptions whose doses must survive). Without
+        this, a cancelled prescription's already-generated doses sit PENDING
+        forever and the missed-dose scan (MissedDoseScanService) eventually
+        marks them MISSED and raises a Red Alert for medication the patient
+        is no longer even supposed to take."""
+        stmt = delete(ScheduledDose).where(
+            ScheduledDose.status == "PENDING",
+            ScheduledDose.current_scheduled_at > now,
+            ScheduledDose.prescription_item_id.in_(
+                select(PrescriptionItem.id).where(
+                    PrescriptionItem.prescription_id == prescription_id
+                )
+            ),
+        )
+        await self._db.execute(stmt)
+
     async def get_schedule_in_range(
         self,
         patient_id: uuid.UUID,
@@ -255,3 +277,75 @@ class ScheduledDoseRepository:
         stmt = stmt.order_by(ScheduledDose.current_scheduled_at.asc())
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
+
+    async def mark_overdue_pending_as_missed(
+        self, cutoff: datetime
+    ) -> List[Tuple[uuid.UUID, uuid.UUID, datetime]]:
+        """Flip every ScheduledDose still PENDING with current_scheduled_at <
+        cutoff to MISSED, across all patients in one statement. Rides
+        idx_scheduled_doses_pending_due (current_scheduled_at) WHERE
+        status='PENDING'. Race-safe against a patient actioning the same dose
+        concurrently: standard row-level UPDATE locking means a row already
+        flipped to TAKEN/SKIPPED a moment earlier no longer matches
+        status='PENDING' by the time this runs, so it's simply excluded — no
+        read-then-write window. Returns (patient_id, dose_id,
+        current_scheduled_at) for every row just flipped, so the caller only
+        recomputes streaks for affected patients."""
+        stmt = (
+            update(ScheduledDose)
+            .where(
+                ScheduledDose.status == "PENDING",
+                ScheduledDose.current_scheduled_at < cutoff,
+            )
+            .values(status="MISSED")
+            .returning(
+                ScheduledDose.patient_id,
+                ScheduledDose.id,
+                ScheduledDose.current_scheduled_at,
+            )
+        )
+        result = await self._db.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
+
+    async def get_recent_dose_statuses(
+        self, patient_ids: List[uuid.UUID], lookback: int
+    ) -> Dict[uuid.UUID, List[Dict[str, str]]]:
+        """For each patient_id, fetch their most recent `lookback` doses by
+        current_scheduled_at (ascending, as {"status": ...} dicts — feeds
+        count_missed_dose_streak directly). One query for all affected
+        patients via ROW_NUMBER() OVER (PARTITION BY patient_id ...), not one
+        query per patient. `lookback` is meant to be
+        settings.missed_dose_alert_threshold — we only ever need to know
+        whether the *last N* doses are all SKIPPED/MISSED, so fetching
+        exactly N rows/patient bounds this query regardless of history
+        length."""
+        if not patient_ids:
+            return {}
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=ScheduledDose.patient_id,
+                order_by=ScheduledDose.current_scheduled_at.desc(),
+            )
+            .label("rn")
+        )
+        subq = (
+            select(
+                ScheduledDose.patient_id,
+                ScheduledDose.status,
+                ScheduledDose.current_scheduled_at,
+                rn,
+            )
+            .where(ScheduledDose.patient_id.in_(patient_ids))
+            .subquery()
+        )
+        stmt = (
+            select(subq.c.patient_id, subq.c.status)
+            .where(subq.c.rn <= lookback)
+            .order_by(subq.c.patient_id, subq.c.current_scheduled_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        grouped: Dict[uuid.UUID, List[Dict[str, str]]] = {}
+        for patient_id, status in result.all():
+            grouped.setdefault(patient_id, []).append({"status": status})
+        return grouped
