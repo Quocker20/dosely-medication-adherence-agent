@@ -58,7 +58,7 @@ bash scripts/setup_hooks.sh
 # powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
+Hooks tự động log prompt từ Claude Code, Cursor, Gemini CLI và GitHub Copilot. Với Codex Desktop và Antigravity, hook pre-push sẽ quét transcript cục bộ và ghi các prompt chưa có trước khi gửi log.
 
 ### Bước 4: Chạy server
 
@@ -115,7 +115,8 @@ uvicorn src.main:app --reload --port 8000
 │   ├── test_agents/      #    Agent/graph tests
 │   └── test_api/         #    API endpoint tests
 ├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
+│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Gemini/Copilot
+│   ├── log_codex.py      #    Codex Desktop prompt scanner
 │   ├── log_antigravity.py#    Antigravity IDE prompt scanner
 │   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
 │   ├── submit_log.py     #    Submit logs on git push
@@ -129,7 +130,8 @@ uvicorn src.main:app --reload --port 8000
 │   ├── architecture_diagram.md
 │   └── guide/             #    Technical Guidebook AI20K (10 chương, tài liệu chung)
 ├── scripts/              # 🔌 AI Logging Hooks (bắt buộc theo BTC AI20K — không xóa/sửa)
-│   ├── log_hook.py        #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
+│   ├── log_hook.py        #    Auto-log cho Claude/Cursor/Gemini/Copilot
+│   ├── log_codex.py       #    Codex Desktop prompt scanner
 │   ├── log_antigravity.py #    Antigravity IDE prompt scanner
 │   ├── log_manual.py      #    Manual log cho ChatGPT / web tools
 │   ├── submit_log.py      #    Submit logs on git push (BATCH_LIMIT/lần)
@@ -204,12 +206,12 @@ Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
 |------|--------|--------|
 | Claude Code | `.claude/settings.json` hooks | Tự động |
 | Cursor | `.cursor/hooks.json` | Tự động |
-| OpenAI Codex CLI | `.codex/hooks.json` | Tự động |
+| OpenAI Codex Desktop | Pre-push scan `~/.codex/sessions` | Tự động trên `git push` |
 | Gemini CLI | `.gemini/settings.json` | Tự động |
 | GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
 | Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
 
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
+Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`. Sau khi server xác nhận thành công, batch được chuyển vào `.ai-log/archive/YYYY-MM-DD.jsonl`.
 
 **ChatGPT / web tools khác** — log thủ công:
 ```bash
