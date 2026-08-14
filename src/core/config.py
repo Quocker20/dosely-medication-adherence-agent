@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # open-ended prescriptions (nullable end_date) — a Beat job tops this up
     # daily rather than generating the whole treatment course up front.
     schedule_horizon_days: int = Field(default=14, ge=1, le=90)
+    # Slice 8: how far back the doctor dashboard looks when computing the
+    # headline adherence rate. A rolling window from "now", not calendar days,
+    # so one shared bound serves every patient regardless of their timezone.
+    dashboard_adherence_window_days: int = Field(default=7, ge=1, le=90)
+    dashboard_recent_alerts_limit: int = Field(default=5, ge=1, le=50)
     doctor_id: str = "dr-nguyen-van-a"
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"

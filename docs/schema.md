@@ -476,33 +476,36 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 
 ## PHÂN HỆ 8: DASHBOARD REALTIME (Doctor Portal)
 
-Slice thuần backend — không có phần nào của agent service tham gia (dashboard chỉ đọc lại dữ liệu adherence/alert như bất kỳ client nào khác). **Chưa triển khai**: không có router/service/schema nào cho các mục dưới đây tồn tại trong code.
+Slice thuần backend — không có phần nào của agent service tham gia (dashboard chỉ đọc lại dữ liệu adherence/alert như bất kỳ client nào khác). Đã triển khai trong `src/modules/dashboard/`.
 
 Đã xoá khỏi phân hệ này: `CreateOcrJobMultipartRequest`, `OcrJobAsyncResponse`, `OcrJobDetailResponse` (OCR nhãn thuốc + RAG). Không có `ocr_rag` module, không route, không pipeline OCR/Chroma nào tồn tại — giữ lại chỉ tạo ảo giác về một tính năng đang chạy. Đường tra cứu thuốc thật hiện chỉ có `search_drug_info` (xem §6.6), và nó là stub.
 
+> **Đổi module so với bản đặc tả trước.** Ba schema dưới đây từng được ghi là thuộc `src.modules.admin.schemas` / `src.modules.adherence.schemas`. Chúng nằm trong `src.modules.dashboard.schemas` — dashboard là một domain riêng (đọc tổng hợp cho portal bác sĩ), không phải quản trị tài khoản bác sĩ hay ghi nhận tuân thủ; nhét vào 2 module kia là phá nguyên tắc vertical-slice isolation của `structure.md`.
+
 ### 8.1 DashboardPatientListResponse
 * **Mục đích**: Phản hồi từng item trong danh sách bệnh nhân theo dõi phân trang `PageResponse[DashboardPatientListResponse]` cho Portal Bác sĩ.
-* **Module**: `src.modules.admin.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
   * `patient_id` (UUID): Mã bệnh nhân.
   * `patient_name` (str): Tên bệnh nhân.
-  * `adherence_rate` (float): Tỷ lệ tuân thủ điều trị.
-  * `open_alerts_count` (int): Số lượng cảnh báo chưa xử lý.
-  * `last_survey_date` (Optional[date]): Ngày khảo sát gần nhất.
+  * `adherence_rate` (float): Tỷ lệ tuân thủ (%) trong cửa sổ trượt `DASHBOARD_ADHERENCE_WINDOW_DAYS` ngày gần nhất (mặc định 7), **không** phải theo khoảng ngày do client chọn.
+  * `open_alerts_count` (int): Số cảnh báo còn `OPEN` **hoặc** `ACKNOWLEDGED`. `ACKNOWLEDGED` vẫn tính: bác sĩ đã xem không đồng nghĩa tình trạng bệnh nhân đã xong, ẩn đi sẽ khiến danh sách trông "yên" hơn thực tế.
+  * `last_survey_date` (Optional[date]): Ngày khảo sát sức khỏe gần nhất, `null` nếu chưa từng nộp.
 
 ### 8.2 DashboardPatientDetailResponse
 * **Mục đích**: Phản hồi chi tiết chỉ số tổng hợp của một bệnh nhân trên màn hình Dashboard Bác sĩ.
-* **Module**: `src.modules.admin.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
-  * `patient` (Dict[str, Any]): Thông tin cá nhân cơ bản (`user_id`, `name`, `phone`).
-  * `active_prescriptions_count` (int): Số đơn thuốc đang hiệu lực.
-  * `adherence_summary` (Dict[str, Any]): Thống kê tuân thủ (`adherence_rate`, `total_doses`).
-  * `recent_alerts` (List[AlertDetailResponse]): Danh sách các cảnh báo gần đây.
+  * `patient` (DashboardPatientSummary): `user_id` (UUID), `name` (str), `phone` (str). Là schema có kiểu, không phải `Dict[str, Any]` như bản đặc tả cũ.
+  * `active_prescriptions_count` (int): Số đơn thuốc trạng thái `APPROVED`. `DRAFT` chưa có hiệu lực và `CANCELLED` đã hết hiệu lực nên không tính.
+  * `adherence_summary` (DashboardAdherenceSummary): `adherence_rate` (float), `total_doses` (int), `taken_doses` (int), `skipped_doses` (int), `missed_doses` (int), `window_days` (int). Có `window_days` để client biết con số này ứng với bao nhiêu ngày, không bị đọc nhầm thành "toàn thời gian".
+  * `recent_alerts` (List[AlertDetailResponse]): Cảnh báo gần nhất, mọi trạng thái, tối đa `DASHBOARD_RECENT_ALERTS_LIMIT` (mặc định 5).
 
 ### 8.3 WebSocketEventStream
 * **Mục đích**: Khối dữ liệu Payload đẩy thời gian thực từ Server xuống Client qua kết nối WebSocket (`/ws/dashboard`).
-* **Module**: `src.modules.adherence.schemas`
+* **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
-  * `event_type` (str): Tên sự kiện (`alert.opened`, `adherence.updated`, `schedule.updated`).
-  * `timestamp` (datetime): Mốc thời gian phát sinh sự kiện.
-  * `data` (Dict[str, Any]): Nội dung dữ liệu sự kiện thời gian thực.
+  * `event_type` (str): Tên sự kiện. Hiện phát ra: `alert.opened` (SOS hoặc agent phát hiện triệu chứng nặng), `alert.updated` (bác sĩ acknowledge/resolve). `adherence.updated`/`schedule.updated` từng được liệt kê nhưng chưa có publisher nào — đừng dựng client chờ chúng.
+  * `timestamp` (datetime): Mốc thời gian phát sinh sự kiện (UTC, ISO 8601).
+  * `data` (Dict[str, Any]): Nội dung sự kiện. Với `alert.*` là nguyên `AlertDetailResponse` đã serialize.
+* **Đường phát**: envelope do `src.core.redis.publish_dashboard_event` dựng, không phải module dashboard. Lý do: publisher là write path của slice khác (adherence) — bắt chúng import module dashboard chỉ để bắn một event chính là kiểu coupling mà vertical-slice isolation cần tránh. Cùng lý do `src/core/response.py` sở hữu envelope HTTP. Phía dashboard validate lại theo schema này trước khi đẩy xuống socket.
