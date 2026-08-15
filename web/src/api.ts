@@ -57,6 +57,8 @@ interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | null | undefined>;
   headers?: Record<string, string>;
+  /** Access token used by first-login PIN change before the session is committed. */
+  accessToken?: string | null;
   /** Endpoint công khai (login/refresh) — không gắn Authorization, không tự refresh. */
   anonymous?: boolean;
 }
@@ -109,7 +111,8 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
   const headers: Record<string, string> = { ...(options.headers ?? {}) };
 
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (!options.anonymous && session) headers.Authorization = `Bearer ${session.accessToken}`;
+  const accessToken = options.accessToken ?? session?.accessToken;
+  if (!options.anonymous && accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   return fetch(buildUrl(path, options.query), {
     method: options.method ?? "GET",
@@ -182,10 +185,11 @@ export const api = {
   logout: (refreshToken: string) =>
     request<null>("/auth/logout", { method: "POST", body: { refresh_token: refreshToken } }),
 
-  changePassword: (currentPassword: string, newPassword: string) =>
+  changePassword: (currentPassword: string, newPassword: string, accessToken?: string) =>
     request<null>("/auth/change-password", {
       method: "POST",
       body: { current_password: currentPassword, new_password: newPassword },
+      accessToken,
     }),
 
   // ---- Slice 8: Dashboard -------------------------------------------------
@@ -293,20 +297,57 @@ export const api = {
       body: { reason: reason ?? null },
     }),
 
-  reschedule: (patientId: string, reason?: string) =>
-    request<AgentRunAsyncResponse>(`/patients/${patientId}/schedules/reschedule`, {
-      method: "POST",
-      body: { reason: reason ?? null },
-    }),
-
   schedule: (patientId: string, date?: string) =>
     request<ActiveSchedule>(`/patients/${patientId}/schedules`, { query: { date } }),
 
   agentRun: (agentRunId: string) => request<AgentRunStatus>(`/agent-runs/${agentRunId}`),
+
+  // ---- Admin --------------------------------------------------------------
+  adminDoctors: (params: { page?: number; size?: number; search?: string } = {}) =>
+    request<PageResponse<import("./types").DoctorDetail>>("/admin/doctors", {
+      query: {
+        page: params.page ?? 1,
+        size: params.size ?? 10,
+        search: params.search?.trim() || undefined,
+      },
+    }),
+
+  adminDoctor: (doctorId: string) =>
+    request<import("./types").DoctorDetail>(`/admin/doctors/${doctorId}`),
+
+  createDoctor: (payload: import("./types").CreateDoctorRequest) =>
+    request<import("./types").CreateDoctorResponse>("/admin/doctors", {
+      method: "POST",
+      body: payload,
+    }),
+
+  updateDoctor: (doctorId: string, payload: import("./types").UpdateDoctorRequest) =>
+    request<import("./types").DoctorDetail>(`/admin/doctors/${doctorId}`, {
+      method: "PUT",
+      body: payload,
+    }),
+
+  deactivateDoctor: (doctorId: string) =>
+    request<null>(`/admin/doctors/${doctorId}`, { method: "DELETE" }),
+
+  adminAuditLogs: (params: {
+    page?: number;
+    size?: number;
+    actorId?: string;
+    entityType?: string;
+  } = {}) =>
+    request<PageResponse<import("./types").AuditLog>>("/admin/audit-logs", {
+      query: {
+        page: params.page ?? 1,
+        size: params.size ?? 10,
+        actorId: params.actorId || undefined,
+        entityType: params.entityType || undefined,
+      },
+    }),
 };
 
 /**
- * Chờ agent chạy xong. Planning/Rescheduling Agent chạy nền (202) nên không có
+ * Chờ Planning Agent chạy xong. Agent chạy nền (202) nên không có
  * cách nào lấy lịch ngay trong response — phải poll agent run tới trạng thái
  * cuối. SLO của agent là < 10s; mặc định bỏ cuộc sau ~30s để UI không treo.
  */

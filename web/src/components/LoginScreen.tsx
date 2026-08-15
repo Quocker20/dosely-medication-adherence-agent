@@ -29,13 +29,13 @@ export default function LoginScreen() {
       const tokens = await api.login(phone.trim(), password);
 
       if (tokens.user.role !== "DOCTOR" && tokens.user.role !== "ADMIN") {
-        setError("Tài khoản này không có quyền vào portal bác sĩ.");
+        setError("Tài khoản này không có quyền vào portal quản trị.");
         return;
       }
 
       if (tokens.is_first_login) {
-        // Đặt phiên tạm để gọi được /auth/change-password (endpoint đòi token).
-        setSession(sessionFromTokens(tokens));
+        // Giữ token trong màn hình; commit session sau khi PIN mới thành công
+        // để App không unmount LoginScreen giữa chừng.
         setPendingTokens(tokens);
         return;
       }
@@ -50,6 +50,8 @@ export default function LoginScreen() {
 
   async function submitChangePin(event: React.FormEvent) {
     event.preventDefault();
+    const tokens = pendingTokens;
+    if (!tokens) return;
     if (newPin !== confirmPin) {
       setError("Mã PIN nhập lại không khớp");
       return;
@@ -59,8 +61,8 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      await api.changePassword(password, newPin);
-      // Đổi PIN xong thì phiên hiện tại đã hợp lệ, vào thẳng portal.
+      await api.changePassword(password, newPin, tokens.access_token);
+      setSession(sessionFromTokens(tokens));
       setPendingTokens(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Không đổi được mã PIN");
