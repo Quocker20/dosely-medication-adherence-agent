@@ -1,106 +1,152 @@
 import { useEffect, useState } from "react";
 
-import { ApiError, api } from "../api";
-import { TIMING_LABEL, TIMINGS } from "../lib/labels";
+import { ApiError, api, waitForAgentRun } from "../api";
+import { formatTime, isoDate } from "../lib/labels";
 import type {
-  DrugCatalogEntry,
-  MedicationSchedule,
-  Patient,
-  Prescription,
+  ActiveSchedule,
+  AgentRunStatus,
+  MedicationDetail,
+  PrescriptionDetail,
   PrescriptionItemIn,
-  ValidationIssue,
 } from "../types";
 import GuardBanner from "./GuardBanner";
-import { RoutinePills } from "./PatientDrawer";
 
 interface Props {
-  patients: Patient[];
-  drugs: DrugCatalogEntry[];
-  patientId: string;
-  onPatientId: (id: string) => void;
+  phone: string;
+  onPhone: (phone: string) => void;
   onToast: (message: string) => void;
+  onPrescribed: () => void;
 }
+
+const MEAL_RELATIONS: { value: string; label: string }[] = [
+  { value: "", label: "Không quy định" },
+  { value: "BEFORE_MEAL", label: "Trước ăn" },
+  { value: "AFTER_MEAL", label: "Sau ăn" },
+  { value: "WITH_MEAL", label: "Trong bữa ăn" },
+];
+
+const ROUTES = ["ORAL", "INJECTION", "TOPICAL"];
 
 function emptyItem(): PrescriptionItemIn {
   return {
-    drug_name: "",
-    dose_per_intake: "1 viên",
-    frequency_per_day: 1,
-    timing: "AFTER_BREAKFAST",
-    treatment_days: 30,
-    patient_note: "",
+    medication_id: "",
+    dose_unit: "viên",
+    morning_dose: 1,
+    noon_dose: null,
+    evening_dose: null,
+    bedtime_dose: null,
+    route: "ORAL",
+    meal_relation: "AFTER_MEAL",
+    minimum_interval_minutes: null,
+    start_date: isoDate(new Date()),
+    end_date: null,
+    instructions: null,
   };
 }
 
-const SEED_ITEMS: PrescriptionItemIn[] = [
-  {
-    drug_name: "Amlodipin 5mg",
-    dose_per_intake: "1 viên",
-    frequency_per_day: 1,
-    timing: "AFTER_BREAKFAST",
-    treatment_days: 30,
-    patient_note: "Không dùng chung với nước bưởi",
-  },
-  {
-    drug_name: "Losartan 50mg",
-    dose_per_intake: "1 viên",
-    frequency_per_day: 2,
-    timing: "AFTER_BREAKFAST",
-    treatment_days: 30,
-    patient_note: "",
-  },
-];
+/** Ô liều: chuỗi rỗng -> null (backend nhận Decimal | null, không nhận ""). */
+function parseDose(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
 
-export default function PrescriptionView({ patients, drugs, patientId, onPatientId, onToast }: Props) {
-  const [items, setItems] = useState<PrescriptionItemIn[]>(SEED_ITEMS);
-  const [issues, setIssues] = useState<ValidationIssue[]>([]);
-  const [prescription, setPrescription] = useState<Prescription | null>(null);
-  const [schedule, setSchedule] = useState<MedicationSchedule | null>(null);
+function doseValue(dose: number | null): string {
+  return dose === null ? "" : String(dose);
+}
+
+export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed }: Props) {
+  const [medications, setMedications] = useState<MedicationDetail[]>([]);
+  const [diagnosis, setDiagnosis] = useState("");
+  const [items, setItems] = useState<PrescriptionItemIn[]>([emptyItem()]);
+  const [errorDetails, setErrorDetails] = useState<string[]>([]);
+  const [prescription, setPrescription] = useState<PrescriptionDetail | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [agentRun, setAgentRun] = useState<AgentRunStatus | null>(null);
+  const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const patient = patients.find((p) => p.id === patientId) ?? patients[0];
-
-  // Đổi bệnh nhân là đổi ngữ cảnh lâm sàng — bỏ kết quả duyệt của bệnh nhân trước.
   useEffect(() => {
-    setPrescription(null);
-    setSchedule(null);
-    setIssues([]);
-  }, [patientId]);
+    let cancelled = false;
+    api
+      .medications({ size: 100 })
+      .then((page) => {
+        if (!cancelled) setMedications(page.content);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          onToast(error instanceof ApiError ? error.message : "Không tải được danh mục thuốc");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onToast]);
 
   function patchItem(index: number, patch: Partial<PrescriptionItemIn>) {
     setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
     setPrescription(null);
     setSchedule(null);
+    setAgentRun(null);
   }
 
   function resetDraft() {
     setItems([emptyItem()]);
-    setIssues([]);
+    setDiagnosis("");
+    setErrorDetails([]);
     setPrescription(null);
+    setTempPassword(null);
     setSchedule(null);
+    setAgentRun(null);
     onToast("Đã xóa nháp");
   }
 
+  /**
+   * Luồng đúng theo contract: tạo DRAFT -> bác sĩ duyệt -> Planning Agent sinh
+   * lịch. Generate trả 202 nên phải poll agent run rồi mới đọc được lịch.
+   */
   async function approve() {
-    if (!patient) return;
+    const trimmedPhone = phone.trim();
+    if (!trimmedPhone) {
+      onToast("Nhập số điện thoại bệnh nhân trước");
+      return;
+    }
+    if (items.some((item) => !item.medication_id)) {
+      onToast("Mỗi dòng phải chọn một thuốc trong danh mục");
+      return;
+    }
+
     setBusy(true);
-    setIssues([]);
+    setErrorDetails([]);
+    setSchedule(null);
+    setAgentRun(null);
 
     try {
-      const draft = await api.createPrescription(patient.id, items);
-      const approved = await api.approvePrescription(draft.id);
-      setPrescription(approved);
+      const created = await api.createPrescription({
+        phone: trimmedPhone,
+        diagnosis_note: diagnosis.trim() || null,
+        items,
+      });
+      setTempPassword(created.temp_password);
 
-      const generated = await api.generateSchedule(patient.id, draft.id);
-      setSchedule(generated);
-      onToast(
-        generated.status === "ACTIVE"
-          ? `Đơn ${approved.id} đã duyệt · lịch nhắc đã kích hoạt`
-          : `Đơn ${approved.id} đã duyệt — lịch cần bác sĩ xem lại`,
-      );
+      const approved = await api.approvePrescription(created.prescription.id);
+      setPrescription(approved);
+      onPrescribed();
+
+      const dispatched = await api.generateSchedule(approved.patient_id, "Đơn vừa được bác sĩ duyệt");
+      const run = await waitForAgentRun(dispatched.agent_run_id);
+      setAgentRun(run);
+
+      if (run.status === "COMPLETED") {
+        setSchedule(await api.schedule(approved.patient_id, isoDate(new Date())));
+        onToast(`Đơn đã duyệt · Planning Agent sinh ${run.generated_dose_count ?? 0} cữ`);
+      } else {
+        onToast(`Đơn đã duyệt — agent trả trạng thái ${run.status}, lịch chưa kích hoạt`);
+      }
     } catch (error) {
-      if (error instanceof ApiError && error.issues.length > 0) {
-        setIssues(error.issues);
+      if (error instanceof ApiError) {
+        setErrorDetails(error.details.length > 0 ? error.details : [error.message]);
         onToast("Chưa duyệt được — kiểm tra lỗi bên dưới form");
       } else {
         onToast(error instanceof Error ? error.message : "Lỗi không xác định");
@@ -110,8 +156,7 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
     }
   }
 
-  const scheduleTone =
-    schedule?.status === "ACTIVE" ? "ok" : schedule?.status === "NEEDS_REVIEW" ? "warn" : schedule ? "crit" : "";
+  const agentTone = agentRun?.status === "COMPLETED" ? "ok" : agentRun?.status === "FAILED" ? "crit" : "warn";
 
   return (
     <section className="view">
@@ -122,7 +167,9 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
         <li>
           Đơn ở trạng thái <b>DRAFT</b> không sinh lịch nhắc. Chỉ khi <b>APPROVED</b> Planning Agent mới chạy.
         </li>
-        <li>Nếu bật OCR ảnh đơn: kết quả chỉ điền sẵn ô nhập, bác sĩ vẫn phải rà soát trước khi duyệt.</li>
+        <li>
+          Tên thuốc hiển thị do server tự chốt từ danh mục (<b>display_name</b>) — client không tự đặt được.
+        </li>
       </GuardBanner>
 
       <div className="rx-grid">
@@ -132,34 +179,32 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
             <div className="spacer" />
             <span className={`pill ${prescription ? "ok" : ""}`}>
               <span className="dot" />
-              {prescription ? `${prescription.status} · ${prescription.id}` : "Nháp · chờ duyệt"}
+              {prescription ? `${prescription.status} · ${prescription.id.slice(0, 8)}` : "Nháp · chờ duyệt"}
             </span>
           </div>
 
           <div className="card-body">
             <label style={{ maxWidth: 340 }}>
-              Bệnh nhân
-              <select value={patient?.id ?? ""} onChange={(event) => onPatientId(event.target.value)}>
-                {patients.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name} · {option.age} tuổi · {option.diagnosis}
-                  </option>
-                ))}
-              </select>
+              Số điện thoại bệnh nhân
+              <input
+                type="tel"
+                placeholder="0901234567"
+                value={phone}
+                onChange={(event) => onPhone(event.target.value)}
+              />
             </label>
+            <p className="rail-note">
+              Chưa có tài khoản thì hệ thống tự tạo và trả mã PIN tạm ngay trong lần kê đơn này.
+            </p>
 
-            {patient && (
-              <div className="drawer-sec">
-                <div className="eyebrow">Lịch sinh hoạt dùng làm đầu vào cho Planning Agent</div>
-                <RoutinePills routine={patient.routine} />
-              </div>
-            )}
-
-            <datalist id="drug-catalog">
-              {drugs.map((drug) => (
-                <option key={drug.drug_id} value={drug.brand_name} />
-              ))}
-            </datalist>
+            <label>
+              Chẩn đoán
+              <input
+                value={diagnosis}
+                placeholder="vd. Tăng huyết áp nguyên phát"
+                onChange={(event) => setDiagnosis(event.target.value)}
+              />
+            </label>
 
             <div className="rx-stack">
               {items.map((item, index) => (
@@ -179,60 +224,118 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
 
                   <div className="rx-fields">
                     <label className="wide">
-                      Thuốc
-                      <input
-                        list="drug-catalog"
-                        value={item.drug_name}
-                        placeholder="Gõ để tìm trong danh mục dược phẩm"
-                        onChange={(event) => patchItem(index, { drug_name: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Liều / lần
-                      <input
-                        value={item.dose_per_intake}
-                        onChange={(event) => patchItem(index, { dose_per_intake: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Số lần / ngày
-                      <input
-                        type="number"
-                        min={1}
-                        max={6}
-                        value={item.frequency_per_day}
-                        onChange={(event) => patchItem(index, { frequency_per_day: Number(event.target.value) })}
-                      />
-                    </label>
-                    <label>
-                      Thời điểm
+                      Thuốc (danh mục)
                       <select
-                        value={item.timing}
-                        onChange={(event) => patchItem(index, { timing: event.target.value as PrescriptionItemIn["timing"] })}
+                        value={item.medication_id}
+                        onChange={(event) => patchItem(index, { medication_id: event.target.value })}
                       >
-                        {TIMINGS.map((timing) => (
-                          <option key={timing} value={timing}>
-                            {TIMING_LABEL[timing]}
+                        <option value="">— Chọn thuốc —</option>
+                        {medications.map((medication) => (
+                          <option key={medication.id} value={medication.id}>
+                            {medication.name}
+                            {medication.composition ? ` · ${medication.composition}` : ""}
                           </option>
                         ))}
                       </select>
                     </label>
+
                     <label>
-                      Số ngày
+                      Đơn vị liều
                       <input
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={item.treatment_days}
-                        onChange={(event) => patchItem(index, { treatment_days: Number(event.target.value) })}
+                        value={item.dose_unit}
+                        onChange={(event) => patchItem(index, { dose_unit: event.target.value })}
                       />
                     </label>
+
+                    <label>
+                      Đường dùng
+                      <select value={item.route} onChange={(event) => patchItem(index, { route: event.target.value })}>
+                        {ROUTES.map((route) => (
+                          <option key={route} value={route}>
+                            {route}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label>
+                      Sáng
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={doseValue(item.morning_dose)}
+                        onChange={(event) => patchItem(index, { morning_dose: parseDose(event.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      Trưa
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={doseValue(item.noon_dose)}
+                        onChange={(event) => patchItem(index, { noon_dose: parseDose(event.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      Chiều
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={doseValue(item.evening_dose)}
+                        onChange={(event) => patchItem(index, { evening_dose: parseDose(event.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      Trước ngủ
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={doseValue(item.bedtime_dose)}
+                        onChange={(event) => patchItem(index, { bedtime_dose: parseDose(event.target.value) })}
+                      />
+                    </label>
+
+                    <label>
+                      Quan hệ bữa ăn
+                      <select
+                        value={item.meal_relation ?? ""}
+                        onChange={(event) => patchItem(index, { meal_relation: event.target.value || null })}
+                      >
+                        {MEAL_RELATIONS.map((relation) => (
+                          <option key={relation.value} value={relation.value}>
+                            {relation.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label>
+                      Bắt đầu
+                      <input
+                        type="date"
+                        value={item.start_date}
+                        onChange={(event) => patchItem(index, { start_date: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Kết thúc
+                      <input
+                        type="date"
+                        value={item.end_date ?? ""}
+                        onChange={(event) => patchItem(index, { end_date: event.target.value || null })}
+                      />
+                    </label>
+
                     <label className="wide">
                       Lưu ý cho bệnh nhân
                       <input
-                        value={item.patient_note}
+                        value={item.instructions ?? ""}
                         placeholder="vd. không dùng chung với nước bưởi"
-                        onChange={(event) => patchItem(index, { patient_note: event.target.value })}
+                        onChange={(event) => patchItem(index, { instructions: event.target.value || null })}
                       />
                     </label>
                   </div>
@@ -249,13 +352,25 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
               </button>
             </div>
 
-            {issues.length > 0 && (
+            {errorDetails.length > 0 && (
               <div className="errors">
-                <b>Validator chặn duyệt — {issues.length} lỗi cần sửa</b>
+                <b>Backend chặn duyệt — {errorDetails.length} lỗi cần sửa</b>
                 <ul>
-                  {issues.map((issue, index) => (
-                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
+                  {errorDetails.map((message, index) => (
+                    <li key={index}>{message}</li>
                   ))}
+                </ul>
+              </div>
+            )}
+
+            {tempPassword && (
+              <div className="errors">
+                <b>Tài khoản bệnh nhân vừa được tạo</b>
+                <ul>
+                  <li>
+                    Mã PIN tạm: <b className="mono">{tempPassword}</b> — đọc cho bệnh nhân ngay, chuỗi này chỉ hiện
+                    một lần.
+                  </li>
                 </ul>
               </div>
             )}
@@ -264,7 +379,6 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
               <button className="btn primary" onClick={approve} disabled={busy}>
                 {busy ? "Đang duyệt…" : "✓ Duyệt đơn & tạo lịch"}
               </button>
-              <span style={{ fontSize: 12, color: "var(--text-2)" }}>Ký duyệt bởi BS. Nguyễn Văn A</span>
             </div>
           </div>
         </div>
@@ -274,11 +388,13 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
             <div className="card-head">
               <h2>Lịch nhắc do Planning Agent sinh</h2>
               <div className="spacer" />
-              <span className={`pill mono ${scheduleTone}`}>SCHEDULE · {schedule?.status ?? "chưa tạo"}</span>
+              <span className={`pill mono ${agentRun ? agentTone : ""}`}>
+                AGENT · {agentRun?.status ?? "chưa chạy"}
+              </span>
             </div>
 
             <div className="card-body">
-              {!schedule && (
+              {!agentRun && (
                 <p className="empty">
                   Duyệt đơn để Planning Agent tính khung giờ nhắc.
                   <br />
@@ -286,49 +402,46 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
                 </p>
               )}
 
-              {schedule && (
+              {agentRun && (
                 <>
                   <div className="agent-run">
-                    <span>Planning Agent ·</span>
-                    <span className="num">{schedule.agent_run.id}</span>
-                    <span>· GENERATING →</span>
-                    <b style={{ color: `var(--${scheduleTone})` }}>{schedule.status}</b>
-                    <span>·</span>
-                    <span className="num">{schedule.agent_run.latency_ms} ms</span>
-                    <span>(SLO &lt; 10.000 ms)</span>
+                    <span>{agentRun.agent_type} ·</span>
+                    <span className="num">{agentRun.id.slice(0, 8)}</span>
+                    <span>· RUNNING →</span>
+                    <b style={{ color: `var(--${agentTone})` }}>{agentRun.status}</b>
+                    {agentRun.latency_ms !== null && (
+                      <>
+                        <span>·</span>
+                        <span className="num">{agentRun.latency_ms} ms</span>
+                      </>
+                    )}
                   </div>
 
-                  {schedule.slots.length === 0 ? (
-                    <p className="empty">Không có cữ nào được tạo — toàn bộ đơn chờ bác sĩ xem lại.</p>
-                  ) : (
+                  {agentRun.error_code && (
+                    <div className="review-box">
+                      <b>Agent dừng lại — {agentRun.error_code}</b>
+                      <p>Lịch cũ giữ nguyên. Bác sĩ kiểm tra lại đơn rồi duyệt lại, agent không tự suy đoán.</p>
+                    </div>
+                  )}
+
+                  {schedule && schedule.doses.length > 0 && (
                     <div className="timeline">
-                      {schedule.slots.map((slot) => (
-                        <div className="tl-row" key={slot.time}>
-                          <div className="tl-time">{slot.time}</div>
+                      {schedule.doses.map((dose) => (
+                        <div className="tl-row" key={dose.scheduled_dose_id}>
+                          <div className="tl-time">{formatTime(dose.current_scheduled_at)}</div>
                           <div className="tl-items">
-                            {slot.doses.map((dose, index) => (
-                              <div className="tl-dose" key={`${dose.drug_name}-${index}`}>
-                                <b>{dose.drug_name}</b>
-                                <span>
-                                  {dose.dose_per_intake} · {dose.treatment_days} ngày
-                                  {dose.patient_note ? ` · ${dose.patient_note}` : ""}
-                                </span>
-                              </div>
-                            ))}
+                            <div className="tl-dose">
+                              <b>{dose.medication_name}</b>
+                              <span>{dose.status}</span>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {schedule.review_notes.length > 0 && (
-                    <div className="review-box">
-                      <b>{schedule.status} — agent dừng lại, không tự suy đoán</b>
-                      {schedule.review_notes.map((note, index) => (
-                        <p key={index}>{note}</p>
-                      ))}
-                      <p>Lịch cũ giữ nguyên. Bác sĩ sửa thời điểm hoặc số cữ rồi duyệt lại.</p>
-                    </div>
+                  {schedule && schedule.doses.length === 0 && (
+                    <p className="empty">Chưa có cữ nào trong hôm nay — lịch có thể bắt đầu từ ngày sau.</p>
                   )}
 
                   <p className="rail-note">
@@ -341,26 +454,12 @@ export default function PrescriptionView({ patients, drugs, patientId, onPatient
 
           <div className="card">
             <div className="card-head">
-              <h2>JSON chuẩn hóa gửi cho agent</h2>
+              <h2>Đơn đã duyệt (JSON)</h2>
               <div className="spacer" />
               <span className="pill mono">POST /prescriptions/{"{id}"}/approve</span>
             </div>
             <div className="card-body">
-              <pre>
-                {prescription
-                  ? JSON.stringify(
-                      {
-                        ...prescription,
-                        routine_snapshot: patient?.routine,
-                        schedule_status: schedule?.status ?? null,
-                        agent_scope: schedule?.agent_run.scope ?? [],
-                        agent_denied_ops: schedule?.agent_run.denied_ops ?? [],
-                      },
-                      null,
-                      2,
-                    )
-                  : "// Chưa có đơn được duyệt."}
-              </pre>
+              <pre>{prescription ? JSON.stringify(prescription, null, 2) : "// Chưa có đơn được duyệt."}</pre>
             </div>
           </div>
         </div>

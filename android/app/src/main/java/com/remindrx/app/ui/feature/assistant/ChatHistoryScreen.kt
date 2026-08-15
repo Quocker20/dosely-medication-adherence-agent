@@ -107,3 +107,14 @@ fun ChatHistoryScreen(
         }
     }
 }
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun ChatHistoryScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    ChatHistoryScreen(
+        conversations = com.remindrx.app.ui.preview.previewConversations,
+        onBack = {},
+        onNewChat = {},
+        onOpenConversation = {},
+    )
+}

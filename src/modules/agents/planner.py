@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, cast
 from zoneinfo import ZoneInfo
 
 _ANCHOR_FALLBACKS: dict[str, time] = {
@@ -28,12 +28,24 @@ _DOSE_SLOTS: tuple[tuple[str, str, Optional[int]], ...] = (
     ("bedtime_dose", "sleep", -30),
 )
 
+_DOSE_SLOT_NAMES: dict[str, str] = {
+    "morning_dose": "MORNING",
+    "noon_dose": "NOON",
+    "evening_dose": "EVENING",
+    "bedtime_dose": "BEDTIME",
+}
+
 _MEAL_OFFSET_MINUTES: dict[Optional[str], int] = {
     "BEFORE_MEAL": -30,
     "AFTER_MEAL": 30,
     "WITH_MEAL": 0,
     None: 0,
 }
+
+
+def _normalize_meal_relation(value: Optional[str]) -> Optional[str]:
+    normalized = value.upper() if value else None
+    return normalized if normalized in _MEAL_OFFSET_MINUTES else None
 
 
 @dataclass(frozen=True)
@@ -58,6 +70,8 @@ class PlannableItem:
     """Plain snapshot of the PrescriptionItem fields the planner needs."""
 
     id: uuid.UUID
+    medication_id: Optional[uuid.UUID]
+    dose_unit: str
     morning_dose: Optional[Decimal]
     noon_dose: Optional[Decimal]
     evening_dose: Optional[Decimal]
@@ -71,6 +85,11 @@ class PlannableItem:
 @dataclass(frozen=True)
 class ScheduleRow:
     prescription_item_id: uuid.UUID
+    medication_id: Optional[uuid.UUID]
+    dose_slot: str
+    dose_value: Decimal
+    dose_unit: str
+    meal_relation: Optional[str]
     original_scheduled_at: datetime
     current_scheduled_at: datetime
     status: str = "PENDING"
@@ -142,23 +161,27 @@ def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: da
         offset = (
             fixed_offset
             if fixed_offset is not None
-            else _MEAL_OFFSET_MINUTES.get(item.meal_relation, 0)
+            else _MEAL_OFFSET_MINUTES[_normalize_meal_relation(item.meal_relation)]
         )
         local_dt = _slot_local_dt(day, routine.anchor(anchor_key), offset)
         slots.append((dose_field, local_dt))
     return slots
 
 
-def _apply_min_gap(slots: List[tuple[str, datetime]], min_gap_minutes: int) -> List[datetime]:
+def _apply_min_gap(
+    slots: List[tuple[str, datetime]], min_gap_minutes: int
+) -> List[tuple[str, datetime]]:
     """Push a slot forward (never drop it) when it falls closer than
     min_gap_minutes after the previous one for this same item/day — a
     prescribed dose must still happen, just not too close to the last."""
-    times = sorted(dt for _, dt in slots)
-    adjusted: List[datetime] = []
-    for dt in times:
-        if adjusted and (dt - adjusted[-1]) < timedelta(minutes=min_gap_minutes):
-            dt = adjusted[-1] + timedelta(minutes=min_gap_minutes)
-        adjusted.append(dt)
+    ordered_slots = sorted(slots, key=lambda slot: slot[1])
+    adjusted: List[tuple[str, datetime]] = []
+    for dose_field, dt in ordered_slots:
+        if adjusted and (dt - adjusted[-1][1]) < timedelta(minutes=min_gap_minutes):
+            dt = adjusted[-1][1] + timedelta(minutes=min_gap_minutes)
+        # Preserve dose_field while moving the time. Dropping it here used to
+        # make the generated row's actual slot-specific amount unknowable.
+        adjusted.append((dose_field, dt))
     return adjusted
 
 
@@ -186,11 +209,20 @@ def expand_schedule(
         day = range_start
         while day <= range_end:
             day_slots = _candidate_slots_for_day(item, routine, day)
-            for local_dt in _apply_min_gap(day_slots, min_gap):
+            for dose_field, local_dt in _apply_min_gap(day_slots, min_gap):
                 utc_dt = local_dt.replace(tzinfo=tz).astimezone(timezone.utc)
+                # _candidate_slots_for_day includes only non-null, positive
+                # Decimal values; the cast records that invariant for static
+                # type checkers without changing the deterministic algorithm.
+                dose_value = cast(Decimal, getattr(item, dose_field))
                 rows.append(
                     ScheduleRow(
                         prescription_item_id=item.id,
+                        medication_id=item.medication_id,
+                        dose_slot=_DOSE_SLOT_NAMES[dose_field],
+                        dose_value=dose_value,
+                        dose_unit=item.dose_unit,
+                        meal_relation=_normalize_meal_relation(item.meal_relation),
                         original_scheduled_at=utc_dt,
                         current_scheduled_at=utc_dt,
                     )

@@ -1,12 +1,15 @@
 import type { ThemeMode, ViewName } from "../App";
+import type { UserResponse } from "../types";
 
 interface Props {
   view: ViewName;
   openAlerts: number;
   patientsTotal: number;
   theme: ThemeMode;
+  user: UserResponse | null;
   onView: (view: ViewName) => void;
   onTheme: () => void;
+  onLogout: () => void;
 }
 
 const THEME_LABEL: Record<ThemeMode, string> = {
@@ -15,7 +18,16 @@ const THEME_LABEL: Record<ThemeMode, string> = {
   dark: "tối",
 };
 
-export default function Sidebar({ view, openAlerts, patientsTotal, theme, onView, onTheme }: Props) {
+export default function Sidebar({
+  view,
+  openAlerts,
+  patientsTotal,
+  theme,
+  user,
+  onView,
+  onTheme,
+  onLogout,
+}: Props) {
   return (
     <aside className="rail">
       <div className="brand">
@@ -27,10 +39,12 @@ export default function Sidebar({ view, openAlerts, patientsTotal, theme, onView
       </div>
 
       <div className="doctor">
-        <div className="avatar">BS</div>
+        <div className="avatar">{user?.role === "ADMIN" ? "AD" : "BS"}</div>
         <div>
-          <div className="doctor-name">BS. Nguyễn Văn A</div>
-          <div className="doctor-role">Nội tim mạch · {patientsTotal} bệnh nhân</div>
+          <div className="doctor-name">{user?.phone ?? "—"}</div>
+          <div className="doctor-role">
+            {user?.role ?? "—"} · {patientsTotal} bệnh nhân
+          </div>
         </div>
       </div>
 
@@ -78,6 +92,9 @@ export default function Sidebar({ view, openAlerts, patientsTotal, theme, onView
             />
           </svg>
           <span>Giao diện: {THEME_LABEL[theme]}</span>
+        </button>
+        <button className="btn ghost sm" style={{ width: "100%" }} onClick={onLogout}>
+          Đăng xuất
         </button>
         <p className="rail-note">Mọi thay đổi phác đồ đều cần bác sĩ duyệt (HITL).</p>
       </div>

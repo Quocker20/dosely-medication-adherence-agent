@@ -252,6 +252,7 @@ fun TodayDoseCard(
                     DoseStatus.LATE -> StatusChip("Uống muộn", ChipTone.WARNING)
                     DoseStatus.SNOOZED -> StatusChip("Đã hoãn ${dose.snoozeMinutes ?: 15} phút", ChipTone.WARNING)
                     DoseStatus.SKIPPED -> StatusChip("Bỏ qua", ChipTone.MUTED)
+                    DoseStatus.MISSED -> StatusChip("Đã lỡ", ChipTone.DANGER)
                     DoseStatus.LOCKED -> StatusChip("Chưa đến giờ", ChipTone.MUTED)
                     DoseStatus.UPCOMING -> {}
                 }

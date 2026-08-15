@@ -9,7 +9,7 @@
         android:label="RemindRx"
         android:theme="@style/Theme.RemindRx"
         android:allowBackup="false"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
