@@ -18,7 +18,7 @@ interface Props {
   busy: boolean;
   onClose: () => void;
   onPrescribe: (phone: string) => void;
-  onReschedule: (patientId: string) => void;
+  onGenerateSchedule: (patientId: string) => void;
 }
 
 /** "HH:MM:SS" -> "HH:MM"; null khi bệnh nhân chưa onboarding. */
@@ -59,7 +59,7 @@ export default function PatientDrawer({
   busy,
   onClose,
   onPrescribe,
-  onReschedule,
+  onGenerateSchedule,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -181,12 +181,12 @@ export default function PatientDrawer({
                 <button className="btn primary" onClick={() => onPrescribe(patient.phone)}>
                   Kê đơn cho bệnh nhân này
                 </button>
-                <button className="btn" disabled={busy} onClick={() => onReschedule(patient.user_id)}>
-                  {busy ? "Đang gửi…" : "Yêu cầu Rescheduling Agent dời giờ"}
+                <button className="btn" disabled={busy} onClick={() => onGenerateSchedule(patient.user_id)}>
+                  {busy ? "Đang tính…" : "Tính lại lịch nhắc"}
                 </button>
               </div>
               <p className="rail-note">
-                Nút dời giờ chỉ tính lại thời điểm nhắc. Muốn đổi liều hay số cữ thì phải tạo đơn mới và duyệt lại.
+                Planning Agent chỉ tính lại thời điểm nhắc. Muốn đổi liều hay số cữ thì phải tạo đơn mới và duyệt lại.
               </p>
             </div>
           </div>

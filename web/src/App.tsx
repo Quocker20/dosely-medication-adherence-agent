@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api } from "./api";
+import { ApiError, api, waitForAgentRun } from "./api";
+import AdminPortal from "./components/admin/AdminPortal";
 import AlertsView from "./components/AlertsView";
 import GuardBanner from "./components/GuardBanner";
 import KpiRow from "./components/KpiRow";
@@ -32,12 +33,30 @@ const NEXT_THEME: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark
 
 export default function App() {
   const [session, setLocalSession] = useState<Session | null>(getSession);
+  const [, setPathname] = useState(() => window.location.pathname);
 
   // api.ts tự xoá phiên khi refresh token hết hạn — App phải nghe để quay về màn đăng nhập.
   useEffect(() => subscribe(setLocalSession), []);
 
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    const expected = session.user.role === "ADMIN" ? "/admin/" : "/doctor/";
+    if (window.location.pathname !== expected) {
+      window.history.replaceState({}, "", expected);
+      setPathname(expected);
+    }
+  }, [session, setPathname]);
+
   if (!session) return <LoginScreen />;
-  return <Portal session={session} />;
+  if (session.user.role === "ADMIN") return <AdminPortal session={session} />;
+  if (session.user.role === "DOCTOR") return <Portal session={session} />;
+  return <LoginScreen />;
 }
 
 function Portal({ session }: { session: Session }) {
@@ -55,6 +74,9 @@ function Portal({ session }: { session: Session }) {
   const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerBusy, setDrawerBusy] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [alertFilter, setAlertFilter] = useState("");
+  const [patientPage, setPatientPage] = useState(1);
 
   const [rxPhone, setRxPhone] = useState("");
   const [alertBusyId, setAlertBusyId] = useState<string | null>(null);
@@ -67,14 +89,19 @@ function Portal({ session }: { session: Session }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [patientPage, alertPage] = await Promise.all([
-      api.dashboardPatients({ size: 50 }),
-      api.alerts({ size: 50 }),
+    const [patientPageResult, alertPage] = await Promise.all([
+      api.dashboardPatients({
+        page: patientPage,
+        size: 20,
+        search: patientSearch,
+        alertStatus: alertFilter || undefined,
+      }),
+      api.alerts({ size: 50, status: alertFilter || undefined }),
     ]);
-    setPatients(patientPage.content);
-    setTotalPatients(patientPage.total_elements);
+    setPatients(patientPageResult.content);
+    setTotalPatients(patientPageResult.total_elements);
     setAlerts(alertPage.content);
-  }, []);
+  }, [alertFilter, patientPage, patientSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,10 +212,16 @@ function Portal({ session }: { session: Session }) {
   async function requestReschedule(patientId: string) {
     setDrawerBusy(true);
     try {
-      const dispatched = await api.reschedule(patientId, "Bác sĩ yêu cầu dời giờ từ portal");
-      toast(`Đã gửi yêu cầu dời giờ · run ${dispatched.agent_run_id.slice(0, 8)}`);
+      const dispatched = await api.generateSchedule(patientId, "Bác sĩ yêu cầu tính lại lịch từ portal");
+      const run = await waitForAgentRun(dispatched.agent_run_id);
+      if (run.status === "COMPLETED") {
+        setSchedule(await api.schedule(patientId, isoDate(new Date())));
+        toast(`Đã tính lại lịch · ${run.generated_dose_count ?? 0} cữ`);
+      } else {
+        toast(`Agent chưa hoàn tất lịch · ${run.status}`);
+      }
     } catch (error) {
-      toast(error instanceof ApiError ? error.message : "Không gửi được yêu cầu dời giờ");
+      toast(error instanceof ApiError ? error.message : "Không tính được lịch");
     } finally {
       setDrawerBusy(false);
     }
@@ -235,6 +268,29 @@ function Portal({ session }: { session: Session }) {
               </p>
             </div>
             <div className="topbar-actions">
+              <input
+                className="topbar-search"
+                aria-label="Tìm bệnh nhân"
+                placeholder="Tìm bệnh nhân / SĐT"
+                value={patientSearch}
+                onChange={(event) => {
+                  setPatientPage(1);
+                  setPatientSearch(event.target.value);
+                }}
+              />
+              <select
+                aria-label="Lọc cảnh báo"
+                value={alertFilter}
+                onChange={(event) => {
+                  setPatientPage(1);
+                  setAlertFilter(event.target.value);
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="OPEN">Đang mở</option>
+                <option value="ACKNOWLEDGED">Đã tiếp nhận</option>
+                <option value="RESOLVED">Đã đóng</option>
+              </select>
               <button
                 className="btn sm"
                 onClick={() => {
@@ -274,12 +330,25 @@ function Portal({ session }: { session: Session }) {
             <section className="view">
               <KpiRow patients={patients} alerts={alerts} totalPatients={totalPatients} loading={loading} />
               <PatientTable patients={patients} onOpen={openPatient} />
+              <div className="row-actions pagination">
+                <button className="btn sm" disabled={patientPage <= 1} onClick={() => setPatientPage((page) => page - 1)}>
+                  ← Trang trước
+                </button>
+                <span className="rail-note">Trang {patientPage}</span>
+                <button
+                  className="btn sm"
+                  disabled={totalPatients <= patientPage * 20}
+                  onClick={() => setPatientPage((page) => page + 1)}
+                >
+                  Trang sau →
+                </button>
+              </div>
               <GuardBanner title="Ranh giới của AI trong hệ thống này">
                 <li>
                   Planning Agent chỉ <b>tính giờ nhắc</b> từ đơn đã được bác sĩ duyệt và lịch sinh hoạt bệnh nhân.
                 </li>
                 <li>
-                  Rescheduling Agent chỉ được <b>dời giờ</b> — không đổi liều, số cữ, đường dùng hay số ngày điều trị.
+                  Planning Agent chỉ được <b>tính lại giờ</b> — không đổi liều, số cữ, đường dùng hay số ngày điều trị.
                 </li>
                 <li>
                   Xung đột không giải được thì agent dừng và giữ nguyên lịch cũ, không tự suy đoán.
@@ -324,7 +393,7 @@ function Portal({ session }: { session: Session }) {
           setRxPhone(phone);
           setView("rx");
         }}
-        onReschedule={requestReschedule}
+        onGenerateSchedule={requestReschedule}
       />
 
       <div className="toast-wrap">
