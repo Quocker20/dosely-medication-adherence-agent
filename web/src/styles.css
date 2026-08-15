@@ -360,6 +360,39 @@ nav {
   gap: 18px;
 }
 
+.admin-two-col {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.6fr);
+  gap: 16px;
+  align-items: start;
+}
+.admin-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.admin-toolbar input {
+  flex: 1 1 190px;
+}
+.admin-json {
+  max-width: 440px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 9px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.pagination {
+  justify-content: flex-end;
+}
+.topbar-search {
+  width: min(230px, 28vw);
+}
+
 /* ---------- primitives ---------- */
 .card {
   background: var(--surface);
@@ -805,6 +838,9 @@ tr.sev-red .who .avatar {
   align-items: start;
 }
 @media (max-width: 1060px) {
+  .admin-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .rx-grid {
     grid-template-columns: minmax(0, 1fr);
   }
