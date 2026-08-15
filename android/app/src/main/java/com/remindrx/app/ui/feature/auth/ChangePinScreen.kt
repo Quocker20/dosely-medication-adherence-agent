@@ -34,13 +34,14 @@ fun ChangePinScreen(
     error: String?,
     isRequired: Boolean = true,
     onInputChanged: () -> Unit,
-    onChangePin: (newPin: String, confirmedPin: String) -> Unit,
+    onChangePin: (currentPin: String, newPin: String, confirmedPin: String) -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
     val focusManager = LocalFocusManager.current
+    var currentPin by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
     var confirmedPin by remember { mutableStateOf("") }
-    val canSubmit = newPin.length == 6 && confirmedPin.length == 6 && !isLoading
+    val canSubmit = currentPin.length == 6 && newPin.length == 6 && confirmedPin.length == 6 && !isLoading
 
     Column(
         modifier = Modifier
@@ -69,10 +70,34 @@ fun ChangePinScreen(
         )
 
         Text(
-            "Mã PIN mới",
+            "Mã PIN hiện tại",
             style = MaterialTheme.typography.labelMedium,
             color = extras.inkMuted,
             modifier = Modifier.padding(bottom = 8.dp),
+        )
+        OutlinedTextField(
+            value = currentPin,
+            onValueChange = { value ->
+                currentPin = value.filter(Char::isDigit).take(6)
+                onInputChanged()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            placeholder = { Text("Nhập 6 chữ số hiện tại") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Next,
+            ),
+            isError = error != null,
+            singleLine = true,
+        )
+
+        Text(
+            "Mã PIN mới",
+            style = MaterialTheme.typography.labelMedium,
+            color = extras.inkMuted,
+            modifier = Modifier.padding(top = 18.dp, bottom = 8.dp),
         )
         OutlinedTextField(
             value = newPin,
@@ -115,7 +140,7 @@ fun ChangePinScreen(
             keyboardActions = KeyboardActions(
                 onDone = {
                     focusManager.clearFocus()
-                    if (canSubmit) onChangePin(newPin, confirmedPin)
+                    if (canSubmit) onChangePin(currentPin, newPin, confirmedPin)
                 },
             ),
             isError = error != null,
@@ -146,10 +171,22 @@ fun ChangePinScreen(
             },
             onClick = {
                 focusManager.clearFocus()
-                onChangePin(newPin, confirmedPin)
+                onChangePin(currentPin, newPin, confirmedPin)
             },
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
             enabled = canSubmit,
         )
     }
+}
+
+@com.remindrx.app.ui.preview.RemindRxScreenPreview
+@Composable
+private fun ChangePinScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
+    ChangePinScreen(
+        isLoading = false,
+        error = null,
+        isRequired = true,
+        onInputChanged = {},
+        onChangePin = { _, _, _ -> },
+    )
 }

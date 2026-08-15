@@ -255,8 +255,11 @@ class ScheduledDoseRepository:
         range_end: datetime,
         actor_id: Optional[uuid.UUID] = None,
     ) -> List[Tuple[ScheduledDose, str]]:
-        """Fetch a patient's doses within [range_start, range_end), joined to
-        PrescriptionItem.display_name for the response. Caller (service)
+        """Fetch a patient's doses within [range_start, range_end).
+
+        The ORM row carries immutable slot/dose snapshots; the join is only
+        for PrescriptionItem.display_name and is never used to infer an
+        amount. Caller (service)
         computes the range from the patient's own timezone — a "date" query
         param is a local calendar date, not a UTC one, so the boundary must
         not be assumed here. actor_id=None means unscoped (ADMIN)."""

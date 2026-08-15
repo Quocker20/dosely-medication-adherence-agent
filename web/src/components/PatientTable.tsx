@@ -1,9 +1,8 @@
-import { adherenceTone, PATIENT_STATUS } from "../lib/labels";
-import type { Patient } from "../types";
-import Sparkline from "./Sparkline";
+import { adherenceTone, formatDate, initialsOf, patientDisplayName, patientPriority } from "../lib/labels";
+import type { DashboardPatientListItem } from "../types";
 
 interface Props {
-  patients: Patient[];
+  patients: DashboardPatientListItem[];
   onOpen: (patientId: string) => void;
 }
 
@@ -22,68 +21,80 @@ export default function PatientTable({ patients, onOpen }: Props) {
           <thead>
             <tr>
               <th>Bệnh nhân</th>
-              <th>Tuân thủ 7 ngày</th>
-              <th>Liều gần nhất</th>
-              <th>Triệu chứng khai báo</th>
+              <th>Tuân thủ</th>
+              <th>Cảnh báo đang mở</th>
+              <th>Khảo sát gần nhất</th>
               <th>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
             {patients.map((patient) => {
-              const status = PATIENT_STATUS[patient.status];
+              const priority = patientPriority(patient.open_alerts_count, patient.adherence_rate);
               const tone = adherenceTone(patient.adherence_rate);
               return (
                 <tr
-                  key={patient.id}
-                  className={status.row}
+                  key={patient.patient_id}
+                  className={priority.row}
                   tabIndex={0}
                   role="button"
-                  aria-label={`Mở hồ sơ ${patient.name}`}
-                  onClick={() => onOpen(patient.id)}
+                  aria-label={`Mở hồ sơ ${patientDisplayName(patient.patient_name)}`}
+                  onClick={() => onOpen(patient.patient_id)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      onOpen(patient.id);
+                      onOpen(patient.patient_id);
                     }
                   }}
                 >
                   <td>
                     <div className="who">
-                      <div className="avatar">{patient.initials}</div>
+                      <div className="avatar">{initialsOf(patient.patient_name)}</div>
                       <div>
-                        <div className="who-name">{patient.name}</div>
-                        <div className="who-meta">
-                          {patient.age} tuổi · {patient.diagnosis}
-                        </div>
+                        <div className="who-name">{patientDisplayName(patient.patient_name)}</div>
+                        <div className="who-meta mono">{patient.patient_id.slice(0, 8)}</div>
                       </div>
                     </div>
                   </td>
                   <td>
                     <div className="adh">
-                      <Sparkline values={patient.adherence_7d} tone={tone} />
                       <div className="adh-num" style={{ color: `var(--${tone})` }}>
-                        {patient.adherence_rate}%
+                        {Math.round(patient.adherence_rate)}%
                       </div>
                     </div>
                   </td>
                   <td>
                     <div className="cell-note">
-                      <strong style={{ color: `var(--${patient.last_event.tone})` }}>{patient.last_event.text}</strong>
-                      {` · ${patient.last_event.at}`}
+                      {patient.open_alerts_count > 0 ? (
+                        <strong style={{ color: "var(--crit)" }}>{patient.open_alerts_count} cảnh báo</strong>
+                      ) : (
+                        "—"
+                      )}
                     </div>
                   </td>
                   <td>
-                    <div className="cell-note">{patient.symptom}</div>
+                    <div className="cell-note">{formatDate(patient.last_survey_date)}</div>
                   </td>
                   <td>
-                    <span className={`pill ${status.tone}`}>
+                    <span className={`pill ${priority.tone}`}>
                       <span className="dot" />
-                      {status.label}
+                      {priority.label}
                     </span>
                   </td>
                 </tr>
               );
             })}
+
+            {patients.length === 0 && (
+              <tr>
+                <td colSpan={5}>
+                  <p className="empty">
+                    Chưa có bệnh nhân nào trong phạm vi của bạn.
+                    <br />
+                    Bác sĩ chỉ thấy bệnh nhân mình đã kê ít nhất một đơn.
+                  </p>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -91,7 +102,7 @@ export default function PatientTable({ patients, onOpen }: Props) {
       <div className="legend">
         <span>
           <i style={{ background: "var(--crit)" }} />
-          Red Alert: bỏ ≥3 liều liên tiếp hoặc triệu chứng nguy hiểm
+          Cần xử lý: có cảnh báo đang mở (OPEN hoặc ACKNOWLEDGED)
         </span>
         <span>
           <i style={{ background: "var(--warn)" }} />

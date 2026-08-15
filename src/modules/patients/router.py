@@ -155,7 +155,7 @@ async def update_routine(
     current_user: PatientOnlyUserDep,
     service: PatientServiceDep,
 ) -> JSONResponse:
-    """Update a patient's daily routine (Patient only, self)."""
+    """Create or update a patient's daily routine (Patient only, self)."""
     result = await service.update_routine(
         patient_id=patient_id, request=request_body, actor_payload=current_user
     )

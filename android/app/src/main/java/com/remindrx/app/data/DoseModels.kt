@@ -1,6 +1,6 @@
 package com.remindrx.app.data
 
-enum class DoseStatus { UPCOMING, LOCKED, SNOOZED, TAKEN, LATE, SKIPPED }
+enum class DoseStatus { UPCOMING, LOCKED, SNOOZED, TAKEN, LATE, SKIPPED, MISSED }
 
 enum class MealRelation { NONE, BEFORE_MEAL, AFTER_MEAL, WITH_MEAL }
 
@@ -20,4 +20,11 @@ data class DoseToday(
     val status: DoseStatus,
     val period: DosePeriod,
     val snoozeMinutes: Int? = null,
+    val prescriptionItemId: String? = null,
+    val medicationId: String? = null,
+    val doseSlot: String? = null,
+    val doseValue: Double? = null,
+    val doseUnit: String? = null,
+    val currentScheduledAt: String? = null,
+    val snoozeCount: Int = 0,
 )

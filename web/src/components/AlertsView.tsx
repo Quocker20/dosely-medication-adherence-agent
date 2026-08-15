@@ -1,97 +1,118 @@
-import { ALERT_KIND } from "../lib/labels";
-import type { Alert, Patient } from "../types";
+import { useState } from "react";
+
+import {
+  alertSeverityView,
+  alertStatusView,
+  alertTriggerLabel,
+  formatDateTime,
+  patientDisplayName,
+} from "../lib/labels";
+import type { AlertDetail, DashboardPatientListItem } from "../types";
 import GuardBanner from "./GuardBanner";
 
 interface Props {
-  alerts: Alert[];
-  patients: Patient[];
+  alerts: AlertDetail[];
+  patients: DashboardPatientListItem[];
   busyId: string | null;
   onAcknowledge: (id: string) => void;
-  onResolve: (id: string, falsePositive: boolean) => void;
+  onResolve: (id: string, resolutionNote: string) => void;
   onOpenPatient: (patientId: string) => void;
 }
 
 const FLOW = ["OPEN", "ACKNOWLEDGED", "RESOLVED"] as const;
 
-export default function AlertsView({ alerts, patients, busyId, onAcknowledge, onResolve, onOpenPatient }: Props) {
-  const byId = new Map(patients.map((patient) => [patient.id, patient]));
+export default function AlertsView({
+  alerts,
+  patients,
+  busyId,
+  onAcknowledge,
+  onResolve,
+  onOpenPatient,
+}: Props) {
+  const byId = new Map(patients.map((patient) => [patient.patient_id, patient]));
+
+  // Backend đòi resolution_note không rỗng, nên phải nhập trước khi đóng.
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   return (
     <section className="view">
       <GuardBanner title="Closed-loop Red Alert">
         <li>
-          Kích hoạt khi <b>3 liều SKIPPED/MISSED liên tiếp</b>, hoặc bệnh nhân bấm <b>SOS</b>, hoặc triệu chứng mức{" "}
-          <b>SEVERE</b>.
+          Kích hoạt khi <b>bỏ liều liên tiếp</b>, bệnh nhân bấm <b>SOS</b>, hoặc agent phát hiện <b>triệu chứng nặng</b>.
         </li>
-        <li>Gửi đa kênh trong &lt;10 giây tới người thân và portal bác sĩ; retry có backoff, quá ngưỡng vào dead-letter.</li>
         <li>
-          Cảnh báo chỉ đóng khi <b>bác sĩ xác nhận</b> — hệ thống không tự resolve.
+          Cảnh báo chỉ đóng khi <b>bác sĩ xác nhận</b> kèm ghi chú xử lý — hệ thống không tự resolve.
+        </li>
+        <li>
+          Dashboard đếm cả <b>OPEN</b> và <b>ACKNOWLEDGED</b> là chưa xong: đã xem không có nghĩa đã xử lý.
         </li>
       </GuardBanner>
 
       <div className="alert-list">
         {alerts.map((alert) => {
           const patient = byId.get(alert.patient_id);
-          const done = alert.state === "RESOLVED" || alert.state === "CLOSED_FALSE_POSITIVE";
-          const tone = done ? "ok" : alert.state === "ACKNOWLEDGED" ? "warn" : "crit";
+          const statusView = alertStatusView(alert.status);
+          const severityView = alertSeverityView(alert.severity);
+          const done = alert.status === "RESOLVED";
           const busy = busyId === alert.id;
+          const note = notes[alert.id] ?? "";
 
           return (
             <article
               key={alert.id}
-              className={`alert ${alert.state === "ACKNOWLEDGED" ? "is-ack" : ""} ${done ? "is-done" : ""}`}
+              className={`alert ${alert.status === "ACKNOWLEDGED" ? "is-ack" : ""} ${done ? "is-done" : ""}`}
             >
               <div className="alert-head">
                 <div style={{ minWidth: 0 }}>
                   <div className="alert-title">
-                    {alert.title} — {patient?.name ?? alert.patient_id}
+                    {alertTriggerLabel(alert.triggered_by_type)} —{" "}
+                    {patient ? patientDisplayName(patient.patient_name) : alert.patient_id}
                   </div>
                   <div className="alert-sub">
-                    {patient ? `${patient.age} tuổi · ${patient.diagnosis} · ` : ""}
-                    mở lúc {alert.opened_at} · {alert.id}
+                    mở lúc {formatDateTime(alert.created_at)} · <span className="mono">{alert.id.slice(0, 8)}</span>
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span className="pill mono">{ALERT_KIND[alert.kind]}</span>
-                  <span className={`pill ${tone}`}>
+                  <span className="pill mono">{alert.alert_type}</span>
+                  <span className={`pill ${severityView.tone}`}>{severityView.label}</span>
+                  <span className={`pill ${statusView.tone}`}>
                     <span className="dot" />
-                    {alert.state}
+                    {statusView.label}
                   </span>
                 </div>
               </div>
 
               <div className="alert-body">
-                <p className="alert-sub">{alert.detail}</p>
-                <div className="chan">
-                  <span className="chan-item">Đa kênh trong {(alert.dispatch_ms / 1000).toFixed(1)}s:</span>
-                  {alert.channels.map((channel) => (
-                    <span className="chan-item" key={channel.name}>
-                      <span
-                        className="chan-dot"
-                        style={{ background: `var(--${channel.status === "DELIVERED" ? "ok" : "warn"})` }}
-                      />
-                      <b>{channel.name}</b> {channel.status}
-                    </span>
-                  ))}
-                </div>
+                <p className="alert-sub">{alert.message ?? "Không có mô tả kèm theo."}</p>
               </div>
 
               <div className="alert-foot">
-                {alert.state === "OPEN" && (
+                {alert.status === "OPEN" && (
                   <button className="btn sm" disabled={busy} onClick={() => onAcknowledge(alert.id)}>
                     Tôi đã tiếp nhận
                   </button>
                 )}
-                {alert.state === "ACKNOWLEDGED" && (
+
+                {alert.status === "ACKNOWLEDGED" && (
                   <>
-                    <button className="btn sm primary" disabled={busy} onClick={() => onResolve(alert.id, false)}>
+                    <input
+                      className="resolve-note"
+                      placeholder="Ghi chú xử lý (bắt buộc)"
+                      value={note}
+                      onChange={(event) =>
+                        setNotes((current) => ({ ...current, [alert.id]: event.target.value }))
+                      }
+                    />
+                    <button
+                      className="btn sm primary"
+                      disabled={busy || note.trim().length === 0}
+                      onClick={() => onResolve(alert.id, note.trim())}
+                    >
                       Đã xử lý — đóng cảnh báo
-                    </button>
-                    <button className="btn sm ghost" disabled={busy} onClick={() => onResolve(alert.id, true)}>
-                      Báo động giả
                     </button>
                   </>
                 )}
+
                 <button className="btn sm ghost" onClick={() => onOpenPatient(alert.patient_id)}>
                   Mở hồ sơ bệnh nhân
                 </button>
@@ -100,7 +121,7 @@ export default function AlertsView({ alerts, patients, busyId, onAcknowledge, on
                   {FLOW.map((state, index) => (
                     <span key={state}>
                       {index > 0 && <span> · </span>}
-                      {alert.state === state ? <b>{state}</b> : <span>{state}</span>}
+                      {alert.status === state ? <b>{state}</b> : <span>{state}</span>}
                     </span>
                   ))}
                 </div>
@@ -108,6 +129,8 @@ export default function AlertsView({ alerts, patients, busyId, onAcknowledge, on
             </article>
           );
         })}
+
+        {alerts.length === 0 && <p className="empty">Không có cảnh báo nào.</p>}
       </div>
     </section>
   );
