@@ -34,7 +34,7 @@ export type UserRole = "ADMIN" | "DOCTOR" | "PATIENT" | "CAREGIVER";
 export interface UserResponse {
   id: string;
   phone: string;
-  role: string;
+  role: UserRole;
   status: string;
 }
 
@@ -183,6 +183,12 @@ export interface ScheduledDoseRow {
   current_scheduled_at: string;
   status: string;
   snooze_count: number;
+  prescription_item_id?: string | null;
+  medication_id?: string | null;
+  dose_slot?: string | null;
+  dose_value?: string | number | null;
+  dose_unit?: string | null;
+  meal_relation?: string | null;
 }
 
 export interface ActiveSchedule {
@@ -265,4 +271,51 @@ export interface WebSocketEventStream {
   event_type: string;
   timestamp: string;
   data: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Doctor management & audit logs
+// ---------------------------------------------------------------------------
+
+export type DoctorStatus = "ACTIVE" | "INACTIVE";
+
+export interface DoctorDetail {
+  user_id: string;
+  phone: string;
+  role: "DOCTOR";
+  status: DoctorStatus | string;
+  name: string;
+  license_no: string;
+  specialty: string | null;
+  created_at: string;
+}
+
+export interface CreateDoctorRequest {
+  phone: string;
+  name: string;
+  license_no: string;
+  specialty: string | null;
+}
+
+export interface UpdateDoctorRequest {
+  name?: string;
+  specialty?: string | null;
+  status?: DoctorStatus;
+}
+
+export interface CreateDoctorResponse {
+  doctor: DoctorDetail;
+  temp_password: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
 }
