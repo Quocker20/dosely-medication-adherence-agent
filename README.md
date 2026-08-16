@@ -1,279 +1,385 @@
-# 🤖 AI20K Agent Template
+# 💊 RemindRx (P-216) — AI Agent Hỗ Trợ Quản Lý & Nhắc Nhở Uống Thuốc
 
-Template chính thức cho học viên **VinUni AI20K Build Phase** — cung cấp sẵn cấu trúc dự án, code mẫu, và hướng dẫn kỹ thuật chi tiết để xây dựng AI Agent đạt điểm cao (35+/50).
+Hệ thống **RemindRx** thuộc dự án **VinUni AI20K Build Phase (Cohort 3 - Team P-216)**. Đây là giải pháp AI Agent toàn diện tích hợp backend FastAPI (LangGraph agent, Postgres, Redis, Celery) và ứng dụng di động Android (Jetpack Compose).
 
-> 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+---
 
-## 🎯 Template này dùng để làm gì?
+## 🎯 Bài Toán & Giải Pháp (Problem & Solution)
 
-Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent hoàn chỉnh — từ kiến trúc, code, test, đến deploy. Thay vì bắt đầu từ con số không, template này cung cấp:
+- **Bài toán (Problem):** Người bệnh (đặc biệt là người lớn tuổi hoặc bệnh nhân mãn tính) thường gặp khó khăn trong việc nhớ lịch uống thuốc, uống sai liều, hoặc không nhận biết sớm các tác dụng phụ nguy hiểm. Đồng thời, bác sĩ và người thân thiếu công cụ giám sát tuân thủ điều trị theo thời gian thực.
+- **Giải pháp (Solution):** **RemindRx** cung cấp trợ lý AI Agent thông minh:
+  - 🗣 **Tương tác Đa phương thức:** Hỗ trợ trò chuyện bằng văn bản và giọng nói tiếng Việt tự nhiên (`/chat`, `/chat/voice`).
+  - ⏰ **Nhắc thuốc thông minh:** Tự động quy đổi lịch uống thuốc theo thời gian sinh hoạt cá nhân của bệnh nhân (thức dậy, ăn sáng/trưa/tối, đi ngủ).
+  - 📋 **Điểm danh & Theo dõi:** Ghi nhận nhật ký uống thuốc (`TAKEN`, `SNOOZE`, `SKIPPED`) với cơ chế Idempotency-Key chống trùng lặp.
+  - 🚨 **Cảnh báo an toàn & SOS:** Tự động phát hiện triệu chứng nghiêm trọng và gửi thông báo khẩn cấp SOS tới bác sĩ & người thân.
 
-- **Cấu trúc thư mục chuẩn** — đã được thiết kế theo best practices (separation of concerns)
-- **Code mẫu** cho các phần cốt lõi: LangGraph agent, FastAPI API, config, schemas
-- **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
-- **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
-- **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
+---
 
-## ⚡ Quick Start
+## 📑 Mục Lục
 
-### Bước 1: Fork hoặc Clone
+1. [🎯 Bài Toán & Giải Pháp (Problem & Solution)](#-bài-toán--giải-pháp-problem--solution)
+2. [⚡ Quick Start & Hướng Dẫn Setup](#-quick-start--hướng-dẫn-setup)
+   - [Backend Infrastructure (FastAPI + Postgres + Redis)](#1-backend-infrastructure-fastapi--postgres--redis)
+   - [Android Application Setup (Android Studio)](#2-android-application-setup-android-studio)
+3. [🔐 Cấu Hình Biến Môi Trường (.env)](#-cấu-hình-biến-môi-trường-env)
+4. [📡 Sample Queries & Gọi API Mẫu](#-sample-queries--gọi-api-mẫu)
+   - [API cURL & Python Snippets](#1-api-curl--python-snippets)
+   - [Database SQL Queries Mẫu](#2-database-sql-queries-mẫu)
+5. [📁 Cấu Trúc Dự Án & Tech Stack](#-cấu-trúc-dự-án--tech-stack)
+6. [📊 AI Usage Logging](#-ai-usage-logging)
+7. [📋 Deliverables & Tài Liệu Tham Khảo](#-deliverables--tài-liệu-tham-khảo)
+
+---
+
+## ⚡ Quick Start & Hướng Dẫn Setup
+
+### 1. Backend Infrastructure (FastAPI + Postgres + Redis)
+
+#### Bước 1: Clone Repository & Setup Virtual Environment
 
 ```bash
-# Clone template
-git clone https://github.com/AI20K-Build-Cohort-2/starter-code-template.git team-YOUR_TEAM_NAME
-cd team-YOUR_TEAM_NAME
+git clone https://github.com/AI20K-Build-Phase-Cohort-3/P-216.git
+cd P-216
 
-# Xóa git history cũ và khởi tạo lại
-rm -rf .git
-git init
-git add .
-git commit -m "feat: khởi tạo dự án từ template"
-```
+# Tạo virtual environment Python 3.11
+python -m venv .venv
 
-### Bước 2: Setup môi trường
+# Activate virtual environment
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Linux / macOS:
+# source .venv/bin/activate
 
-```bash
-# Tạo virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-# Cài dependencies
+# Cài đặt dependencies
 pip install -e ".[dev]"
-
-# Cấu hình API keys
-cp .env.example .env
-# Mở .env và thêm OPENAI_API_KEY của bạn
-# Đồng thời cập nhật AI_LOG_API_KEY bằng key riêng từ link mời của BTC
-# (giá trị trong .env.example chỉ là placeholder)
 ```
 
-### Bước 3: Cài AI Logging Hooks
+#### Bước 2: Cấu hình File `.env`
 
 ```bash
-# Linux / macOS / Git Bash
-bash scripts/setup_hooks.sh
-
-# Windows PowerShell
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+cp .env.example .env
+# Mở file .env để cấu hình OPENAI_API_KEY, JWT_SECRET_KEY, DB credentials,...
 ```
 
-Hooks tự động log prompt từ Claude Code, Cursor, Gemini CLI và GitHub Copilot. Với Codex Desktop và Antigravity, hook pre-push sẽ quét transcript cục bộ và ghi các prompt chưa có trước khi gửi log.
-
-### Bước 4: Chạy hạ tầng (Postgres + Redis)
+#### Bước 3: Chạy Hạ Tầng (Postgres + Redis)
 
 ```bash
 docker compose up -d postgres redis
 ```
 
-Lần đầu chạy, Postgres tự nạp `docs/database_v1_init.sql` (25 bảng) từ
-`docker-entrypoint-initdb.d`. Việc này **chỉ xảy ra khi volume còn trống** — nếu
-`p-216_postgres_data` đã tồn tại từ trước, container bỏ qua bước init.
+Lần đầu khởi chạy, Postgres tự động nạp schema từ `docs/database_v1_init.sql` (21 bảng).
 
-Đưa schema lên bản mới nhất:
+Đồng bộ Alembic migration lên bản mới nhất:
 
 ```bash
+# Đánh dấu baseline nếu chưa có alembic_version (làm một lần đầu)
+alembic stamp 0001_baseline
+
+# Migration
 alembic upgrade head
 ```
 
-Nếu DB được tạo bằng `database_v1_init.sql` mà chưa có bảng `alembic_version`,
-đánh dấu baseline trước (chỉ làm một lần):
+#### Bước 4: Chạy Server FastAPI
 
 ```bash
-alembic stamp 0001_baseline
-```
-
-> `.env` dùng hostname phía **host** (`localhost`) để `pytest`/`alembic`/`uvicorn`
-> chạy được ngoài container. Container `backend`/`worker` tự ghi đè thành
-> `postgres`/`redis` trong `docker-compose.yml` — đừng đổi `.env` về hostname
-> nội bộ Docker, sẽ làm test ngoài container mất kết nối.
-
-### Bước 5: Chạy server
-
-```bash
-# Chạy FastAPI backend
 uvicorn src.main:app --reload --port 8000
-
-# Mở Swagger UI
-# http://localhost:8000/docs
 ```
+- Swagger UI Documentation: `http://localhost:8000/docs`
+- Health check API: `http://localhost:8000/health`
 
-### Bước 6: Chạy test
+#### Bước 5: Chạy Unit & Integration Test
 
 ```bash
 pytest -q
 ```
 
-Cần Postgres ở Bước 4 đang chạy — các test của slice 3/4 ghi/xoá dữ liệu thật.
-Test tự dọn sau mỗi case nên chạy lại nhiều lần vẫn xanh.
+---
 
-### Bước 7: Đọc hướng dẫn
+### 2. Android Application Setup (Android Studio)
 
-📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
+Tài liệu này hướng dẫn chạy ứng dụng Android **RemindRx** trên máy cá nhân bằng Android Studio (hỗ trợ Windows, macOS, Linux).
 
-## 📁 Cấu trúc dự án
+#### 🛠 Yêu Cầu Tiên Quyết
+- **Git**
+- **Android Studio** (bản ổn định gần nhất)
+- **JDK 17** (có thể dùng Embedded JDK 17 đi kèm Android Studio)
+- **Android SDK Platform 34** và **Android SDK Build-Tools**
+- **Android Emulator** (API 34+)
 
-> Cây thư mục thật của repo RemindRx (P-216) — không phải cây thư mục gốc của
-> template AI20K. Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết chi tiết kiến
-> trúc/data flow, và [CLAUDE.md](CLAUDE.md) cho quy ước + ràng buộc bắt buộc.
+> Dự án đã có Gradle Wrapper, không cần tự cài Gradle riêng.
 
+#### 🚀 Các Bước Thực Hiện
+
+##### 1. Mở Đúng Thư Mục Project
+1. Mở Android Studio và chọn **Open**.
+2. Trỏ đến thư mục **`P-216/android`** (chú ý: **không** mở thư mục gốc `P-216`).
+   ```text
+   P-216/
+   └── android/                <- Mở thư mục này bằng Android Studio
+       ├── settings.gradle.kts
+       ├── build.gradle.kts
+       ├── gradlew.bat
+       └── app/
+   ```
+3. Chờ Android Studio hoàn tất **Gradle Sync** (lần đầu có thể mất vài phút).
+
+##### 2. Cài Đặt Android SDK (nếu được yêu cầu)
+1. Vào **Tools → SDK Manager**.
+2. Trong tab **SDK Platforms**, tích chọn cài **Android API 34**.
+3. Trong tab **SDK Tools**, bảo đảm tích chọn:
+   - Android SDK Build-Tools
+   - Android SDK Platform-Tools
+   - Android Emulator
+4. Nhấn **Apply**, sau đó thực hiện **File → Sync Project with Gradle Files**.
+
+##### 3. Tạo và Khởi Động Emulator
+1. Vào **Tools → Device Manager**.
+2. Chọn **Create device**, chọn mẫu thiết bị (ví dụ Pixel) và nhấn **Next**.
+3. Chọn system image có **API 34 trở lên**.
+4. Khởi động emulator bằng cách nhấn nút Play (`▶`).
+
+##### 4. Chạy Ứng Dụng
+1. Trên thanh công cụ Android Studio, chọn Run Configuration: **`app`**.
+2. Chọn Android Emulator vừa khởi động.
+3. Nhấn nút **Run** (`▶`) hoặc dùng phím tắt `Shift + F10`.
+
+##### 🔗 Kết Nối Backend & Tài Khoản Demo
+- Debug build trên Android Emulator được cấu hình gọi backend qua địa chỉ:
+  ```text
+  http://10.0.2.2:8000/api/v1/
+  ```
+  *(10.0.2.2 là loopback IP đặc biệt để Emulator truy cập localhost của máy tính host).*
+- **Tài khoản Demo (Debug Mode):**
+  - **Số điện thoại:** `0900000000`
+  - **PIN ban đầu:** `123456`
+
+##### 🚨 Lỗi Thường Gặp (Troubleshooting)
+
+| Sự cố | Nguyên nhân & Cách khắc phục |
+| --- | --- |
+| **Không nhận project Gradle** | Mở nhầm thư mục gốc `P-216`. Đóng project và mở lại đúng thư mục **`P-216/android`** (nơi chứa `settings.gradle.kts`). |
+| **Lỗi Java / JDK Version** | Vào `Settings → Build, Execution, Deployment → Build Tools → Gradle`. Mục **Gradle JDK**, chọn **Embedded JDK 17**, sau đó Sync lại. |
+| **App không gọi được API** | Kiểm tra Backend FastAPI có đang chạy trên host port `8000` hay không. Lưu ý Emulator dùng `10.0.2.2`, không dùng `localhost`. |
+| **Gradle Sync Fails do mạng** | Tắt **Offline work** trong Gradle Settings và chạy `File → Sync Project with Gradle Files`. |
+
+---
+
+## 🔐 Cấu Hình Biến Môi Trường (.env)
+
+Chi tiết các biến cấu hình trong file `.env` (tham khảo mẫu tại `.env.example`):
+
+| Nhóm Cấu Hình | Biến Môi Trường | Mô Tả & Giá Trị Mẫu |
+| --- | --- | --- |
+| **Security & JWT** | `JWT_SECRET_KEY` | Chuỗi bí mật mã hóa JWT (VD: `remindrx_dev_secret_key_...`) |
+| | `JWT_ALGORITHM` | Thuật toán mã hóa JWT (`HS256`) |
+| | `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời gian hết hạn Access Token (phút, mặc định: `30`) |
+| | `REFRESH_TOKEN_EXPIRE_DAYS` | Thời gian hết hạn Refresh Token (ngày, mặc định: `7`) |
+| | `PASSWORD_PEPPER` | Chuỗi pepper gia tăng bảo mật PIN/mật khẩu |
+| **LLM Provider** | `OPENAI_API_KEY` | API Key OpenAI cho LangGraph Agent (VD: `sk-proj-...`) |
+| | `ANTHROPIC_API_KEY` | (Tùy chọn) API Key Anthropic Claude |
+| | `GOOGLE_API_KEY` | (Tùy chọn) API Key Google Gemini |
+| **Database** | `POSTGRES_USER` | Username PostgreSQL (`remindrx`) |
+| | `POSTGRES_PASSWORD` | Password PostgreSQL (`secret`) |
+| | `POSTGRES_DB` | Tên Database PostgreSQL (`remindrx_db`) |
+| | `DATABASE_URL` | Async Connection String (VD: `postgresql+asyncpg://remindrx:secret@localhost:5432/remindrx_db`) |
+| **Redis & Broker** | `REDIS_HOST` / `REDIS_PORT` | Host (`localhost` hoặc `redis`) và Port (`6379`) |
+| | `REDIS_URL` | Connection URL Redis (`redis://localhost:6379/0`) |
+| | `CELERY_BROKER_URL` | Connection string cho Celery Task Queue |
+| **Vector Store** | `CHROMA_PERSIST_DIR` | Thư mục lưu trữ vector database RAG (`./data/chroma`) |
+| **Backend API** | `APP_HOST` / `APP_PORT` | Host (`0.0.0.0`) & Port (`8000`) cho FastAPI server |
+| | `CORS_ORIGINS` | Danh sách domain được phép gọi API (VD: `http://localhost:3000,http://localhost:5173`) |
+| **Speech (STT/TTS)** | `STT_MODEL` / `TTS_MODEL` | Model Whisper STT & TTS cho endpoint `/chat/voice` |
+| **AI Logging** | `AI_LOG_SERVER` | Server nhận log AI Usage (`https://ai-logs.note.transformerlabs.ai/api/ingest`) |
+| | `AI_LOG_API_KEY` | API key cấp bởi BTC AI20K |
+
+---
+
+## 📡 Sample Queries & Gọi API Mẫu
+
+### 1. API cURL & Python Snippets
+
+#### A. Đăng Nhập (`POST /api/v1/auth/login`)
+
+**cURL:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/login" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "phone": "0900000000",
+       "password": "123456"
+     }'
 ```
-├── src/
-│   ├── agents/             # 🧠 LangGraph Agent
-│   │   ├── graph.py        #    State graph (nodes + edges)
-│   │   ├── state.py        #    State schema (TypedDict)
-│   │   ├── nodes/          #    Node functions
-│   │   └── tools/          #    Agent tools (@tool)
-│   ├── core/               # ⚙️ Hạ tầng dùng chung (Config, Database, Security, Redis, Celery)
-│   │   ├── config.py       #    Pydantic settings đọc .env
-│   │   ├── database.py     #    Async SQLAlchemy 2.0 Engine & Session
-│   │   ├── redis.py        #    Redis connection pool
-│   │   ├── security.py     #    Phone OTP, JWT encode/decode, RBAC guards
-│   │   ├── response.py     #    Standardized API response envelope format
-│   │   └── celery_app.py   #    Celery app instance
-│   ├── common/             # 🛠️ Shared utilities, exceptions & middleware
-│   ├── modules/            # 🧩 Phân hệ nghiệp vụ dạng Vertical Slice
-│   │   ├── auth/           #    Phân hệ 1: Phone OTP & JWT Token [MẪU MODULAR]
-│   │   │   ├── models.py   #    ORM Models (User, OtpCode, RefreshToken)
-│   │   │   ├── router.py   #    API Endpoints (/auth/otp/request, /auth/otp/verify,...)
-│   │   │   ├── service.py  #    Business Logic (Tạo OTP, Verify, Dispatch SMS)
-│   │   │   └── schemas.py  #    Pydantic DTOs (OTPRequest, OTPVerify, TokenResponse)
-│   │   ├── doctors/        #    Phân hệ 2: Doctor profiles & Audit logs
-│   │   ├── patients/       #    Phân hệ 3 & 4: Patient profiles, routines & caregivers
-│   │   ├── prescriptions/  #    Phân hệ 5: Thuốc & Đơn thuốc
-│   │   ├── agents/         #    Phân hệ 6: LangGraph AI Agent & Scheduled Doses
-│   │   ├── adherence/      #    Phân hệ 7: Điểm danh & SOS Red Alert
-│   │   └── ocr_rag/        #    Phân hệ 8: Prescription OCR & RAG Search
-│   ├── api/                # 🌐 Dependencies & Aggregated API Routers
-│   │   ├── deps.py         #    Global FastAPI Dependencies (get_db, get_current_user, RBAC)
-│   │   └── v1_router.py    #    Tổng hợp tất cả router từ các modules
-│   └── main.py             # 🚀 FastAPI Entrypoint & WebSocket Handler
-├── tests/                # 🧪 pytest suite
-│   ├── test_agents/      #    Agent/graph tests
-│   └── test_api/         #    API endpoint tests
-├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Gemini/Copilot
-│   ├── log_codex.py      #    Codex Desktop prompt scanner
-│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
-│   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py     #    Submit logs on git push
-│   └── setup_hooks.sh    #    One-time hook installer
-├── .claude/ .codex/ .cursor/ .gemini/  # Per-tool hook configs
-├── .agents/              # Antigravity rules + workflows
-├── .ai-log/              # 📊 AI usage logs (auto-generated)
-├── docs/
-│   ├── RemindRx_Tong_Hop_Tai_Lieu.md   # 📖 Brief/PRD/API Spec/Architecture/Dataset — ĐỌC TRƯỚC khi code feature
-│   ├── Android_Compose_System_Design_Skills.md
-│   ├── architecture_diagram.md
-│   └── guide/             #    Technical Guidebook AI20K (10 chương, tài liệu chung)
-├── scripts/              # 🔌 AI Logging Hooks (bắt buộc theo BTC AI20K — không xóa/sửa)
-│   ├── log_hook.py        #    Auto-log cho Claude/Cursor/Gemini/Copilot
-│   ├── log_codex.py       #    Codex Desktop prompt scanner
-│   ├── log_antigravity.py #    Antigravity IDE prompt scanner
-│   ├── log_manual.py      #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py      #    Submit logs on git push (BATCH_LIMIT/lần)
-│   └── setup_hooks.sh / setup_hooks.ps1  # One-time hook installer
-├── .claude/               # Claude Code config cho repo này
-│   ├── agents/hitl-guardrail-reviewer.md #  Review diff chạm prescription/schedule/dose
-│   ├── commands/           #  /check, /new-fr
-│   └── skills/             #  sync-fr-status, android-development
-├── .codex/ .cursor/ .gemini/  # Per-tool hook configs (tương đương .claude/)
-├── .ai-log/               # 📊 AI usage logs (auto-generated, archive/ theo ngày)
-├── eval/results/          # 📊 Evaluation results
-├── presentation/          # 🎤 Demo Day slides
-├── outputs/               # 🗂️ Sản phẩm phụ trợ (phân tích, UI export...)
-├── .github/workflows/      # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/          # 🪝 Copilot hook config
-├── Dockerfile              # 🐳 Multi-stage build (backend)
-├── docker-compose.yml      # 🐙 Full stack orchestration
-├── ARCHITECTURE.md / JOURNAL.md / WORKLOG.md  # Tài liệu nhóm tự cập nhật thủ công
-├── CLAUDE.md               # Quy ước + ràng buộc bắt buộc khi code trong repo này
-└── README_boilerplate.md   # 📝 README template gốc của AI20K (tham khảo, không phải README thật)
+
+**Python:**
+```python
+import requests
+
+url = "http://localhost:8000/api/v1/auth/login"
+payload = {"phone": "0900000000", "password": "123456"}
+response = requests.post(url, json=payload)
+print(response.json())
 ```
 
-## 📚 Technical Guidebook — 10 Chương
+#### B. Trò Chuyện Với AI Agent (`POST /api/v1/chat`)
 
-| Chương | Nội dung | Thời gian |
-|---------|----------|-----------|
-| 1 | Lời mở đầu — Mục tiêu, cách sử dụng | 15 phút |
-| 2 | Khởi tạo dự án — Clone, setup, git workflow | 4 giờ |
-| 3 | Thiết kế kiến trúc — 3-tier, diagrams, ADR | 6 giờ |
-| 4 | **LangGraph Agent** — State, nodes, edges, tools, RAG | 8 giờ |
-| 5 | FastAPI — Routes, validation, error handling, streaming | 6 giờ |
-| 6 | Giao diện — Next.js + Streamlit quickstart | 6 giờ |
-| 7 | DevOps — Docker, CI/CD, deploy, logging | 6 giờ |
-| 8 | Kiểm thử — Unit test, integration test, RAGAS | 4 giờ |
-| 9 | Demo Day — 10 deliverables, checklist, tips | 2 giờ |
-| 10 | Tài nguyên — Khóa học, docs, BMAD method | tham khảo |
+**cURL:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/chat" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "message": "Tôi vừa uống 1 viên Paracetamol lúc 7h sáng",
+       "patient_id": "b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
+     }'
+```
 
-📖 **Đọc online:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+**Python:**
+```python
+import requests
 
-## 📋 10 Deliverables cho Demo Day
+url = "http://localhost:8000/api/v1/chat"
+payload = {
+    "message": "Tôi cảm thấy chóng mặt sau khi uống thuốc",
+    "patient_id": "b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
+}
+res = requests.post(url, json=payload)
+print("AI Response:", res.json()["response"])
+```
 
-| # | Deliverable | File vị trí | Template có sẵn |
-|---|-------------|-------------|:---:|
-| 1 | Source Code | `src/` | ✅ |
-| 2 | README.md | `README_boilerplate.md` → copy thành `README.md` | ✅ |
-| 3 | Architecture Diagram | `docs/architecture_diagram.md` | ✅ |
-| 4 | AI Logs | LangSmith (3 env vars) + Auto AI Usage Logging | ✅ |
-| 5 | Live URL | Deploy lên Render/Vercel | ⚡ CI/CD sẵn |
-| 6 | Video Demo | `presentation/` | 📝 |
-| 7 | Pitch Deck | `presentation/` | 📝 |
-| 8 | Development Journal | `JOURNAL.md` | ✅ |
-| 9 | Worklog | `WORKLOG.md` | ✅ |
-| 10 | Evaluation Evidence | `eval/` | 📝 |
+#### C. Điểm Danh Nhắc Thuốc (`POST /api/v1/scheduled-doses/{id}/actions`)
 
-## 🛠 Tech Stack
+**cURL:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/scheduled-doses/9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d/actions" \
+     -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+     -H "Idempotency-Key: dose-action-20260816-01" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "action": "TAKEN",
+       "action_source": "PATIENT_MOBILE_APP"
+     }'
+```
 
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| AI Agent | LangGraph + LangChain | Latest |
-| Backend | FastAPI + Uvicorn | 0.100+ |
-| LLM | OpenAI GPT-4o-mini | API |
-| Frontend | Next.js / Streamlit | 14+ / 1.30+ |
-| Database | SQLite (dev) / PostgreSQL (prod) | — |
-| DevOps | Docker + GitHub Actions | — |
-| Testing | pytest + pytest-asyncio | 8+ |
+#### D. Kích Hoạt Cảnh Báo SOS (`POST /api/v1/patients/{id}/sos`)
+
+**cURL:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/patients/b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c/sos" \
+     -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+     -H "Idempotency-Key: sos-trigger-20260816-01" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "message": "Chóng mặt và tức ngực cấp tính",
+       "metadata": {"lat": 10.762622, "lng": 106.660172}
+     }'
+```
+
+---
+
+### 2. Database SQL Queries Mẫu
+
+Dưới đây là một số truy vấn SQL hữu ích để kiểm tra dữ liệu trực tiếp trong PostgreSQL container:
+
+```bash
+# Đăng nhập vào Postgres Container
+docker exec -it remindrx_postgres psql -U remindrx -d remindrx_db
+```
+
+#### Truy vấn 1: Danh sách tài khoản người dùng & Vai trò
+```sql
+SELECT id, phone, role, status, created_at 
+FROM users 
+ORDER BY created_at DESC 
+LIMIT 10;
+```
+
+#### Truy vấn 2: Danh sách đơn thuốc đang có hiệu lực (ACTIVE)
+```sql
+SELECT p.id AS prescription_id, p.patient_id, u.phone AS patient_phone, p.status, p.created_at
+FROM prescriptions p
+JOIN users u ON p.patient_id = u.id
+WHERE p.status = 'ACTIVE';
+```
+
+#### Truy vấn 3: Lịch sử uống thuốc (Adherence Logs) mới nhất
+```sql
+SELECT al.id, al.patient_id, al.scheduled_dose_id, al.action, al.performed_at, al.action_source
+FROM adherence_logs al
+ORDER BY al.performed_at DESC
+LIMIT 10;
+```
+
+#### Truy vấn 4: Các cảnh báo an toàn & SOS đang mở (OPEN)
+```sql
+SELECT id, patient_id, alert_type, severity, status, message, created_at
+FROM alerts
+WHERE status = 'OPEN'
+ORDER BY created_at DESC;
+```
+
+---
+
+## 📁 Cấu Trúc Dự Án & Tech Stack
+
+```text
+P-216/
+├── android/                    # 📱 Core Mobile App (Jetpack Compose, Kotlin)
+│   ├── app/                    #    Android app module
+│   ├── build.gradle.kts        #    Root Gradle config
+│   └── settings.gradle.kts     #    Gradle settings
+├── src/                        # 🧠 Backend & AI Agent (FastAPI + LangGraph)
+│   ├── agents/                 #    LangGraph State, Nodes, Edges & Tools
+│   ├── core/                   #    Config, Database, Security, Redis, Celery
+│   ├── modules/                #    Vertical Slice Modules:
+│   │   ├── auth/               #      - Auth (JWT, OTP)
+│   │   ├── doctors/            #      - Doctor profile & Audit logs
+│   │   ├── patients/           #      - Patient profile & Routine
+│   │   ├── prescriptions/      #      - Prescriptions & Items
+│   │   ├── adherence/          #      - Adherence logs & SOS Alerts
+│   │   └── ocr_rag/            #      - OCR & RAG search
+│   ├── api/                    #    Global Routers & Dependencies
+│   └── main.py                 #    FastAPI Entrypoint & WebSockets
+├── tests/                      # 🧪 Pytest Suite (API & Agent tests)
+├── docs/                       # 📖 Tài liệu PRD, Database Spec & Guidebooks
+├── scripts/                    # 🔌 AI Logging Hooks (setup_hooks.sh, log_hook.py)
+├── docker-compose.yml          # 🐙 Orchestration (Backend, Postgres, Redis)
+├── Dockerfile                  # 🐳 Multi-stage container build
+└── api.md                      # 📡 Chi tiết API Specification
+```
+
+### 🛠 Tech Stack
+- **AI Agent:** LangGraph, LangChain, OpenAI GPT-4o-mini / ChromaDB (RAG)
+- **Backend:** FastAPI, Python 3.11, Async SQLAlchemy 2.0, Alembic, Celery, Redis
+- **Mobile App:** Kotlin, Android SDK 34, Jetpack Compose, Retrofit
+- **Database:** PostgreSQL 15, Redis 7
+- **DevOps & Tools:** Docker, Docker Compose, Pytest, GitHub Actions
+
+---
 
 ## 📊 AI Usage Logging
 
-Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
+Dự án tích hợp sẵn hệ thống **Auto AI Usage Logging** theo yêu cầu của BTC AI20K:
 
-| Tool | Cơ chế | Config |
-|------|--------|--------|
-| Claude Code | `.claude/settings.json` hooks | Tự động |
-| Cursor | `.cursor/hooks.json` | Tự động |
-| OpenAI Codex Desktop | Pre-push scan `~/.codex/sessions` | Tự động trên `git push` |
-| Gemini CLI | `.gemini/settings.json` | Tự động |
-| GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
-| Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
-
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`. Sau khi server xác nhận thành công, batch được chuyển vào `.ai-log/archive/YYYY-MM-DD.jsonl`.
-
-**ChatGPT / web tools khác** — log thủ công:
 ```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
+# Cài đặt hooks tự động (Linux / macOS / Git Bash)
+bash scripts/setup_hooks.sh
+
+# Windows PowerShell:
+# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
 ```
 
-> ⚠️ Chạy `bash scripts/setup_hooks.sh` một lần sau khi clone để cài pre-push hook.
+Hooks sẽ tự động quét và thu thập log prompt từ các công cụ AI (Claude Code, Cursor, Codex, Gemini CLI, Antigravity) lưu tại `.ai-log/session.jsonl` và đồng bộ lên server khi `git push`.
 
-## 📖 Đọc Technical Guidebook
+---
 
-**Online (khuyến nghị):** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-
-Đăng nhập bằng GitHub (cùng account đã được BTC mời vào org `AI20K-Build-Cohort-2`)
-→ chọn tab **Technical Book** ở sidebar trái → đọc 10 chương + topic sections,
-có table of contents bên phải, hỗ trợ light/dark/cyberpunk theme.
-
-**Offline:** mọi chương đều ở thư mục `docs/guide/` trong template này — mở bằng
-bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
-
-## 🔗 Liên kết
+## 📋 Deliverables & Tài Liệu Tham Khảo
 
 - 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
+- 📡 **Full API Specification:** [api.md](api.md)
+- 🏗 **Architecture Documentation:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- 📐 **Database Schema:** [schema.md](schema.md)
+
+---
 
 ## 📄 License
 
-MIT — Sử dụng tự do cho mục đích giáo dục.
+MIT — AI20K Build Phase Cohort 3 (P-216 Team).
