@@ -231,6 +231,29 @@ export const api = {
   adherenceSummary: (patientId: string, from: string, to: string) =>
     request<AdherenceSummary>(`/patients/${patientId}/adherence`, { query: { from, to } }),
 
+  recordDoseAction: (
+    scheduledDoseId: string,
+    action: "TAKEN" | "SNOOZE" | "SKIPPED",
+    payload: Record<string, unknown> = {},
+  ) =>
+    request<null>(`/scheduled-doses/${scheduledDoseId}/actions`, {
+      method: "POST",
+      body: { action, action_source: "PATIENT_WEB_APP", payload },
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    }),
+
+  submitHealthSurvey: (
+    patientId: string,
+    payload: { survey_date: string; answers_json: Record<string, unknown>; symptoms: Array<{ symptom_code: string; severity: string }> },
+  ) => request<null>(`/patients/${patientId}/health-surveys`, { method: "POST", body: payload }),
+
+  triggerSos: (patientId: string, message?: string) =>
+    request<null>(`/patients/${patientId}/sos`, {
+      method: "POST",
+      body: { message: message || null },
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    }),
+
   // ---- Slice 4: Patient routine ------------------------------------------
   patientRoutine: (patientId: string) => request<PatientRoutine>(`/patients/${patientId}/routine`),
 
