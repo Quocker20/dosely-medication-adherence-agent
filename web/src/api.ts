@@ -254,6 +254,12 @@ export const api = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
     }),
 
+  patientChat: (message: string) =>
+    request<{ response: string }>("/chat", {
+      method: "POST",
+      body: { message },
+    }),
+
   // ---- Slice 4: Patient routine ------------------------------------------
   patientRoutine: (patientId: string) => request<PatientRoutine>(`/patients/${patientId}/routine`),
 
