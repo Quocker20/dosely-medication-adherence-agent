@@ -20,6 +20,12 @@ class AgentState(TypedDict, total=False):
     # True khi safety_guard_node đã escalate (Red Alert) ở turn này — graph
     # dùng field này để ngắt, không đi tiếp vào agent_node bình thường.
     escalated: bool
+    # True khi deterministic medication policy chặn yêu cầu tự thay đổi điều trị.
+    # Khác escalated: trường này không tạo Red Alert/cảnh báo cấp cứu.
+    safety_blocked: bool
+    safety_reason: str
+    grounding_valid: bool
+    grounding_errors: list[str]
     # Nhãn do classify_intent_node gán — graph dùng để route sang
     # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
     intent: str
