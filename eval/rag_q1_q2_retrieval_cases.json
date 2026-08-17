@@ -1,0 +1,14 @@
+[
+  {"id":"q1-ascorbic","question":"Acid ascorbic có chỉ định gì?","expected_drug":"ACID ASCORBIC","expected_section":"indications"},
+  {"id":"q1-amoxicilin","question":"Amoxicilin có chống chỉ định gì?","expected_drug":"AMOXICILIN","expected_section":"contraindications"},
+  {"id":"q1-pas","question":"PAS tương tác với diphenhydramin như thế nào?","expected_drug":"ACID AMINOSALICYLIC","expected_section":"interactions","must_contain":["diphenhydramin"]},
+  {"id":"q2-paracetamol-action","question":"Paracetamol có tác dụng gì?","expected_drug":"PARACETAMOL","expected_section":"pharmacodynamics"},
+  {"id":"q2-paracetamol-contra","question":"Paracetamol có chống chỉ định gì?","expected_drug":"PARACETAMOL","expected_section":"contraindications"},
+  {"id":"q2-zolpidem-pk","question":"Dược động học của zolpidem như thế nào?","expected_drug":"ZOLPIDEM","expected_section":"pharmacokinetics"},
+  {"id":"q2-zolpidem-interactions","question":"Zolpidem có tương tác thuốc nào?","expected_drug":"ZOLPIDEM","expected_section":"interactions"},
+  {"id":"q2-timolol","question":"Timolol maleat thuốc nhỏ mắt có tác dụng gì?","expected_drug":"TIMOLOL MALEAT (THUỐC NHỎ MAT)","expected_section":"pharmacodynamics"},
+  {"id":"q2-hib","question":"Vắc xin Haemophilus influenzae typ B cộng hợp có chỉ định gì?","expected_drug":"VÁC XIN HAEMOPHILUS INFLUENZAE TYP B CỘNG HỢP","expected_section":"indications"},
+  {"id":"q2-warfarin","question":"Warfarin natri có tương tác thuốc gì?","expected_drug":"WAREARIN NATRI","expected_section":"interactions"},
+  {"id":"q2-paracetamol-alias","question":"Acetaminophen có dạng thuốc và hàm lượng nào?","drug_filter":"paracetamol","expected_drug":"PARACETAMOL","expected_section":"forms_strengths"},
+  {"id":"no-data","question":"Thuốc ZZZ-NOT-A-DRUG có chỉ định gì?","drug_filter":"zzznotadrug","expected_empty":true}
+]

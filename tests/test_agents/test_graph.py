@@ -93,6 +93,86 @@ async def test_agent_calls_tool_then_answers():
 
 
 @pytest.mark.asyncio
+async def test_agent_calls_formulary_rag_only_after_safety_passes():
+    tool_call_reply = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "search_drug_formulary",
+                "args": {"query": "Acid ascorbic có chỉ định gì?"},
+                "id": "rag_call_1",
+            }
+        ],
+    )
+    final_reply = AIMessage(content="Acid ascorbic được dùng theo [Nguồn 1].")
+    grounded_context = (
+        "[Nguồn 1] ACID ASCORBIC — Chỉ định, trang 100\n"
+        "<du_lieu_duoc_thu>Điều trị thiếu vitamin C.</du_lieu_duoc_thu>"
+    )
+
+    with (
+        _reaches_agent(intent="ask_drug_info"),
+        patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm,
+        patch("src.agents.tools.drug_rag_tools._retrieve", return_value=grounded_context),
+    ):
+        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(
+            side_effect=[tool_call_reply, final_reply]
+        )
+        result = await agent.ainvoke(
+            {
+                "messages": [HumanMessage(content="Acid ascorbic có chỉ định gì?")],
+                "patient_id": "patient-123",
+            }
+        )
+
+    tool_messages = [
+        message for message in result["messages"] if message.__class__.__name__ == "ToolMessage"
+    ]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].tool_call_id == "rag_call_1"
+    assert "[Nguồn 1]" in tool_messages[0].content
+    assert result["messages"][-1].content == final_reply.content
+
+
+@pytest.mark.asyncio
+async def test_graph_replaces_uncited_formulary_answer_with_safe_fallback():
+    tool_call_reply = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "search_drug_formulary",
+                "args": {"query": "Acid ascorbic có chỉ định gì?"},
+                "id": "rag_call_bad",
+            }
+        ],
+    )
+    uncited_reply = AIMessage(content="Acid ascorbic chữa khỏi tất cả bệnh.")
+    grounded_context = (
+        "[Nguồn 1] ACID ASCORBIC — Chỉ định, trang 100\n"
+        "<du_lieu_duoc_thu>Điều trị thiếu vitamin C.</du_lieu_duoc_thu>"
+    )
+
+    with (
+        _reaches_agent(intent="ask_drug_info"),
+        patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm,
+        patch("src.agents.tools.drug_rag_tools._retrieve", return_value=grounded_context),
+    ):
+        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(
+            side_effect=[tool_call_reply, uncited_reply]
+        )
+        result = await agent.ainvoke(
+            {
+                "messages": [HumanMessage(content="Acid ascorbic có chỉ định gì?")],
+                "patient_id": "patient-123",
+            }
+        )
+
+    assert result["grounding_valid"] is False
+    assert "missing_citation" in result["grounding_errors"]
+    assert "chưa thể xác minh" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
 async def test_severe_symptom_short_circuits_before_classify_and_chat():
     """safety_guard escalate -> graph dừng ngay, classify_intent VÀ
     agent_node (LLM trò chuyện) đều không bao giờ được gọi."""
@@ -112,6 +192,26 @@ async def test_severe_symptom_short_circuits_before_classify_and_chat():
 
     assert result["escalated"] is True
     assert "115" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
+async def test_medication_decision_short_circuits_before_classify_chat_and_rag():
+    with (
+        patch("src.agents.nodes.classify_intent_node.get_llm") as mock_classify_llm,
+        patch("src.agents.nodes.chat_node.get_llm") as mock_chat_llm,
+        patch("src.agents.tools.drug_rag_tools._retrieve") as mock_rag,
+    ):
+        result = await agent.ainvoke(
+            {
+                "messages": [HumanMessage(content="Tôi tăng gấp đôi liều được không?")],
+                "patient_id": "patient-123",
+            }
+        )
+    mock_classify_llm.assert_not_called()
+    mock_chat_llm.assert_not_called()
+    mock_rag.assert_not_called()
+    assert result["safety_blocked"] is True
+    assert result["escalated"] is False
 
 
 @pytest.mark.asyncio
@@ -160,3 +260,14 @@ async def test_should_continue_routes_on_tool_calls():
 
     assert should_continue(with_tool_calls) == "tools"
     assert should_continue(without_tool_calls) == "end"
+
+
+def test_rag_tool_is_only_reachable_after_safety_guard():
+    """RAG belongs to CHAT_TOOLS; graph entry remains the deterministic guard."""
+    from src.agents.graph import build_graph
+    from src.agents.tools import CHAT_TOOLS
+
+    assert "search_drug_formulary" in {tool.name for tool in CHAT_TOOLS}
+    graph = build_graph().get_graph()
+    start_targets = {edge.target for edge in graph.edges if edge.source == "__start__"}
+    assert start_targets == {"safety_guard"}

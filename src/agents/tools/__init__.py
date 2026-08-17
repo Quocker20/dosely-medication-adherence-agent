@@ -15,6 +15,7 @@ Note: `record_dose_action` is added per user request, despite original
 plan constraints regarding prompt injection risks.
 """
 from src.agents.tools.drug_info_tools import search_drug_info
+from src.agents.tools.drug_rag_tools import search_drug_formulary
 from src.agents.tools.health_tools import record_health_survey
 from src.agents.tools.patient_tools import (
     get_adherence_stats,
@@ -31,6 +32,7 @@ READ_ONLY_TOOLS = [
     get_scheduled_doses,
     get_adherence_stats,
     search_drug_info,
+    search_drug_formulary,
 ]
 
 WRITE_TOOLS = [
@@ -53,6 +55,7 @@ __all__ = [
     "get_scheduled_doses",
     "get_adherence_stats",
     "search_drug_info",
+    "search_drug_formulary",
     "reschedule_remaining_doses",
     "record_health_survey",
     "trigger_red_alert",

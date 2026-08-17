@@ -1,10 +1,11 @@
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolNode
 
 # pyrefly: ignore [missing-import]
 from src.agents.nodes.chat_node import agent_node, should_continue
 from src.agents.nodes.classify_intent_node import classify_intent_node
+from src.agents.nodes.grounding_validator_node import grounding_validator_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.safety_guard_node import safety_guard_node
 from src.agents.state import AgentState
@@ -12,7 +13,7 @@ from src.agents.tools import CHAT_TOOLS
 
 
 def _route_after_safety_guard(state: AgentState) -> str:
-    return "end" if state.get("escalated") else "classify_intent"
+    return "end" if state.get("escalated") or state.get("safety_blocked") else "classify_intent"
 
 
 def _route_after_classify_intent(state: AgentState) -> str:
@@ -27,6 +28,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("rescheduling", rescheduling_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(CHAT_TOOLS, handle_tool_errors=True))
+    graph.add_node("grounding_validator", grounding_validator_node)
 
     # safety_guard chạy trên MỌI turn, TRƯỚC bất kỳ phân loại/chat nào (Kế
     # hoạch tầng 2 §1.3 + §6). Escalate -> dừng ngay với câu trả lời cố định.
@@ -48,8 +50,11 @@ def build_graph() -> CompiledStateGraph:
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.
-    graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
+    graph.add_conditional_edges(
+        "agent", should_continue, {"tools": "tools", "end": "grounding_validator"}
+    )
     graph.add_edge("tools", "agent")
+    graph.add_edge("grounding_validator", END)
 
     return graph.compile()
 
