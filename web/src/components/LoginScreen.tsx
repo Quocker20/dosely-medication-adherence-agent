@@ -28,8 +28,8 @@ export default function LoginScreen() {
     try {
       const tokens = await api.login(phone.trim(), password);
 
-      if (tokens.user.role !== "DOCTOR" && tokens.user.role !== "ADMIN") {
-        setError("Tài khoản này không có quyền vào portal quản trị.");
+      if (tokens.user.role !== "DOCTOR" && tokens.user.role !== "ADMIN" && tokens.user.role !== "PATIENT") {
+        setError("Tài khoản này chưa có quyền truy cập web RemindRx.");
         return;
       }
 
@@ -141,7 +141,7 @@ export default function LoginScreen() {
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submitLogin}>
         <div className="card-head">
-          <h2>RemindRx · Portal bác sĩ</h2>
+          <h2>RemindRx</h2>
         </div>
         <div className="card-body">
           <p className="rail-note">Đăng nhập bằng số điện thoại và mã PIN được cấp.</p>

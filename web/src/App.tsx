@@ -7,6 +7,7 @@ import GuardBanner from "./components/GuardBanner";
 import KpiRow from "./components/KpiRow";
 import LoginScreen from "./components/LoginScreen";
 import PatientDrawer from "./components/PatientDrawer";
+import PatientPortal from "./components/patient/PatientPortal";
 import PatientTable from "./components/PatientTable";
 import PrescriptionView from "./components/PrescriptionView";
 import Sidebar from "./components/Sidebar";
@@ -46,7 +47,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
-    const expected = session.user.role === "ADMIN" ? "/admin/" : "/doctor/";
+    const expected = session.user.role === "ADMIN" ? "/admin/" : session.user.role === "PATIENT" ? "/patient/" : "/doctor/";
     if (window.location.pathname !== expected) {
       window.history.replaceState({}, "", expected);
       setPathname(expected);
@@ -56,6 +57,7 @@ export default function App() {
   if (!session) return <LoginScreen />;
   if (session.user.role === "ADMIN") return <AdminPortal session={session} />;
   if (session.user.role === "DOCTOR") return <Portal session={session} />;
+  if (session.user.role === "PATIENT") return <PatientPortal session={session} />;
   return <LoginScreen />;
 }
 
