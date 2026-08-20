@@ -3,25 +3,18 @@
 no DB, no I/O, no wall-clock reads — `today` is always passed in, so this is
 unit-testable without mocking anything.
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import List, Optional, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
-_ANCHOR_FALLBACKS: dict[str, time] = {
-    "wake": time(6, 0),
-    "breakfast": time(7, 0),
-    "lunch": time(12, 0),
-    "dinner": time(18, 0),
-    "sleep": time(22, 0),
-}
-
 # (dose column, routine anchor key, fixed offset minutes | None = derive from meal_relation)
-_DOSE_SLOTS: tuple[tuple[str, str, Optional[int]], ...] = (
+_DOSE_SLOTS: tuple[tuple[str, str, int | None], ...] = (
     ("morning_dose", "breakfast", None),
     ("noon_dose", "lunch", None),
     ("evening_dose", "dinner", None),
@@ -35,7 +28,7 @@ _DOSE_SLOT_NAMES: dict[str, str] = {
     "bedtime_dose": "BEDTIME",
 }
 
-_MEAL_OFFSET_MINUTES: dict[Optional[str], int] = {
+_MEAL_OFFSET_MINUTES: dict[str | None, int] = {
     "BEFORE_MEAL": -30,
     "AFTER_MEAL": 30,
     "WITH_MEAL": 0,
@@ -43,26 +36,35 @@ _MEAL_OFFSET_MINUTES: dict[Optional[str], int] = {
 }
 
 
-def _normalize_meal_relation(value: Optional[str]) -> Optional[str]:
-    normalized = value.upper() if value else None
-    return normalized if normalized in _MEAL_OFFSET_MINUTES else None
+def _normalize_meal_relation(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.upper()
+    if normalized not in _MEAL_OFFSET_MINUTES:
+        raise InvalidPrescriptionTimingError("Unsupported meal_relation in approved prescription item")
+    return normalized
 
 
 @dataclass(frozen=True)
 class RoutineTimes:
-    """Plain snapshot of a patient's routine — decoupled from the ORM model
-    so this module never touches the DB. wake is accepted for symmetry with
-    the schema even though no dose slot anchors to it today."""
+    """Plain snapshot of a patient's routine, decoupled from the ORM model.
 
-    wake: Optional[time] = None
-    breakfast: Optional[time] = None
-    lunch: Optional[time] = None
-    dinner: Optional[time] = None
-    sleep: Optional[time] = None
+    Missing anchors stay missing: the planner must request review rather than
+    inventing a meal or sleep time. ``wake`` is accepted for symmetry with the
+    schema even though no dose slot anchors to it today.
+    """
+
+    wake: time | None = None
+    breakfast: time | None = None
+    lunch: time | None = None
+    dinner: time | None = None
+    sleep: time | None = None
 
     def anchor(self, key: str) -> time:
         value = getattr(self, key)
-        return value if value is not None else _ANCHOR_FALLBACKS[key]
+        if value is None:
+            raise MissingRoutineAnchorError(f"Routine anchor '{key}' is required for an approved prescription slot")
+        return value
 
 
 @dataclass(frozen=True)
@@ -70,33 +72,66 @@ class PlannableItem:
     """Plain snapshot of the PrescriptionItem fields the planner needs."""
 
     id: uuid.UUID
-    medication_id: Optional[uuid.UUID]
+    medication_id: uuid.UUID | None
     dose_unit: str
-    morning_dose: Optional[Decimal]
-    noon_dose: Optional[Decimal]
-    evening_dose: Optional[Decimal]
-    bedtime_dose: Optional[Decimal]
-    meal_relation: Optional[str]
-    minimum_interval_minutes: Optional[int]
+    morning_dose: Decimal | None
+    noon_dose: Decimal | None
+    evening_dose: Decimal | None
+    bedtime_dose: Decimal | None
+    meal_relation: str | None
+    minimum_interval_minutes: int | None
     start_date: date
-    end_date: Optional[date]
+    end_date: date | None
 
 
 @dataclass(frozen=True)
 class ScheduleRow:
     prescription_item_id: uuid.UUID
-    medication_id: Optional[uuid.UUID]
+    medication_id: uuid.UUID | None
     dose_slot: str
     dose_value: Decimal
     dose_unit: str
-    meal_relation: Optional[str]
+    meal_relation: str | None
     original_scheduled_at: datetime
     current_scheduled_at: datetime
     status: str = "PENDING"
     snooze_count: int = 0
+    notification_group_id: uuid.UUID | None = None
 
 
-class FrequencyGuardrailError(ValueError):
+@dataclass(frozen=True)
+class RetainedDoseSnapshot:
+    """Immutable projection of a schedule row locked during rescheduling."""
+
+    prescription_item_id: uuid.UUID
+    dose_slot: str | None
+    original_scheduled_at: datetime
+    current_scheduled_at: datetime
+    status: str
+
+
+class PlanningNeedsReviewError(ValueError):
+    """A deterministic clinical constraint could not be satisfied safely.
+
+    Callers must preserve the active schedule and expose NEEDS_REVIEW rather
+    than guessing a replacement time or treating this as an infrastructure
+    failure.
+    """
+
+
+class MissingRoutineAnchorError(PlanningNeedsReviewError):
+    """An approved dose slot has no corresponding patient routine anchor."""
+
+
+class ScheduleConstraintError(PlanningNeedsReviewError):
+    """Approved timing constraints conflict with the candidate schedule."""
+
+
+class InvalidPrescriptionTimingError(PlanningNeedsReviewError):
+    """Approved timing/dose data cannot be interpreted without guessing."""
+
+
+class FrequencyGuardrailError(PlanningNeedsReviewError):
     """Raised by validate_frequency_guardrails when a PlannableItem requests
     more doses/day than settings.max_frequency_per_day allows. A distinct
     type (not a bare ValueError) so SchedulingService.execute_run's
@@ -104,7 +139,25 @@ class FrequencyGuardrailError(ValueError):
     rather than a generic 'ValueError'."""
 
 
-def validate_frequency_guardrails(items: List[PlannableItem], max_per_day: int) -> None:
+def validate_prescription_inputs(items: list[PlannableItem]) -> None:
+    """Reject malformed approved inputs instead of silently dropping doses."""
+    for item in items:
+        doses = (
+            item.morning_dose,
+            item.noon_dose,
+            item.evening_dose,
+            item.bedtime_dose,
+        )
+        if all(dose is None for dose in doses):
+            raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} has no configured dose slots")
+        if any(dose is not None and dose <= 0 for dose in doses):
+            raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} contains a non-positive dose")
+        if item.minimum_interval_minutes is not None and item.minimum_interval_minutes <= 0:
+            raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} has a non-positive minimum interval")
+        _normalize_meal_relation(item.meal_relation)
+
+
+def validate_frequency_guardrails(items: list[PlannableItem], max_per_day: int) -> None:
     """Code-enforced guardrail (src/core/config.py: max_frequency_per_day) —
     not LLM-enforced. Counts non-null/non-zero dose columns per item, which
     is exactly the item's doses/day, and rejects the whole run if any item
@@ -130,7 +183,7 @@ def validate_frequency_guardrails(items: List[PlannableItem], max_per_day: int) 
 
 def _item_horizon(
     item: PlannableItem, today: date, horizon_days: int, max_treatment_days: int
-) -> Optional[tuple[date, date]]:
+) -> tuple[date, date] | None:
     """Effective [start, end] date range to generate for this item, or None
     if nothing falls in range today."""
     range_start = max(item.start_date, today)
@@ -152,8 +205,8 @@ def _slot_local_dt(day: date, anchor: time, offset_minutes: int) -> datetime:
     return datetime.combine(day, anchor) + timedelta(minutes=offset_minutes)
 
 
-def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: date) -> List[tuple[str, datetime]]:
-    slots: List[tuple[str, datetime]] = []
+def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: date) -> list[tuple[str, datetime]]:
+    slots: list[tuple[str, datetime]] = []
     for dose_field, anchor_key, fixed_offset in _DOSE_SLOTS:
         dose_value = getattr(item, dose_field)
         if dose_value is None or dose_value <= 0:
@@ -168,36 +221,142 @@ def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: da
     return slots
 
 
-def _apply_min_gap(
-    slots: List[tuple[str, datetime]], min_gap_minutes: int
-) -> List[tuple[str, datetime]]:
-    """Push a slot forward (never drop it) when it falls closer than
-    min_gap_minutes after the previous one for this same item/day — a
-    prescribed dose must still happen, just not too close to the last."""
+def _validate_min_gap(slots: list[tuple[str, datetime]], min_gap_minutes: int) -> list[tuple[str, datetime]]:
+    """Return chronologically ordered slots or reject an unsafe candidate.
+
+    Moving a meal-anchored slot to make the interval fit would silently break
+    another approved constraint. The planner therefore never repairs this
+    conflict by guessing a new time.
+    """
     ordered_slots = sorted(slots, key=lambda slot: slot[1])
-    adjusted: List[tuple[str, datetime]] = []
-    for dose_field, dt in ordered_slots:
-        if adjusted and (dt - adjusted[-1][1]) < timedelta(minutes=min_gap_minutes):
-            dt = adjusted[-1][1] + timedelta(minutes=min_gap_minutes)
-        # Preserve dose_field while moving the time. Dropping it here used to
-        # make the generated row's actual slot-specific amount unknowable.
-        adjusted.append((dose_field, dt))
-    return adjusted
+    for previous, current in zip(ordered_slots, ordered_slots[1:]):
+        actual_gap = current[1] - previous[1]
+        if actual_gap < timedelta(minutes=min_gap_minutes):
+            raise ScheduleConstraintError(
+                f"Dose slots {previous[0]} and {current[0]} are only "
+                f"{int(actual_gap.total_seconds() // 60)} minutes apart; "
+                f"minimum is {min_gap_minutes} minutes"
+            )
+    return ordered_slots
+
+
+def _validate_cross_day_gaps(rows: list[ScheduleRow], minimums: dict[uuid.UUID, int]) -> None:
+    """Validate consecutive doses for each item across the whole horizon."""
+    by_item: dict[uuid.UUID, list[ScheduleRow]] = {}
+    for row in rows:
+        by_item.setdefault(row.prescription_item_id, []).append(row)
+
+    for item_id, item_rows in by_item.items():
+        ordered = sorted(item_rows, key=lambda row: row.current_scheduled_at)
+        minimum = timedelta(minutes=minimums[item_id])
+        for previous, current in zip(ordered, ordered[1:]):
+            actual_gap = current.current_scheduled_at - previous.current_scheduled_at
+            if actual_gap < minimum:
+                raise ScheduleConstraintError(
+                    f"PrescriptionItem {item_id}: consecutive doses are "
+                    f"{int(actual_gap.total_seconds() // 60)} minutes apart; "
+                    f"minimum is {minimums[item_id]} minutes"
+                )
+
+
+def validate_candidate_boundaries(
+    items: list[PlannableItem],
+    candidates: list[ScheduleRow],
+    retained_times: dict[uuid.UUID, list[datetime]],
+    default_min_gap_minutes: int,
+) -> None:
+    """Check regenerated candidates against retained dose rows.
+
+    Rescheduling may replace only future PENDING rows. A TAKEN, SKIPPED,
+    MISSED, sent/in-progress, or already-due row remains authoritative and
+    must participate in the minimum-interval check.
+    """
+    minimums = {item.id: item.minimum_interval_minutes or default_min_gap_minutes for item in items}
+    candidate_times: dict[uuid.UUID, list[datetime]] = {}
+    for row in candidates:
+        candidate_times.setdefault(row.prescription_item_id, []).append(row.current_scheduled_at)
+
+    for item_id, new_times in candidate_times.items():
+        timeline = [
+            *((timestamp, "retained") for timestamp in retained_times.get(item_id, [])),
+            *((timestamp, "candidate") for timestamp in new_times),
+        ]
+        timeline.sort(key=lambda entry: entry[0])
+        minimum = timedelta(minutes=minimums[item_id])
+        for previous, current in zip(timeline, timeline[1:]):
+            if previous[1] == current[1] == "retained":
+                continue
+            actual_gap = current[0] - previous[0]
+            if actual_gap < minimum:
+                raise ScheduleConstraintError(
+                    f"PrescriptionItem {item_id}: regenerated dose boundary is "
+                    f"{int(actual_gap.total_seconds() // 60)} minutes; "
+                    f"minimum is {minimums[item_id]} minutes"
+                )
+
+
+def reconcile_reschedule_candidates(
+    items: list[PlannableItem],
+    candidates: list[ScheduleRow],
+    locked_schedule: list[RetainedDoseSnapshot],
+    now: datetime,
+    patient_timezone: str,
+    default_min_gap_minutes: int,
+) -> list[ScheduleRow]:
+    """Preserve authoritative rows and return only safe replacement candidates."""
+    retained = [dose for dose in locked_schedule if not (dose.status == "PENDING" and dose.current_scheduled_at > now)]
+    timezone = ZoneInfo(patient_timezone)
+    retained_keys: set[tuple[uuid.UUID, str, date]] = set()
+    retained_times: dict[uuid.UUID, list[datetime]] = {}
+    legacy_days: set[tuple[uuid.UUID, date]] = set()
+    for dose in retained:
+        local_day = dose.original_scheduled_at.astimezone(timezone).date()
+        retained_times.setdefault(dose.prescription_item_id, []).append(dose.current_scheduled_at)
+        if dose.dose_slot is None:
+            legacy_days.add((dose.prescription_item_id, local_day))
+        else:
+            retained_keys.add((dose.prescription_item_id, dose.dose_slot, local_day))
+
+    future_candidates = [row for row in candidates if row.current_scheduled_at > now]
+    for row in future_candidates:
+        local_day = row.current_scheduled_at.astimezone(timezone).date()
+        if (row.prescription_item_id, local_day) in legacy_days:
+            raise PlanningNeedsReviewError("Legacy retained dose lacks a slot snapshot")
+
+    reconciled = [
+        row
+        for row in future_candidates
+        if (
+            row.prescription_item_id,
+            row.dose_slot,
+            row.current_scheduled_at.astimezone(timezone).date(),
+        )
+        not in retained_keys
+    ]
+    validate_candidate_boundaries(
+        items,
+        reconciled,
+        retained_times,
+        default_min_gap_minutes,
+    )
+    return reconciled
 
 
 def expand_schedule(
-    items: List[PlannableItem],
+    items: list[PlannableItem],
     routine: RoutineTimes,
     patient_timezone: str,
     today: date,
     horizon_days: int,
     default_min_gap_minutes: int,
     max_treatment_days: int,
-) -> List[ScheduleRow]:
+) -> list[ScheduleRow]:
     """Expand approved prescription items into concrete UTC-anchored dose
     events for the rolling window [today, today + horizon_days]."""
+    validate_prescription_inputs(items)
     tz = ZoneInfo(patient_timezone)
-    rows: List[ScheduleRow] = []
+    rows: list[ScheduleRow] = []
+    minimums: dict[uuid.UUID, int] = {}
 
     for item in items:
         item_range = _item_horizon(item, today, horizon_days, max_treatment_days)
@@ -205,12 +364,13 @@ def expand_schedule(
             continue
         range_start, range_end = item_range
         min_gap = item.minimum_interval_minutes or default_min_gap_minutes
+        minimums[item.id] = min_gap
 
         day = range_start
         while day <= range_end:
             day_slots = _candidate_slots_for_day(item, routine, day)
-            for dose_field, local_dt in _apply_min_gap(day_slots, min_gap):
-                utc_dt = local_dt.replace(tzinfo=tz).astimezone(timezone.utc)
+            for dose_field, local_dt in _validate_min_gap(day_slots, min_gap):
+                utc_dt = local_dt.replace(tzinfo=tz).astimezone(UTC)
                 # _candidate_slots_for_day includes only non-null, positive
                 # Decimal values; the cast records that invariant for static
                 # type checkers without changing the deterministic algorithm.
@@ -229,4 +389,5 @@ def expand_schedule(
                 )
             day += timedelta(days=1)
 
+    _validate_cross_day_gaps(rows, minimums)
     return rows
