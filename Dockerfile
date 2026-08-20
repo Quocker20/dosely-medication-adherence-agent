@@ -1,4 +1,15 @@
-# ---- Stage 1: Build ----
+# ---- Stage 0: Build frontend ----
+FROM node:20-slim AS web-builder
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
+# ---- Stage 1: Build (Python deps) ----
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
@@ -21,6 +32,9 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Copy application code
 COPY . .
+
+# Copy built frontend into web/dist — src/main.py mounts this if it exists
+COPY --from=web-builder --chown=appuser:appuser /web/dist /app/web/dist
 
 # Create data directory with correct ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
