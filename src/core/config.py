@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     missed_dose_overdue_minutes: int = Field(default=60, ge=1, le=1440)
     missed_dose_scan_interval_minutes: int = Field(default=15, ge=1, le=1440)
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
+    planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
+    planning_grouping_enabled: bool = False
+    notification_group_window_minutes: int = Field(default=30, ge=0, le=180)
     # Slice 6: rolling generation window. Bounds scheduled_doses row count for
     # open-ended prescriptions (nullable end_date) — a Beat job tops this up
     # daily rather than generating the whole treatment course up front.

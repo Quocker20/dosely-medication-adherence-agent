@@ -1,7 +1,7 @@
 import logging
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import Exists, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -27,7 +27,7 @@ class AgentRunRepository:
         agent_type: str,
         trigger_type: str,
         graph_version: str,
-        prescription_id: Optional[uuid.UUID] = None,
+        prescription_id: uuid.UUID | None = None,
     ) -> AgentRun:
         """Insert a RUNNING agent run row. IntegrityError on
         uq_agent_runs_one_running means the patient already has an in-flight
@@ -44,9 +44,7 @@ class AgentRunRepository:
         await self._db.flush()
         return run
 
-    async def get_by_id(
-        self, agent_run_id: uuid.UUID, actor_id: Optional[uuid.UUID] = None
-    ) -> Optional[AgentRun]:
+    async def get_by_id(self, agent_run_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> AgentRun | None:
         """Fetch a run by ID. actor_id=None means unscoped (ADMIN);
         otherwise restricted to the patient themselves or a doctor who has
         prescribed for that patient — matches the contract's
@@ -62,15 +60,69 @@ class AgentRunRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id_unscoped(self, agent_run_id: uuid.UUID) -> Optional[AgentRun]:
+    async def get_by_id_unscoped(self, agent_run_id: uuid.UUID) -> AgentRun | None:
         """Fetch a run by ID with no access check — used by the worker task,
         which already knows its own run_id and needs no caller-scoping."""
         result = await self._db.execute(select(AgentRun).where(AgentRun.id == agent_run_id))
         return result.scalar_one_or_none()
 
+    async def claim_run(self, run_id: uuid.UUID, lease_seconds: int) -> AgentRun | None:
+        """Claim an unowned or expired RUNNING run with a renewable token."""
+        claim_token = uuid.uuid4()
+        stmt = (
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status == "RUNNING",
+                or_(
+                    AgentRun.claim_expires_at.is_(None),
+                    AgentRun.claim_expires_at < func.now(),
+                ),
+            )
+            .values(
+                started_at=func.coalesce(AgentRun.started_at, func.now()),
+                claim_token=claim_token,
+                claim_expires_at=func.now() + timedelta(seconds=lease_seconds),
+            )
+            .returning(AgentRun)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def renew_claim(
+        self,
+        run_id: uuid.UUID,
+        claim_token: uuid.UUID,
+        lease_seconds: int,
+    ) -> bool:
+        """Renew only the current owner's claim and lock it through commit."""
+        stmt = (
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status == "RUNNING",
+                AgentRun.claim_token == claim_token,
+            )
+            .values(claim_expires_at=func.now() + timedelta(seconds=lease_seconds))
+            .returning(AgentRun.id)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def mark_completed(
-        self, run_id: uuid.UUID, latency_ms: int, generated_dose_count: int
-    ) -> None:
+        self,
+        run_id: uuid.UUID,
+        latency_ms: int,
+        generated_dose_count: int,
+        *,
+        model_version: str | None = None,
+        prompt_version: str | None = None,
+        input_hash: str | None = None,
+        output_hash: str | None = None,
+        candidate_source: str | None = None,
+        error_code: str | None = None,
+        claim_token: uuid.UUID | None = None,
+    ) -> bool:
         stmt = (
             update(AgentRun)
             .where(AgentRun.id == run_id)
@@ -78,22 +130,71 @@ class AgentRunRepository:
                 status="COMPLETED",
                 latency_ms=latency_ms,
                 generated_dose_count=generated_dose_count,
+                model_version=model_version,
+                prompt_version=prompt_version,
+                input_hash=input_hash,
+                output_hash=output_hash,
+                candidate_source=candidate_source,
+                error_code=error_code,
+                claim_expires_at=None,
             )
+            .returning(AgentRun.id)
         )
-        await self._db.execute(stmt)
+        if claim_token is not None:
+            stmt = stmt.where(AgentRun.claim_token == claim_token)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
-    async def mark_failed(self, run_id: uuid.UUID, latency_ms: int, error_code: str) -> None:
+    async def mark_failed(
+        self,
+        run_id: uuid.UUID,
+        latency_ms: int,
+        error_code: str,
+        claim_token: uuid.UUID | None = None,
+        **audit: Any,
+    ) -> bool:
+        stmt = update(AgentRun).where(AgentRun.id == run_id)
+        if claim_token is not None:
+            stmt = stmt.where(AgentRun.claim_token == claim_token)
+        stmt = stmt.values(
+            status="FAILED",
+            latency_ms=latency_ms,
+            error_code=error_code,
+            claim_expires_at=None,
+            **audit,
+        ).returning(AgentRun.id)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def mark_needs_review(
+        self,
+        run_id: uuid.UUID,
+        latency_ms: int,
+        error_code: str,
+        claim_token: uuid.UUID | None = None,
+        **audit: Any,
+    ) -> bool:
+        """Persist a safe terminal state for deterministic planning conflicts."""
         stmt = (
             update(AgentRun)
             .where(AgentRun.id == run_id)
-            .values(status="FAILED", latency_ms=latency_ms, error_code=error_code)
+            .values(
+                status="NEEDS_REVIEW",
+                latency_ms=latency_ms,
+                error_code=error_code,
+                generated_dose_count=0,
+                claim_expires_at=None,
+                **audit,
+            )
+            .returning(AgentRun.id)
         )
-        await self._db.execute(stmt)
+        if claim_token is not None:
+            stmt = stmt.where(AgentRun.claim_token == claim_token)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     @staticmethod
-    def _has_prescribed_filter(
-        doctor_id: uuid.UUID, patient_id_col: ColumnElement
-    ) -> Exists:
+    def _has_prescribed_filter(doctor_id: uuid.UUID, patient_id_col: ColumnElement) -> Exists:
         """Mirrors PrescriptionRepository._has_prescribed_filter (duplicated
         per structure.md's vertical-slice isolation). Correlated on
         patient_id_col rather than agent_runs.prescription_id — the latter
@@ -116,9 +217,7 @@ class ScheduledDoseRepository:
         self._db = db
 
     @staticmethod
-    def _has_prescribed_filter(
-        doctor_id: uuid.UUID, patient_id_col: ColumnElement
-    ) -> Exists:
+    def _has_prescribed_filter(doctor_id: uuid.UUID, patient_id_col: ColumnElement) -> Exists:
         return (
             select(Prescription.id)
             .where(
@@ -129,9 +228,7 @@ class ScheduledDoseRepository:
         )
 
     @staticmethod
-    def _has_active_caregiver_filter(
-        caregiver_user_id: uuid.UUID, patient_id_col: ColumnElement
-    ) -> Exists:
+    def _has_active_caregiver_filter(caregiver_user_id: uuid.UUID, patient_id_col: ColumnElement) -> Exists:
         return (
             select(CaregiverLink.id)
             .where(
@@ -153,9 +250,7 @@ class ScheduledDoseRepository:
             cls._has_active_caregiver_filter(actor_id, patient_id_col),
         )
 
-    async def get_patient_timezone_scoped(
-        self, patient_id: uuid.UUID, actor_id: uuid.UUID
-    ) -> Optional[str]:
+    async def get_patient_timezone_scoped(self, patient_id: uuid.UUID, actor_id: uuid.UUID) -> str | None:
         """Fetch a patient's timezone, access-scoped the same way as the
         schedule query itself — never leak timezone to a caller who
         couldn't read the schedule anyway. None means not found OR no
@@ -168,24 +263,34 @@ class ScheduledDoseRepository:
         return result.scalar_one_or_none()
 
     async def get_patient_context_unscoped(
-        self, patient_id: uuid.UUID
-    ) -> Tuple[Optional[str], Optional[PatientRoutine]]:
+        self,
+        patient_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> tuple[str | None, PatientRoutine | None]:
         """Fetch (timezone, routine) with no access check — used by the
         worker task, which runs for a run_id/patient_id the service already
         validated when the run was created."""
         tz_stmt = select(PatientProfile.timezone).where(PatientProfile.user_id == patient_id)
+        if for_update:
+            tz_stmt = tz_stmt.with_for_update()
         tz_result = await self._db.execute(tz_stmt)
         patient_timezone = tz_result.scalar_one_or_none()
 
         routine_stmt = select(PatientRoutine).where(PatientRoutine.patient_id == patient_id)
+        if for_update:
+            routine_stmt = routine_stmt.with_for_update()
         routine_result = await self._db.execute(routine_stmt)
         routine = routine_result.scalar_one_or_none()
 
         return patient_timezone, routine
 
     async def get_approved_items(
-        self, patient_id: uuid.UUID
-    ) -> List[Tuple[PrescriptionItem, uuid.UUID]]:
+        self,
+        patient_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> list[tuple[PrescriptionItem, uuid.UUID]]:
         """Fetch every PrescriptionItem belonging to an APPROVED prescription
         for this patient — HITL: DRAFT/CANCELLED prescriptions generate no
         doses. Returns (item, prescription_id) pairs."""
@@ -193,11 +298,14 @@ class ScheduledDoseRepository:
             select(PrescriptionItem, Prescription.id)
             .join(Prescription, PrescriptionItem.prescription_id == Prescription.id)
             .where(Prescription.patient_id == patient_id, Prescription.status == "APPROVED")
+            .order_by(PrescriptionItem.id.asc())
         )
+        if for_update:
+            stmt = stmt.with_for_update(of=[Prescription, PrescriptionItem])
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
-    async def bulk_insert_doses(self, rows: List[Dict[str, Any]]) -> int:
+    async def bulk_insert_doses(self, rows: list[dict[str, Any]]) -> int:
         """Insert generated doses, skipping any that collide with an
         existing (prescription_item_id, original_scheduled_at) pair
         (uq_scheduled_doses_item_original) — makes a retried/duplicated
@@ -226,9 +334,47 @@ class ScheduledDoseRepository:
         )
         await self._db.execute(stmt)
 
-    async def delete_future_pending_for_prescription(
-        self, prescription_id: uuid.UUID, now: datetime
-    ) -> None:
+    async def lock_reschedule_window(self, patient_id: uuid.UUID, now: datetime) -> list[ScheduledDose]:
+        """Lock future rows plus the latest retained row for every item.
+
+        The lock serializes dose actions with rescheduling, preventing a row
+        from becoming TAKEN/SKIPPED between the retained snapshot and delete.
+        Selecting the latest past row per item avoids a fixed lookback when an
+        approved minimum interval is longer than one day.
+        """
+        rank = (
+            func.row_number()
+            .over(
+                partition_by=ScheduledDose.prescription_item_id,
+                order_by=ScheduledDose.current_scheduled_at.desc(),
+            )
+            .label("rn")
+        )
+        latest_past = (
+            select(ScheduledDose.id.label("dose_id"), rank)
+            .where(
+                ScheduledDose.patient_id == patient_id,
+                ScheduledDose.current_scheduled_at <= now,
+            )
+            .subquery()
+        )
+        latest_past_ids = select(latest_past.c.dose_id).where(latest_past.c.rn == 1)
+        stmt = (
+            select(ScheduledDose)
+            .where(
+                ScheduledDose.patient_id == patient_id,
+                or_(
+                    ScheduledDose.current_scheduled_at > now,
+                    ScheduledDose.id.in_(latest_past_ids),
+                ),
+            )
+            .order_by(ScheduledDose.current_scheduled_at.asc())
+            .with_for_update()
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def delete_future_pending_for_prescription(self, prescription_id: uuid.UUID, now: datetime) -> None:
         """Wipe only this prescription's future PENDING doses, ahead of a
         cancel — sibling of delete_future_pending, scoped to one
         prescription instead of the whole patient (the patient can have
@@ -241,9 +387,7 @@ class ScheduledDoseRepository:
             ScheduledDose.status == "PENDING",
             ScheduledDose.current_scheduled_at > now,
             ScheduledDose.prescription_item_id.in_(
-                select(PrescriptionItem.id).where(
-                    PrescriptionItem.prescription_id == prescription_id
-                )
+                select(PrescriptionItem.id).where(PrescriptionItem.prescription_id == prescription_id)
             ),
         )
         await self._db.execute(stmt)
@@ -253,8 +397,8 @@ class ScheduledDoseRepository:
         patient_id: uuid.UUID,
         range_start: datetime,
         range_end: datetime,
-        actor_id: Optional[uuid.UUID] = None,
-    ) -> List[Tuple[ScheduledDose, str]]:
+        actor_id: uuid.UUID | None = None,
+    ) -> list[tuple[ScheduledDose, str]]:
         """Fetch a patient's doses within [range_start, range_end).
 
         The ORM row carries immutable slot/dose snapshots; the join is only
@@ -281,9 +425,7 @@ class ScheduledDoseRepository:
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
-    async def mark_overdue_pending_as_missed(
-        self, cutoff: datetime
-    ) -> List[Tuple[uuid.UUID, uuid.UUID, datetime]]:
+    async def mark_overdue_pending_as_missed(self, cutoff: datetime) -> list[tuple[uuid.UUID, uuid.UUID, datetime]]:
         """Flip every ScheduledDose still PENDING with current_scheduled_at <
         cutoff to MISSED, across all patients in one statement. Rides
         idx_scheduled_doses_pending_due (current_scheduled_at) WHERE
@@ -311,8 +453,8 @@ class ScheduledDoseRepository:
         return [(row[0], row[1], row[2]) for row in result.all()]
 
     async def get_recent_dose_statuses(
-        self, patient_ids: List[uuid.UUID], lookback: int, before: datetime
-    ) -> Dict[uuid.UUID, List[Dict[str, str]]]:
+        self, patient_ids: list[uuid.UUID], lookback: int, before: datetime
+    ) -> dict[uuid.UUID, list[dict[str, str]]]:
         """For each patient_id, fetch their most recent `lookback` doses at
         or before `before` (ascending, as {"status": ...} dicts — feeds
         count_missed_dose_streak directly). One query for all affected
@@ -360,7 +502,7 @@ class ScheduledDoseRepository:
             .order_by(subq.c.patient_id, subq.c.current_scheduled_at.asc())
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[uuid.UUID, List[Dict[str, str]]] = {}
+        grouped: dict[uuid.UUID, list[dict[str, str]]] = {}
         for patient_id, status in result.all():
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped

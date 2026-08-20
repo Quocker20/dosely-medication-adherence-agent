@@ -9,6 +9,7 @@ task therefore builds its own engine with poolclass=NullPool inside the
 coroutine and disposes it in a finally — pooling buys nothing for a single
 connection doing one task anyway.
 """
+
 import asyncio
 import logging
 import uuid
@@ -20,7 +21,11 @@ from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
-from src.modules.agents.service import MissedDoseScanService, SchedulingService
+from src.modules.agents.service import (
+    AgentRunLeaseBusyError,
+    MissedDoseScanService,
+    SchedulingService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +33,7 @@ logger = logging.getLogger(__name__)
 async def _execute(run_id: str, patient_id: str, is_reschedule: bool) -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     try:
         async with session_factory() as session:
             service = SchedulingService(
@@ -38,26 +41,36 @@ async def _execute(run_id: str, patient_id: str, is_reschedule: bool) -> None:
                 agent_run_repository=AgentRunRepository(session),
                 scheduled_dose_repository=ScheduledDoseRepository(session),
             )
-            await service.execute_run(
-                run_id=uuid.UUID(run_id),
-                patient_id=uuid.UUID(patient_id),
-                is_reschedule=is_reschedule,
-            )
+            # Keep the old task signature for queued messages, but derive
+            # patient and run type exclusively from the atomically claimed DB row.
+            await service.execute_run(run_id=uuid.UUID(run_id))
     finally:
         await engine.dispose()
 
 
-@celery_app.task(name="agents.generate_schedule")
-def generate_schedule_task(run_id: str, patient_id: str, is_reschedule: bool) -> None:
-    asyncio.run(_execute(run_id, patient_id, is_reschedule))
+@celery_app.task(
+    bind=True,
+    name="agents.generate_schedule",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=5,
+)
+def generate_schedule_task(self, run_id: str, patient_id: str, is_reschedule: bool) -> None:
+    try:
+        asyncio.run(_execute(run_id, patient_id, is_reschedule))
+    except AgentRunLeaseBusyError as exc:
+        # A worker-lost redelivery can arrive before the old lease expires.
+        # Retry after one lease window so claim_run can reclaim it safely.
+        raise self.retry(
+            exc=exc,
+            countdown=get_settings().planning_run_lease_seconds,
+        ) from exc
 
 
 async def _execute_missed_dose_scan() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     try:
         async with session_factory() as session:
             service = MissedDoseScanService(
