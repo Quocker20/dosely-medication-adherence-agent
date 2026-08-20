@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.DosePeriod
@@ -213,9 +214,11 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 @Composable
 private fun NextDoseCard(dose: DoseToday, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val extras = LocalRemindRxColors.current
+    val isLocked = dose.status == DoseStatus.LOCKED
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        enabled = !isLocked,
+        modifier = modifier.fillMaxWidth().alpha(if (isLocked) 0.72f else 1f),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = extras.primaryTint),
     ) {
@@ -256,9 +259,9 @@ private fun NextDoseCard(dose: DoseToday, onClick: () -> Unit, modifier: Modifie
                 modifier = Modifier.padding(top = 3.dp),
             )
             Text(
-                "Chạm để xem chi tiết",
+                if (isLocked) "Bạn có thể xác nhận khi đến giờ uống" else "Chạm để xem chi tiết",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (isLocked) extras.inkMuted else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
