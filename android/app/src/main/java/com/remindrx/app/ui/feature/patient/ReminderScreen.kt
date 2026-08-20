@@ -60,6 +60,7 @@ fun ReminderScreen(
     }
 
     val currentDose = dose
+    val isLocked = currentDose.status == com.remindrx.app.data.DoseStatus.LOCKED
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 36.dp),
@@ -105,26 +106,37 @@ fun ReminderScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SuccessButton(
-                "✓  Đã uống",
-                onClick = { onAction(currentDose.id, "TAKEN"); onDone() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            WarningOutlineButton(
-                "⏰  Uống muộn",
-                onClick = { onAction(currentDose.id, "LATE"); onDone() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            WarningOutlineButton(
-                "Nhắc lại sau",
-                onClick = { onAction(currentDose.id, "SNOOZE"); onDone() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            GhostButton(
-                "Bỏ qua",
-                onClick = { onAction(currentDose.id, "SKIPPED"); onDone() },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (isLocked) {
+                Text(
+                    "Chưa đến giờ uống thuốc. Bạn có thể xác nhận khi đến giờ ${currentDose.time}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = extras.inkMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                GhostButton("Quay lại lịch hôm nay", onClick = onDone, modifier = Modifier.fillMaxWidth())
+            } else {
+                SuccessButton(
+                    "✓  Đã uống",
+                    onClick = { onAction(currentDose.id, "TAKEN"); onDone() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                WarningOutlineButton(
+                    "⏰  Uống muộn",
+                    onClick = { onAction(currentDose.id, "LATE"); onDone() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                WarningOutlineButton(
+                    "Nhắc lại sau",
+                    onClick = { onAction(currentDose.id, "SNOOZE"); onDone() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                GhostButton(
+                    "Bỏ qua",
+                    onClick = { onAction(currentDose.id, "SKIPPED"); onDone() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Text(
                 "Xác nhận trong vòng 60 phút để không bị tính là bỏ thuốc",
                 style = MaterialTheme.typography.labelSmall,
