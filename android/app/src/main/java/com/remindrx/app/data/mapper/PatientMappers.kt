@@ -33,6 +33,7 @@ import com.remindrx.app.data.remote.SubmitHealthSurveyRequestDto
 import com.remindrx.app.data.remote.SymptomEntryDto
 import com.remindrx.app.data.remote.TriggerSosRequestDto
 import java.time.LocalDate
+import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -176,13 +177,20 @@ fun DoseDto.toDoseToday(): DoseToday {
     }.getOrNull()
     val time = vietnamScheduledAt?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
     val hour = vietnamScheduledAt?.hour ?: 8
+    val isPending = status.equals("PENDING", ignoreCase = true)
+    val isNotDueYet = vietnamScheduledAt?.toInstant()?.isAfter(Instant.now()) == true
     return DoseToday(
         id = scheduledDoseId,
         time = time,
         medicationName = medicationName,
         doseLabel = doseValue.toExactDoseLabel(doseUnit),
         mealRelation = mealRelation.toMealRelation(),
-        status = if (status.equals("PENDING", ignoreCase = true) && (snoozeCount ?: 0) > 0) {
+        status = if (isPending && isNotDueYet) {
+            // The patient must not record an adherence action before the
+            // scheduled time. The API enforces this too; this state provides
+            // a clear, non-interactive affordance in the app.
+            DoseStatus.LOCKED
+        } else if (isPending && (snoozeCount ?: 0) > 0) {
             DoseStatus.SNOOZED
         } else {
             status.toDoseStatus()
