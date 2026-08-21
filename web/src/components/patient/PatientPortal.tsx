@@ -6,7 +6,8 @@ import type { ActiveSchedule, AdherenceSummary, ScheduledDoseRow } from "../../t
 
 type Tab = "dashboard" | "schedule" | "assistant" | "survey" | "sos";
 type DoseAction = (dose: ScheduledDoseRow, type: "TAKEN" | "SNOOZE" | "SKIPPED") => Promise<void>;
-type IconName = "home" | "calendar" | "assistant" | "send" | "heart" | "alert" | "pill" | "logout" | "bell" | "check" | "clock" | "shield";
+type IconName = "home" | "calendar" | "assistant" | "send" | "mic" | "heart" | "alert" | "pill" | "logout" | "bell" | "check" | "clock" | "shield";
+interface ChatMessage { id: string; role: "user" | "assistant"; content: string; time: string }
 
 const symptoms = ["Không có", "Chóng mặt", "Buồn nôn", "Đau đầu", "Mệt mỏi"];
 const symptomCodes: Record<string, string> = { "Không có": "NONE", "Chóng mặt": "DIZZINESS", "Buồn nôn": "NAUSEA", "Đau đầu": "HEADACHE", "Mệt mỏi": "FATIGUE" };
@@ -24,6 +25,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></>,
     assistant: <><rect x="4" y="6" width="16" height="13" rx="4"/><path d="M9 11h.01M15 11h.01M9 15h6M12 3v3"/></>,
     send: <><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,
+    mic: <><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></>,
     heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/>,
     alert: <><path d="M10.3 2.9 1.8 17.1A2 2 0 0 0 3.5 20h17a2 2 0 0 0 1.7-2.9L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></>,
     pill: <><path d="m10.5 20.5-7-7a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7Z"/><path d="m8.5 8.5 7 7"/></>,
@@ -46,6 +48,15 @@ function doseStatus(status: string) {
 }
 function isDoseLocked(dose: ScheduledDoseRow) {
   return dose.status.toUpperCase() === "PENDING" && new Date(dose.current_scheduled_at).getTime() > Date.now();
+}
+function chatStorageKey(patientId: string) { return `remindrx.patient-chat.${patientId}`; }
+function welcomeChatMessages(): ChatMessage[] {
+  return [{ id: "welcome", role: "assistant", content: "Chào bạn! Tôi là trợ lý RemindRx. Tôi có thể giúp bạn tra cứu lịch uống thuốc, giải thích thông tin thuốc từ nguồn tham khảo và ghi nhận vấn đề cần bác sĩ xem xét.", time: "Bây giờ" }];
+}
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return typeof message.id === "string" && (message.role === "user" || message.role === "assistant") && typeof message.content === "string" && typeof message.time === "string";
 }
 
 export default function PatientPortal({ session }: { session: Session }) {
@@ -70,8 +81,11 @@ export default function PatientPortal({ session }: { session: Session }) {
   const nextDose = useMemo(() => doses.find((dose) => !["TAKEN", "SKIPPED", "MISSED"].includes(dose.status.toUpperCase())), [doses]);
   const completed = doses.filter((dose) => dose.status.toUpperCase() === "TAKEN").length;
   const adherence = Math.round(summary?.adherence_rate ?? 0);
-  const currentNav = navItems.find((item) => item.id === tab) ?? navItems[0];
   const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(null), 2800); };
+  function logout() {
+    try { window.sessionStorage.removeItem(chatStorageKey(patientId)); } catch { /* Storage may be unavailable. */ }
+    setSession(null);
+  }
 
   async function action(dose: ScheduledDoseRow, type: "TAKEN" | "SNOOZE" | "SKIPPED") {
     setBusyId(dose.scheduled_dose_id);
@@ -88,14 +102,14 @@ export default function PatientPortal({ session }: { session: Session }) {
       <div className="patient-brand"><span className="patient-logo"><Icon name="pill" size={22}/></span><div><strong>RemindRx</strong><small>Patient Portal</small></div></div>
       <nav className="patient-side-nav" aria-label="Điều hướng bệnh nhân"><span className="patient-nav-label">MENU CHÍNH</span>{navItems.map((item) => <button key={item.id} className={`${tab === item.id ? "active" : ""} ${item.id === "sos" ? "sos-nav" : ""}`} onClick={() => setTab(item.id)}><span className="nav-icon"><Icon name={item.icon}/></span><span><b>{item.label}</b><small>{item.description}</small></span>{item.id === "schedule" && doses.length > 0 && <em>{doses.length}</em>}</button>)}</nav>
       <div className="patient-safe-card"><span><Icon name="shield" size={19}/></span><div><b>Dữ liệu được bảo vệ</b><small>Chỉ bạn và bác sĩ phụ trách có quyền truy cập.</small></div></div>
-      <div className="patient-account"><span className="patient-avatar">BN</span><div><b>Bệnh nhân</b><small>{session.user.phone}</small></div><button aria-label="Đăng xuất" onClick={() => setSession(null)}><Icon name="logout" size={18}/></button></div>
+      <div className="patient-account"><span className="patient-avatar">BN</span><div><b>Bệnh nhân</b><small>{session.user.phone}</small></div><button aria-label="Đăng xuất" onClick={logout}><Icon name="logout" size={18}/></button></div>
     </aside>
     <div className="patient-workspace">
-      <header className="patient-header"><div><span className="patient-breadcrumb">RemindRx / {currentNav.label}</span><h1>{currentNav.label}</h1></div><div className="patient-header-actions"><span className="sync-state"><i/> Dữ liệu đã đồng bộ</span><button className="header-bell" aria-label="Thông báo"><Icon name="bell"/></button></div></header>
-      <main className="patient-content">
+      <header className="patient-header"><h1>{navItems.find((item) => item.id === tab)?.label}</h1><div className="patient-header-actions"><span className="sync-state"><i/> Dữ liệu đã đồng bộ</span><button className="header-bell" aria-label="Thông báo"><Icon name="bell"/></button></div></header>
+      <main className={`patient-content ${tab === "assistant" ? "chat-content" : ""}`}>
         {tab === "dashboard" && <DashboardView today={today} adherence={adherence} completed={completed} doses={doses} nextDose={nextDose} error={error} busyId={busyId} onRetry={refresh} onAction={action} onOpenSchedule={() => setTab("schedule")} onOpenSurvey={() => setTab("survey")}/>} 
         {tab === "schedule" && <ScheduleView doses={doses} busyId={busyId} onAction={action}/>} 
-        {tab === "assistant" && <ChatView/>}
+        {tab === "assistant" && <ChatView patientId={patientId}/>}
         {tab === "survey" && <SurveyView patientId={patientId} today={today} onDone={(message) => { notify(message); setTab("dashboard"); }}/>} 
         {tab === "sos" && <SosView patientId={patientId} onDone={(message) => { if (message) notify(message); setTab("dashboard"); }}/>} 
       </main>
@@ -133,23 +147,49 @@ function doseLabel(dose: ScheduledDoseRow) { return [dose.dose_value && `${dose.
 function DoseCard({ dose, busy, onAction }: { dose: ScheduledDoseRow; busy: boolean; onAction: DoseAction }) { const locked = isDoseLocked(dose); const [label, status] = locked ? ["Chưa đến giờ", "locked"] as const : doseStatus(dose.status); return <article className={`patient-dose ${status}`}><div className="dose-time">{prettyTime(dose.current_scheduled_at)}</div><div className="dose-info"><span className="mini-pill"><Icon name="pill" size={17}/></span><div><h3>{dose.medication_name}</h3><p>{doseLabel(dose)}</p></div></div><span className={`dose-status ${status}`}>{label}</span>{!locked && (status === "upcoming" || status === "late") ? <DoseActions dose={dose} busy={busy} compact onAction={onAction}/> : <span className={`dose-done-mark ${locked ? "locked" : ""}`}><Icon name={locked ? "clock" : "check"} size={18}/></span>}</article>; }
 function DoseActions({ dose, busy, compact = false, onAction }: { dose: ScheduledDoseRow; busy: boolean; compact?: boolean; onAction: DoseAction }) { return <div className={compact ? "dose-actions compact" : "dose-actions"}><button className="take" disabled={busy} onClick={() => void onAction(dose, "TAKEN")}><Icon name="check" size={16}/>{busy ? "Đang lưu…" : "Đã uống"}</button><button disabled={busy} onClick={() => void onAction(dose, "SNOOZE")}><Icon name="clock" size={15}/> Nhắc sau</button><button className="skip" disabled={busy} onClick={() => void onAction(dose, "SKIPPED")}>Bỏ qua</button></div>; }
 
-interface ChatMessage { id: string; role: "user" | "assistant"; content: string; time: string }
-
-function ChatView() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "welcome", role: "assistant", content: "Chào bạn! Tôi là trợ lý RemindRx. Tôi có thể giúp bạn tra cứu lịch uống thuốc, giải thích thông tin thuốc từ nguồn tham khảo và ghi nhận vấn đề cần bác sĩ xem xét.", time: "Bây giờ" },
-  ]);
+function ChatView({ patientId }: { patientId: string }) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const stored = window.sessionStorage.getItem(chatStorageKey(patientId));
+      const parsed: unknown = stored ? JSON.parse(stored) : null;
+      return Array.isArray(parsed) && parsed.length > 0 && parsed.every(isChatMessage) ? parsed : welcomeChatMessages();
+    } catch { return welcomeChatMessages(); }
+  });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordingTimeoutRef = useRef<number | null>(null);
+  const discardRecordingRef = useRef(false);
+  const voiceSupported = useMemo(() => typeof window !== "undefined" && "MediaRecorder" in window && Boolean(navigator.mediaDevices?.getUserMedia), []);
   const suggestions = ["Liều tiếp theo lúc mấy giờ?", "Quên liều thì nên làm gì?", "Giải thích cách dùng thuốc của tôi"];
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
+  useEffect(() => {
+    try { window.sessionStorage.setItem(chatStorageKey(patientId), JSON.stringify(messages)); } catch { /* Storage may be unavailable. */ }
+  }, [messages, patientId]);
+
+  const stopRecording = useCallback(() => {
+    if (recordingTimeoutRef.current !== null) {
+      window.clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }, []);
+
+  useEffect(() => () => {
+    discardRecordingRef.current = true;
+    stopRecording();
+    recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+  }, [stopRecording]);
 
   async function send(rawMessage: string) {
     const message = rawMessage.trim();
-    if (!message || busy) return;
+    if (!message || busy || recording) return;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: message, time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) };
     setMessages((current) => [...current, userMessage]);
     setInput(""); setError(null); setBusy(true);
@@ -160,17 +200,58 @@ function ChatView() {
     finally { setBusy(false); }
   }
 
-  return <section className="chat-layout">
-    <aside className="chat-info-card">
-      <div className="chat-ai-mark"><Icon name="assistant" size={28}/></div>
-      <h2>Trợ lý RemindRx</h2><p>Hỗ trợ thông tin về lịch uống thuốc và cách sử dụng ứng dụng.</p>
-      <div className="chat-online"><i/> Đang hoạt động</div>
-      <div className="chat-scope"><b>Tôi có thể giúp bạn</b><span><Icon name="check" size={16}/> Xem lịch và cữ thuốc</span><span><Icon name="check" size={16}/> Tra cứu thông tin thuốc</span><span><Icon name="check" size={16}/> Ghi nhận triệu chứng</span></div>
-      <div className="chat-privacy"><Icon name="shield" size={18}/><span>Cuộc trò chuyện không được lưu trên trình duyệt sau khi đăng xuất.</span></div>
-    </aside>
+  async function startRecording() {
+    if (!voiceSupported || busy || recording) return;
+    setError(null);
+    discardRecordingRef.current = false;
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
+      recorder.onstop = async () => {
+        const currentStream = recorder.stream;
+        if (recordingTimeoutRef.current !== null) {
+          window.clearTimeout(recordingTimeoutRef.current);
+          recordingTimeoutRef.current = null;
+        }
+        recorderRef.current = null;
+        currentStream.getTracks().forEach((track) => track.stop());
+        if (discardRecordingRef.current) return;
+        setRecording(false);
+        const audio = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (audio.size === 0) {
+          setError("Không nhận được âm thanh. Vui lòng thử lại.");
+          return;
+        }
+        setBusy(true);
+        try {
+          const result = await api.patientChatVoice(audio);
+          const time = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+          setMessages((current) => [
+            ...current,
+            { id: crypto.randomUUID(), role: "user", content: result.transcript, time },
+            { id: crypto.randomUUID(), role: "assistant", content: result.response, time },
+          ]);
+        } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Trợ lý AI chưa thể trả lời. Vui lòng thử lại."); }
+        finally { setBusy(false); }
+      };
+      recorder.start();
+      setRecording(true);
+      recordingTimeoutRef.current = window.setTimeout(stopRecording, 60_000);
+    } catch (cause) {
+      stream?.getTracks().forEach((track) => track.stop());
+      recorderRef.current = null;
+      setRecording(false);
+      setError(cause instanceof DOMException && cause.name === "NotAllowedError" ? "Bạn cần cho phép dùng micro để gửi tin nhắn thoại." : "Không thể bắt đầu ghi âm. Vui lòng thử lại.");
+    }
+  }
 
+  return <section className="chat-layout">
     <div className="web-card chat-panel">
-      <header className="chat-panel-head"><div className="chat-avatar"><Icon name="assistant" size={22}/></div><div><h2>Trợ lý AI</h2><p>Thuốc & lịch uống · RemindRx</p></div><button onClick={() => setMessages([messages[0]])}>Cuộc trò chuyện mới</button></header>
+      <header className="chat-panel-head"><div className="chat-avatar"><Icon name="assistant" size={22}/></div><div><h2>Trợ lý AI</h2><p>Thuốc & lịch uống · RemindRx</p></div><button onClick={() => setMessages(welcomeChatMessages())}>Cuộc trò chuyện mới</button></header>
       <div className="chat-warning"><Icon name="alert" size={17}/><span>AI chỉ cung cấp thông tin tham khảo; không tự thay đổi liều, kê đơn hoặc xử trí cấp cứu qua chat.</span></div>
       <div className="chat-messages">
         {messages.map((message) => <div key={message.id} className={`chat-row ${message.role}`}><div className="chat-bubble">{message.role === "assistant" && <b>RemindRx AI</b>}<p>{message.content}</p><time>{message.time}</time></div></div>)}
@@ -178,8 +259,8 @@ function ChatView() {
         {error && <div className="chat-error">{error}</div>}
         <div ref={bottomRef}/>
       </div>
-      <div className="chat-suggestions">{suggestions.map((suggestion) => <button key={suggestion} disabled={busy} onClick={() => void send(suggestion)}>{suggestion}</button>)}</div>
-      <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); void send(input); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(input); } }} maxLength={5000} rows={1} placeholder="Hỏi về thuốc hoặc lịch uống…"/><button type="submit" disabled={!input.trim() || busy} aria-label="Gửi tin nhắn"><Icon name="send" size={19}/></button><small>Nhấn Enter để gửi · Shift + Enter để xuống dòng</small></form>
+      <div className="chat-suggestions">{suggestions.map((suggestion) => <button key={suggestion} disabled={busy || recording} onClick={() => void send(suggestion)}>{suggestion}</button>)}</div>
+      <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); void send(input); }}><textarea value={input} disabled={recording} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(input); } }} maxLength={5000} rows={1} placeholder="Hỏi về thuốc hoặc lịch uống…"/>{voiceSupported && <button className={`chat-mic ${recording ? "recording" : ""}`} type="button" disabled={busy} onClick={() => { if (recording) stopRecording(); else void startRecording(); }} aria-label={recording ? "Dừng ghi âm" : "Gửi tin nhắn thoại"}><Icon name="mic" size={19}/></button>}<button className="chat-send" type="submit" disabled={!input.trim() || busy || recording} aria-label="Gửi tin nhắn"><Icon name="send" size={19}/></button><small>{recording ? "Đang ghi âm · Nhấn micro để dừng" : "Nhấn Enter để gửi · Shift + Enter để xuống dòng"}</small></form>
     </div>
   </section>;
 }

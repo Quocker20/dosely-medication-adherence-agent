@@ -445,17 +445,22 @@ CREATE TABLE rag_citations (
 CREATE TABLE agent_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_type VARCHAR(30) NOT NULL
+        CONSTRAINT ck_agent_runs_agent_type
         CHECK (agent_type IN ('PLANNING_AGENT','RESCHEDULING_AGENT')),
     patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
     prescription_id UUID REFERENCES prescriptions(id) ON DELETE SET NULL,
     trigger_type VARCHAR(30) NOT NULL
+        CONSTRAINT ck_agent_runs_trigger_type
         CHECK (trigger_type IN ('PRESCRIPTION_APPROVED','ROUTINE_UPDATED','MANUAL')),
     model_version VARCHAR(100),
     graph_version VARCHAR(50) NOT NULL,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('RUNNING','COMPLETED','FAILED')),
-    latency_ms INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
+    status VARCHAR(20) NOT NULL
+        CONSTRAINT ck_agent_runs_status CHECK (status IN ('RUNNING','COMPLETED','FAILED')),
+    latency_ms INTEGER
+        CONSTRAINT ck_agent_runs_latency CHECK (latency_ms IS NULL OR latency_ms >= 0),
     error_code VARCHAR(100),
-    generated_dose_count INTEGER CHECK (generated_dose_count IS NULL OR generated_dose_count >= 0),
+    generated_dose_count INTEGER
+        CONSTRAINT ck_agent_runs_dose_count CHECK (generated_dose_count IS NULL OR generated_dose_count >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

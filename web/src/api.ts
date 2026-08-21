@@ -17,6 +17,7 @@ import type {
   PrescriptionDetail,
   PrescriptionItemDetail,
   PrescriptionItemIn,
+  VoiceChatResponse,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -109,15 +110,16 @@ async function unwrap<T>(response: Response): Promise<T> {
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const session = getSession();
   const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  const isFormData = options.body instanceof FormData;
 
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   const accessToken = options.accessToken ?? session?.accessToken;
   if (!options.anonymous && accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   return fetch(buildUrl(path, options.query), {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : isFormData ? options.body as FormData : JSON.stringify(options.body),
   });
 }
 
@@ -259,6 +261,15 @@ export const api = {
       method: "POST",
       body: { message },
     }),
+
+  patientChatVoice: (audio: Blob) => {
+    const formData = new FormData();
+    formData.append("audio", audio, "voice-message.webm");
+    return request<VoiceChatResponse>("/chat/voice", {
+      method: "POST",
+      body: formData,
+    });
+  },
 
   // ---- Slice 4: Patient routine ------------------------------------------
   patientRoutine: (patientId: string) => request<PatientRoutine>(`/patients/${patientId}/routine`),

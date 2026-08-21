@@ -208,6 +208,41 @@ async def test_dose_action_records_and_flips_status(client):
 
 
 @pytest.mark.asyncio
+async def test_dose_action_before_scheduled_time_is_rejected(client):
+    """The server must reject early confirmations even if a client bypasses
+    its disabled controls or has a clock that is ahead."""
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    dose_id = await _create_dose(
+        patient_id,
+        doctor_id,
+        when=datetime.now(timezone.utc) + timedelta(minutes=30),
+    )
+    headers = {**await _login(client, PATIENT_PHONE), **_idem("dose-too-early-1")}
+
+    response = await client.post(
+        f"/api/v1/scheduled-doses/{dose_id}/actions",
+        json={"action": "TAKEN"},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == "Scheduled dose is not due yet"
+
+    async with AsyncSessionLocal() as db:
+        dose = (
+            await db.execute(select(ScheduledDose).where(ScheduledDose.id == dose_id))
+        ).scalar_one()
+        logs = (
+            await db.execute(
+                select(AdherenceLog).where(AdherenceLog.scheduled_dose_id == dose_id)
+            )
+        ).scalars().all()
+    assert dose.status == "PENDING"
+    assert logs == []
+
+
+@pytest.mark.asyncio
 async def test_dose_action_replays_on_repeated_idempotency_key(client):
     """A retried delivery must replay the original log, not add a second —
     double-counting intake would distort the adherence rate a doctor reads."""
