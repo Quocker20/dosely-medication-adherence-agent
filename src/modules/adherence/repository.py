@@ -79,11 +79,11 @@ class AdherenceLogRepository:
         action: str,
         snooze_minutes: Optional[int] = None,
     ) -> Optional[ScheduledDose]:
-        """Atomic compare-and-swap: only updates a row still PENDING and
-        owned by this patient — no read-then-write race window (mirrors
-        PrescriptionRepository.approve_if_draft). Returns None if the dose
-        doesn't exist, isn't this patient's, or is no longer PENDING; caller
-        (service) disambiguates via get_dose_scoped.
+        """Atomic compare-and-swap: only updates a row still PENDING, due
+        now, and owned by this patient — no read-then-write race window
+        (mirrors PrescriptionRepository.approve_if_draft). Returns None if
+        the dose doesn't exist, isn't this patient's, is not due yet, or is
+        no longer PENDING; caller (service) disambiguates via get_dose_scoped.
 
         TAKEN/SKIPPED move the dose to a terminal state. SNOOZE stays PENDING
         and only shifts current_scheduled_at / bumps snooze_count — computed
@@ -109,12 +109,27 @@ class AdherenceLogRepository:
                 ScheduledDose.id == dose_id,
                 ScheduledDose.patient_id == patient_id,
                 ScheduledDose.status == "PENDING",
+                # This is a clinical-boundary check, so it must stay in the
+                # atomic UPDATE rather than relying on either client clocks
+                # or a read-then-write service-layer comparison.
+                ScheduledDose.current_scheduled_at <= func.now(),
             )
             .values(**values)
             .returning(ScheduledDose)
         )
         result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
+        dose = result.scalar_one_or_none()
+        if action == "SNOOZE" and dose is not None and dose.notification_group_id is not None:
+            # Both statements run inside AdherenceService's transaction. Other
+            # transactions therefore observe either the intact old group or
+            # the snoozed dose with the whole group dissolved, never a mixed
+            # state that could deliver the snoozed dose early.
+            await self._db.execute(
+                update(ScheduledDose)
+                .where(ScheduledDose.notification_group_id == dose.notification_group_id)
+                .values(notification_group_id=None)
+            )
+        return dose
 
     async def get_dose_scoped(
         self, dose_id: uuid.UUID, patient_id: uuid.UUID

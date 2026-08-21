@@ -1,6 +1,6 @@
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolNode
 
 # pyrefly: ignore [missing-import]
 from src.agents.nodes.chat_node import agent_node, should_continue
@@ -12,11 +12,14 @@ from src.agents.tools import CHAT_TOOLS
 
 
 def _route_after_safety_guard(state: AgentState) -> str:
-    return "end" if state.get("escalated") else "classify_intent"
+    return "end" if state.get("escalated") or state.get("safety_blocked") else "classify_intent"
 
 
 def _route_after_classify_intent(state: AgentState) -> str:
-    return "rescheduling" if state.get("intent") == "report_meal_shift" else "agent"
+    if state.get("intent") == "report_meal_shift":
+        return "rescheduling"
+    # TODO: route "ask_drug_info" -> drug_rag once src/rag_retrieval (branch RAG) is merged.
+    return "agent"
 
 
 def build_graph() -> CompiledStateGraph:
@@ -35,10 +38,7 @@ def build_graph() -> CompiledStateGraph:
         "safety_guard", _route_after_safety_guard, {"classify_intent": "classify_intent", "end": END}
     )
 
-    # classify_intent chỉ tách riêng "report_meal_shift" (ràng buộc HITL cần
-    # cấu trúc cứng — xem rescheduling_node.py). Mọi nhãn khác đi qua
-    # agent_node bình thường, vì nó đã có đủ CHAT_TOOLS để tự xử lý
-    # (ask_schedule/ask_drug_info) — không cần handler riêng cho từng nhãn.
+    # meal shift có route riêng, tách khỏi ReAct loop.
     graph.add_conditional_edges(
         "classify_intent",
         _route_after_classify_intent,
@@ -48,6 +48,7 @@ def build_graph() -> CompiledStateGraph:
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.
+    # TODO: route "end" -> grounding_validator once src/rag_retrieval (branch RAG) is merged.
     graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "agent")
 
