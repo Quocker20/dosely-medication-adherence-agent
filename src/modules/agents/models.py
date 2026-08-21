@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
@@ -36,35 +36,26 @@ class ScheduledDose(Base):
         ForeignKey("patient_profiles.user_id", ondelete="CASCADE"),
         nullable=False,
     )
-    original_scheduled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    current_scheduled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    original_scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    current_scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Immutable prescription/slot snapshot selected by the planner. These
     # fields are nullable only for rows generated before migration 0011; never
     # infer a legacy row's slot-specific amount from the current item.
     dose_slot: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    medication_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    dose_value: Mapped[Decimal | None] = mapped_column(
-        Numeric(10, 3), nullable=True
-    )
+    medication_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    dose_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
     dose_unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
     meal_relation: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="PENDING"
-    )
+    # Rows with the same value are delivered in one notification. This is UX
+    # metadata only and never changes either scheduled timestamp.
+    notification_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="PENDING")
     snooze_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    taken_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     # No onupdate= callable: every write path is a Core update() (snooze,
@@ -73,7 +64,7 @@ class ScheduledDose(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
@@ -107,9 +98,16 @@ class AgentRun(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generated_dose_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    candidate_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claim_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )

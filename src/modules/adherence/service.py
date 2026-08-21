@@ -128,6 +128,11 @@ class AdherenceLogService:
                     )
                     if existing_dose is None:
                         raise NotFoundException(message="Scheduled dose not found")
+                    if (
+                        existing_dose.status == "PENDING"
+                        and existing_dose.current_scheduled_at > datetime.now(dt_timezone.utc)
+                    ):
+                        raise ConflictException(message="Scheduled dose is not due yet")
                     raise ConflictException(message="Scheduled dose is no longer pending")
 
                 log = await self._repo.insert_log(

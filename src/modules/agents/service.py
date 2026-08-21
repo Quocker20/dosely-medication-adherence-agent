@@ -2,9 +2,7 @@ import base64
 import logging
 import time as time_module
 import uuid
-from datetime import date, datetime, time, timedelta
-from datetime import timezone as dt_timezone
-from typing import Optional
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import status
@@ -14,6 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.audit import log_turn
 from src.agents.graph import agent
+from src.agents.planning_graph import (
+    planning_commit_graph,
+    planning_draft_graph,
+    planning_snapshot_graph,
+)
 from src.agents.tools.safety_tools import count_missed_dose_streak
 from src.common.exceptions import (
     AppException,
@@ -26,12 +29,8 @@ from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import AlertRepository
-from src.modules.agents.planner import (
-    PlannableItem,
-    RoutineTimes,
-    expand_schedule,
-    validate_frequency_guardrails,
-)
+from src.modules.agents.grouping import schedule_rows_hmac
+from src.modules.agents.planner import PlanningNeedsReviewError
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
@@ -51,8 +50,12 @@ from src.modules.planning.core.speech import (
 
 logger = logging.getLogger(__name__)
 
-_GRAPH_VERSION = "slice6-v1"
+_GRAPH_VERSION = "planning-langgraph-v2"
 _GENERATE_TASK_NAME = "agents.generate_schedule"
+
+
+class AgentRunLeaseBusyError(RuntimeError):
+    """A redelivered task arrived before the previous claim expired."""
 
 
 class SchedulingService:
@@ -67,7 +70,7 @@ class SchedulingService:
         db: AsyncSession,
         agent_run_repository: AgentRunRepository,
         scheduled_dose_repository: ScheduledDoseRepository,
-        patient_repository: Optional[PatientRepository] = None,
+        patient_repository: PatientRepository | None = None,
     ) -> None:
         self._db = db
         self._agent_run_repo = agent_run_repository
@@ -93,9 +96,7 @@ class SchedulingService:
         """DOCTOR only, scoped to a doctor who has prescribed for this
         patient — mirrors PrescriptionService's doctor-ownership checks."""
         doctor_id = uuid.UUID(actor_payload["sub"])
-        patient_row = await self._patient_repo.get_patient_with_user(
-            patient_id, requesting_doctor_id=doctor_id
-        )
+        patient_row = await self._patient_repo.get_patient_with_user(patient_id, requesting_doctor_id=doctor_id)
         if patient_row is None:
             raise NotFoundException(message="Patient not found")
         if self._db.in_transaction():
@@ -114,14 +115,10 @@ class SchedulingService:
                     graph_version=_GRAPH_VERSION,
                 )
         except IntegrityError:
-            raise ConflictException(
-                message="An agent run is already in progress for this patient"
-            )
+            raise ConflictException(message="An agent run is already in progress for this patient")
 
         self._dispatch_generate(run.id, patient_id, is_reschedule=False)
-        return AgentRunAsyncResponse(
-            agent_run_id=run.id, status="RUNNING", message="Schedule generation started"
-        )
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Schedule generation started")
 
     async def request_reschedule(
         self,
@@ -149,14 +146,10 @@ class SchedulingService:
                     graph_version=_GRAPH_VERSION,
                 )
         except IntegrityError:
-            raise ConflictException(
-                message="An agent run is already in progress for this patient"
-            )
+            raise ConflictException(message="An agent run is already in progress for this patient")
 
         self._dispatch_generate(run.id, patient_id, is_reschedule=True)
-        return AgentRunAsyncResponse(
-            agent_run_id=run.id, status="RUNNING", message="Reschedule started"
-        )
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
 
     async def get_schedule(
         self, patient_id: uuid.UUID, actor_payload: dict, target_date: date
@@ -167,23 +160,15 @@ class SchedulingService:
         not a 404 — avoids leaking which patient UUIDs exist."""
         actor_id = uuid.UUID(actor_payload["sub"])
 
-        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(
-            patient_id, actor_id
-        )
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
         if patient_timezone is None:
             return ActiveScheduleResponse(patient_id=patient_id, date=target_date, doses=[])
 
         tz = ZoneInfo(patient_timezone)
-        range_start = datetime.combine(target_date, time.min, tzinfo=tz).astimezone(
-            dt_timezone.utc
-        )
-        range_end = datetime.combine(
-            target_date + timedelta(days=1), time.min, tzinfo=tz
-        ).astimezone(dt_timezone.utc)
+        range_start = datetime.combine(target_date, time.min, tzinfo=tz).astimezone(UTC)
+        range_end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC)
 
-        rows = await self._dose_repo.get_schedule_in_range(
-            patient_id, range_start, range_end, actor_id=actor_id
-        )
+        rows = await self._dose_repo.get_schedule_in_range(patient_id, range_start, range_end, actor_id=actor_id)
         doses = [
             {
                 "scheduled_dose_id": dose.id,
@@ -195,6 +180,7 @@ class SchedulingService:
                 "dose_value": dose.dose_value,
                 "dose_unit": dose.dose_unit,
                 "meal_relation": dose.meal_relation,
+                "notification_group_id": dose.notification_group_id,
                 "status": dose.status,
                 "snooze_count": dose.snooze_count,
             }
@@ -202,9 +188,7 @@ class SchedulingService:
         ]
         return ActiveScheduleResponse(patient_id=patient_id, date=target_date, doses=doses)
 
-    async def get_run_status(
-        self, agent_run_id: uuid.UUID, actor_payload: dict
-    ) -> AgentRunStatusResponse:
+    async def get_run_status(self, agent_run_id: uuid.UUID, actor_payload: dict) -> AgentRunStatusResponse:
         """PATIENT/DOCTOR/ADMIN, mirrors PrescriptionService.get_prescription's
         actor_id=None-for-ADMIN pattern."""
         role = actor_payload.get("role")
@@ -215,99 +199,139 @@ class SchedulingService:
             raise NotFoundException(message="Agent run not found")
         return AgentRunStatusResponse.model_validate(run)
 
-    async def execute_run(
-        self, run_id: uuid.UUID, patient_id: uuid.UUID, is_reschedule: bool
-    ) -> None:
-        """Worker-facing entrypoint (see tasks.py): no actor scoping, the
-        run/patient were already validated when the HTTP request created the
-        RUNNING row. Deterministic dose expansion only — no LLM call."""
+    async def execute_run(self, run_id: uuid.UUID) -> None:
+        """Claim and execute one run using DB-owned patient and agent type."""
         settings = get_settings()
         started = time_module.perf_counter()
+        run_now = datetime.now(UTC)
+        inserted_count = 0
+        draft_state: dict | None = None
+        claim_token: uuid.UUID | None = None
+        empty_hash = schedule_rows_hmac(
+            [],
+            settings.jwt_secret_key,
+            include_notification_groups=False,
+        )
+        graph_config = {
+            "configurable": {
+                "dose_repo": self._dose_repo,
+                "settings": settings,
+            }
+        }
         try:
+            # Celery is at-least-once. Only the first delivery can claim this
+            # RUNNING row; duplicates and already-terminal runs are safe no-ops.
             async with self._db.begin():
-                if is_reschedule:
-                    await self._dose_repo.delete_future_pending(
-                        patient_id, now=datetime.now(dt_timezone.utc)
-                    )
-
-                patient_timezone, routine = await self._dose_repo.get_patient_context_unscoped(
-                    patient_id
+                claimed_run = await self._agent_run_repo.claim_run(
+                    run_id,
+                    settings.planning_run_lease_seconds,
                 )
-                if patient_timezone is None:
-                    raise NotFoundException(message="Patient not found")
-
-                item_pairs = await self._dose_repo.get_approved_items(patient_id)
-                plannable_items = [
-                    PlannableItem(
-                        id=item.id,
-                        medication_id=item.medication_id,
-                        dose_unit=item.dose_unit,
-                        morning_dose=item.morning_dose,
-                        noon_dose=item.noon_dose,
-                        evening_dose=item.evening_dose,
-                        bedtime_dose=item.bedtime_dose,
-                        meal_relation=item.meal_relation,
-                        minimum_interval_minutes=item.minimum_interval_minutes,
-                        start_date=item.start_date,
-                        end_date=item.end_date,
-                    )
-                    for item, _prescription_id in item_pairs
-                ]
-                validate_frequency_guardrails(plannable_items, settings.max_frequency_per_day)
-                routine_times = RoutineTimes(
-                    wake=routine.wake_time if routine else None,
-                    breakfast=routine.breakfast_time if routine else None,
-                    lunch=routine.lunch_time if routine else None,
-                    dinner=routine.dinner_time if routine else None,
-                    sleep=routine.sleep_time if routine else None,
-                )
-                today_local = datetime.now(ZoneInfo(patient_timezone)).date()
-
-                rows = expand_schedule(
-                    plannable_items,
-                    routine_times,
-                    patient_timezone,
-                    today=today_local,
-                    horizon_days=settings.schedule_horizon_days,
-                    default_min_gap_minutes=settings.min_dose_gap_minutes,
-                    max_treatment_days=settings.max_treatment_days,
-                )
-                row_dicts = [
-                    {
-                        "prescription_item_id": row.prescription_item_id,
-                        "medication_id": row.medication_id,
-                        "dose_slot": row.dose_slot,
-                        "dose_value": row.dose_value,
-                        "dose_unit": row.dose_unit,
-                        "meal_relation": row.meal_relation,
-                        "patient_id": patient_id,
-                        "original_scheduled_at": row.original_scheduled_at,
-                        "current_scheduled_at": row.current_scheduled_at,
-                        "status": row.status,
-                        "snooze_count": row.snooze_count,
-                    }
-                    for row in rows
-                ]
-                inserted_count = await self._dose_repo.bulk_insert_doses(row_dicts)
-
+            if claimed_run is None:
+                async with self._db.begin():
+                    existing_run = await self._agent_run_repo.get_by_id_unscoped(run_id)
+                if existing_run is not None and existing_run.status == "RUNNING":
+                    raise AgentRunLeaseBusyError("Agent run lease is still active")
+                return
+            claim_token = claimed_run.claim_token
+            if claim_token is None:
+                raise RuntimeError("Claimed agent run has no ownership token")
+            patient_id = claimed_run.patient_id
+            if claimed_run.agent_type == "PLANNING_AGENT":
+                is_reschedule = False
+            elif claimed_run.agent_type == "RESCHEDULING_AGENT":
+                is_reschedule = True
+            else:
                 latency_ms = int((time_module.perf_counter() - started) * 1000)
-                await self._agent_run_repo.mark_completed(run_id, latency_ms, inserted_count)
+                async with self._db.begin():
+                    await self._agent_run_repo.mark_failed(
+                        run_id,
+                        latency_ms,
+                        error_code="UnsupportedAgentType",
+                        claim_token=claim_token,
+                        input_hash=empty_hash,
+                        output_hash=empty_hash,
+                        candidate_source="failed",
+                    )
+                return
+
+            initial_state = {
+                "run_id": run_id,
+                "patient_id": patient_id,
+                "is_reschedule": is_reschedule,
+                "run_now": run_now,
+            }
+            # SELECTs autobegin, so snapshot reads get a short explicit
+            # transaction that closes before any network-capable LLM call.
+            async with self._db.begin():
+                snapshot_state = await planning_snapshot_graph.ainvoke(
+                    initial_state,
+                    config=graph_config,
+                )
+
+            draft_state = await planning_draft_graph.ainvoke(
+                snapshot_state,
+                config=graph_config,
+            )
+
+            # Fresh APPROVED inputs, deterministic validation, deletion,
+            # persistence and terminal audit share one short transaction.
+            async with self._db.begin():
+                owns_claim = await self._agent_run_repo.renew_claim(
+                    run_id,
+                    claim_token,
+                    settings.planning_run_lease_seconds,
+                )
+                if not owns_claim:
+                    return
+                final_state = await planning_commit_graph.ainvoke(
+                    draft_state,
+                    config=graph_config,
+                )
+                inserted_count = final_state["generated_dose_count"]
+                latency_ms = int((time_module.perf_counter() - started) * 1000)
+                completed = await self._agent_run_repo.mark_completed(
+                    run_id,
+                    latency_ms,
+                    inserted_count,
+                    model_version=final_state.get("llm_model_version"),
+                    prompt_version=final_state.get("llm_prompt_version"),
+                    input_hash=final_state.get("input_hash"),
+                    output_hash=final_state.get("output_hash"),
+                    candidate_source=final_state.get("candidate_source"),
+                    error_code=final_state.get("llm_error"),
+                    claim_token=claim_token,
+                )
+                if not completed:
+                    raise RuntimeError("Agent run claim was lost before completion")
+        except AgentRunLeaseBusyError:
+            raise
+        except PlanningNeedsReviewError as exc:
+            logger.info("Agent run %s requires clinical review: %s", run_id, type(exc).__name__)
+            latency_ms = int((time_module.perf_counter() - started) * 1000)
+            async with self._db.begin():
+                await self._agent_run_repo.mark_needs_review(
+                    run_id,
+                    latency_ms,
+                    error_code=type(exc).__name__[:100],
+                    claim_token=claim_token,
+                    **self._terminal_audit(draft_state, empty_hash, "needs_review"),
+                )
+            return
         except Exception as exc:
             logger.exception("Agent run %s failed", run_id)
             latency_ms = int((time_module.perf_counter() - started) * 1000)
-            # Prior block's exception already rolled back this session's
-            # transaction; begin() below opens a fresh one to persist the
-            # failure so it is still observable via GET /agent-runs/{id}.
+            if claim_token is None:
+                return
             async with self._db.begin():
                 await self._agent_run_repo.mark_failed(
-                    run_id, latency_ms, error_code=type(exc).__name__[:100]
+                    run_id,
+                    latency_ms,
+                    error_code=type(exc).__name__[:100],
+                    claim_token=claim_token,
+                    **self._terminal_audit(draft_state, empty_hash, "failed"),
                 )
             return
 
-        # After the commit, and only on success — the portal must not be told a
-        # schedule exists for a run that then failed. Carries counts rather than
-        # the doses themselves: a horizon of generated doses is far too large for
-        # a socket frame, and the dashboard re-reads the schedule endpoint anyway.
         await publish_dashboard_event(
             "schedule.updated",
             {
@@ -317,6 +341,18 @@ class SchedulingService:
                 "is_reschedule": is_reschedule,
             },
         )
+
+    @staticmethod
+    def _terminal_audit(draft_state: dict | None, empty_hash: str, terminal_source: str) -> dict:
+        """Audit every terminal run without persisting plaintext clinical input."""
+        state = draft_state or {}
+        return {
+            "model_version": state.get("llm_model_version"),
+            "prompt_version": state.get("llm_prompt_version"),
+            "input_hash": state.get("draft_view_hash", empty_hash),
+            "output_hash": empty_hash,
+            "candidate_source": terminal_source,
+        }
 
 
 _MISSED_DOSE_TRIGGERED_BY_TYPE = "MISSED_DOSES"
@@ -346,7 +382,7 @@ class MissedDoseScanService:
     async def run_scan(self) -> None:
         settings = get_settings()
         threshold = settings.missed_dose_alert_threshold
-        now = datetime.now(dt_timezone.utc)
+        now = datetime.now(UTC)
         cutoff = now - timedelta(minutes=settings.missed_dose_overdue_minutes)
 
         async with self._db.begin():
@@ -365,9 +401,7 @@ class MissedDoseScanService:
 
         patient_ids = list(last_dose_by_patient)
         async with self._db.begin():
-            streaks = await self._dose_repo.get_recent_dose_statuses(
-                patient_ids, lookback=threshold, before=now
-            )
+            streaks = await self._dose_repo.get_recent_dose_statuses(patient_ids, lookback=threshold, before=now)
 
         for patient_id in patient_ids:
             doses = streaks.get(patient_id, [])
@@ -407,20 +441,14 @@ class ChatService:
         response_text = await self._run_agent(message, patient_id)
         return ChatResponse(response=response_text)
 
-    async def handle_voice_chat(
-        self, audio_bytes: bytes, filename: str, patient_id: str
-    ) -> VoiceChatResponse:
+    async def handle_voice_chat(self, audio_bytes: bytes, filename: str, patient_id: str) -> VoiceChatResponse:
         try:
             transcript = await transcribe_audio(audio_bytes, filename=filename)
         except SpeechServiceError as e:
-            raise AppException(
-                message=str(e), code=status.HTTP_502_BAD_GATEWAY
-            ) from e
+            raise AppException(message=str(e), code=status.HTTP_502_BAD_GATEWAY) from e
 
         if not transcript:
-            raise ValidationException(
-                message="Không nhận được nội dung giọng nói, vui lòng nói lại."
-            )
+            raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
 
         response_text = await self._run_agent(transcript, patient_id)
 
@@ -433,9 +461,7 @@ class ChatService:
             # text answer they already have.
             logger.warning("TTS failed, returning text-only reply")
 
-        return VoiceChatResponse(
-            transcript=transcript, response=response_text, audio_base64=audio_base64
-        )
+        return VoiceChatResponse(transcript=transcript, response=response_text, audio_base64=audio_base64)
 
     @staticmethod
     async def _run_agent(message: str, patient_id: str) -> str:
