@@ -5,20 +5,17 @@ xem graph.py), nên KHÔNG có nhãn "report_symptom" riêng ở đây như sket
 gốc trong kế hoạch: report_symptom đã được xử lý xong trước khi tới node
 này, không cần phân loại lại.
 
-Chỉ "report_meal_shift" có route riêng (-> rescheduling_node), vì đó là
-nhánh duy nhất có ràng buộc HITL cần cấu trúc cứng (xem rescheduling_node.py
-— chỉ event="meal_shift" có new_time cụ thể mới được đụng tới tool). Các
-nhãn còn lại (ask_schedule/ask_drug_info/general) đều route chung vào
-agent_node (chat ReAct loop): nó đã có sẵn CHAT_TOOLS
-(get_scheduled_doses, search_drug_info...) để tự xử lý — viết thêm handler
-riêng cho từng nhãn đó chỉ là trùng lặp logic tool-calling đã có (YAGNI).
-Nhãn vẫn được giữ lại trong state để phục vụ audit log (xem
-src/agents/audit.py), không chỉ để routing.
+"report_meal_shift" đi riêng tới rescheduling_node vì đây là nhánh có ràng
+buộc HITL cấu trúc cứng. "ask_drug_info" đi riêng tới SafeDrugRAG để mọi
+câu trả lời thông tin thuốc bắt buộc retrieval, citation và grounding. Các
+nhãn còn lại mới đi qua agent_node (chat ReAct loop). Nhãn cũng được lưu để
+phục vụ audit log (xem src/agents/audit.py).
 
 LLM phân loại lỗi -> mặc định "general" (fail-open về phía an toàn nhất:
 để agent_node — vốn có system prompt riêng chặn HITL — xử lý, thay vì
 đoán bừa route sang rescheduling).
 """
+
 from __future__ import annotations
 
 from typing import Literal
