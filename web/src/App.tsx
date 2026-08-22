@@ -4,6 +4,7 @@ import { ApiError, api, waitForAgentRun } from "./api";
 import AdminPortal from "./components/admin/AdminPortal";
 import AlertsView from "./components/AlertsView";
 import GuardBanner from "./components/GuardBanner";
+import HomePage from "./components/HomePage";
 import KpiRow from "./components/KpiRow";
 import LoginScreen from "./components/LoginScreen";
 import PatientDrawer from "./components/PatientDrawer";
@@ -35,9 +36,17 @@ const NEXT_THEME: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark
 export default function App() {
   const [session, setLocalSession] = useState<Session | null>(getSession);
   const [, setPathname] = useState(() => window.location.pathname);
+  // Cổng trước đăng nhập: trang chủ trước, form đăng nhập chỉ hiện sau khi bấm nút.
+  const [showLogin, setShowLogin] = useState(false);
 
   // api.ts tự xoá phiên khi refresh token hết hạn — App phải nghe để quay về màn đăng nhập.
   useEffect(() => subscribe(setLocalSession), []);
+
+  // Session rớt về null (hết hạn hoặc logout) thì luôn quay lại trang chủ,
+  // không văng thẳng vào form đăng nhập.
+  useEffect(() => {
+    if (!session) setShowLogin(false);
+  }, [session]);
 
   useEffect(() => {
     const onPopState = () => setPathname(window.location.pathname);
@@ -54,11 +63,19 @@ export default function App() {
     }
   }, [session, setPathname]);
 
-  if (!session) return <LoginScreen />;
+  if (!session) {
+    return showLogin ? (
+      <LoginScreen onBack={() => setShowLogin(false)} />
+    ) : (
+      <HomePage onLogin={() => setShowLogin(true)} />
+    );
+  }
   if (session.user.role === "ADMIN") return <AdminPortal session={session} />;
   if (session.user.role === "DOCTOR") return <Portal session={session} />;
   if (session.user.role === "PATIENT") return <PatientPortal session={session} />;
-  return <LoginScreen />;
+  // Role không hợp lệ nhưng vẫn có session (vd. dữ liệu localStorage cũ) —
+  // xoá phiên và quay lại trang chủ thay vì render vỡ.
+  return <HomePage onLogin={() => setSession(null)} />;
 }
 
 function Portal({ session }: { session: Session }) {
