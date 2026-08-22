@@ -192,7 +192,9 @@ fun RemindRxApp() {
                 LoginScreen(
                     isLoading = authState.isLoading,
                     error = authState.error,
+                    shouldClearPin = authState.shouldClearLoginPin,
                     onInputChanged = authViewModel::clearError,
+                    onPinCleared = authViewModel::consumeClearLoginPin,
                     onLogin = { phone, pin ->
                         authViewModel.login(phone, pin) { isFirstLogin ->
                             val destination = if (isFirstLogin) Routes.CHANGE_PIN else Routes.SESSION_GATE

@@ -4,12 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.remindrx.app.data.repository.AuthRepository
 import com.remindrx.app.data.repository.AuthSession
+import com.remindrx.app.ui.toVietnameseUiMessage
+import com.remindrx.app.ui.validateVnPhone
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -17,6 +20,7 @@ data class AuthUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val session: AuthSession? = null,
+    val shouldClearLoginPin: Boolean = false,
 )
 
 @HiltViewModel
@@ -36,8 +40,8 @@ class AuthViewModel @Inject constructor(
 
     fun login(phone: String, pin: String, onSuccess: (isFirstLogin: Boolean) -> Unit) {
         if (_state.value.isLoading) return
-        if (phone.isBlank()) {
-            _state.update { it.copy(error = "Vui lòng nhập số điện thoại.") }
+        if (!validateVnPhone(phone).ok) {
+            _state.update { it.copy(error = "Số điện thoại không đúng định dạng (VD: 0901234567)") }
             return
         }
         if (!pin.isSixDigitPin()) {
@@ -47,13 +51,23 @@ class AuthViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            runCatching { repository.login(phone, pin) }
+            val startedAt = System.currentTimeMillis()
+            val result = runCatching { repository.login(phone, pin) }
+            val remainingDelay = MIN_LOGIN_DELAY_MS - (System.currentTimeMillis() - startedAt)
+            if (remainingDelay > 0) delay(remainingDelay)
+            result
                 .onSuccess { session ->
                     _state.update { it.copy(isLoading = false, session = session) }
                     onSuccess(session.isFirstLogin)
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isLoading = false, error = error.loginMessage()) }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = error.loginMessage(),
+                            shouldClearLoginPin = error is HttpException && error.code() == 401,
+                        )
+                    }
                 }
         }
     }
@@ -116,7 +130,11 @@ class AuthViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _state.update { it.copy(error = null) }
+        _state.update { it.copy(error = null, shouldClearLoginPin = false) }
+    }
+
+    fun consumeClearLoginPin() {
+        _state.update { it.copy(shouldClearLoginPin = false) }
     }
 
     private fun String.isSixDigitPin(): Boolean = length == 6 && all(Char::isDigit)
@@ -127,7 +145,7 @@ class AuthViewModel @Inject constructor(
         } else {
             "Không thể đăng nhập lúc này. Vui lòng thử lại."
         }
-        else -> "Không kết nối được máy chủ RemindRx."
+        else -> toVietnameseUiMessage(fallback = "Không đăng nhập được, vui lòng thử lại.")
     }
 
     private fun Throwable.changePinMessage(): String = when (this) {
@@ -139,3 +157,5 @@ class AuthViewModel @Inject constructor(
         else -> "Không kết nối được máy chủ RemindRx."
     }
 }
+
+private const val MIN_LOGIN_DELAY_MS = 400L
