@@ -197,6 +197,12 @@ export interface ActiveSchedule {
   doses: ScheduledDoseRow[];
 }
 
+export interface VoiceChatResponse {
+  transcript: string;
+  response: string;
+  audio_base64: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Slice 7 — Adherence & Alerts
 // ---------------------------------------------------------------------------
