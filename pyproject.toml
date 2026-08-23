@@ -14,6 +14,9 @@ dependencies = [
     "pydantic-settings",
     "python-dotenv",
     "langgraph",
+    "numpy>=1.26.0",
+    "openai>=1.0.0",
+    "langdetect>=1.0.9",
 ]
 
 [project.optional-dependencies]

@@ -194,6 +194,31 @@ async def test_medication_decision_short_circuits_before_classify_chat_and_rag()
 
 
 @pytest.mark.asyncio
+async def test_drug_recommendation_is_blocked_before_classify_chat_and_rag():
+    with (
+        patch("src.agents.nodes.classify_intent_node.get_llm") as mock_classify_llm,
+        patch("src.agents.nodes.chat_node.get_llm") as mock_chat_llm,
+        patch("src.agents.nodes.drug_rag_node._get_rag_service") as mock_rag,
+    ):
+        result = await agent.ainvoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content="Tôi không thích ăn rau, có thuốc nào hỗ trợ giấc ngủ không?"
+                    )
+                ],
+                "patient_id": "patient-123",
+            }
+        )
+
+    mock_classify_llm.assert_not_called()
+    mock_chat_llm.assert_not_called()
+    mock_rag.assert_not_called()
+    assert result["safety_blocked"] is True
+    assert "gợi ý thuốc" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
 async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
     """classify_intent -> report_meal_shift -> rescheduling_node, agent_node
     (chat LLM tự do) không bao giờ được gọi."""
@@ -237,12 +262,14 @@ async def test_should_continue_routes_on_tool_calls():
     assert should_continue(without_tool_calls) == "end"
 
 
-def test_rag_tool_is_only_reachable_after_safety_guard():
-    """RAG belongs to CHAT_TOOLS; graph entry remains the deterministic guard."""
+def test_rag_node_is_only_reachable_after_safety_guard():
+    """The deterministic RAG branch remains behind the graph safety gate."""
     from src.agents.graph import build_graph
-    from src.agents.tools import CHAT_TOOLS
 
-    assert "search_drug_formulary" in {tool.name for tool in CHAT_TOOLS}
     graph = build_graph().get_graph()
     start_targets = {edge.target for edge in graph.edges if edge.source == "__start__"}
     assert start_targets == {"safety_guard"}
+    classify_targets = {
+        edge.target for edge in graph.edges if edge.source == "classify_intent"
+    }
+    assert "drug_rag" in classify_targets

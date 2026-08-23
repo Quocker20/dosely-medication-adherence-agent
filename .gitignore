@@ -36,6 +36,8 @@ Thumbs.db
 # Scoped to the dataset dir on purpose — a bare "*.pdf" would silently swallow
 # spec/report PDFs added under docs/.
 /data/**/*.pdf
+/data/ocr/
+/.tools/
 
 # Logs
 logs/

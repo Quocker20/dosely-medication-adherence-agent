@@ -2,6 +2,8 @@
 .gitignore
 .env
 .venv
+.venv313
+.tools
 __pycache__
 *.pyc
 .pytest_cache
@@ -15,3 +17,8 @@ eval/
 .dockerignore
 Dockerfile
 docker-compose.yml
+
+# Keep the production RAG index, exclude OCR sources and alternate indexes.
+data/*
+!data/rag_dense_index_q1_q2/
+!data/rag_dense_index_q1_q2/**
