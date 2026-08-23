@@ -7,8 +7,16 @@ from sqlalchemy import Exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from src.modules.adherence.models import AdherenceLog, Alert, HealthSurvey, SymptomReport
+from src.modules.adherence.models import (
+    AdherenceLog,
+    Alert,
+    HealthSurvey,
+    NotificationDelivery,
+    NotificationDoseItem,
+    SymptomReport,
+)
 from src.modules.agents.models import ScheduledDose
+from src.modules.auth.models import UserDevice
 from src.modules.patients.models import CaregiverLink, PatientProfile
 from src.modules.prescriptions.models import Prescription
 
@@ -143,6 +151,57 @@ class AdherenceLogRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_doses_scoped(
+        self, dose_ids: List[uuid.UUID], patient_id: uuid.UUID
+    ) -> List[ScheduledDose]:
+        """Fetch multiple doses scoped to their owning patient."""
+        if not dose_ids:
+            return []
+        stmt = select(ScheduledDose).where(
+            ScheduledDose.id.in_(dose_ids), ScheduledDose.patient_id == patient_id
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def batch_apply_dose_actions_cas(
+        self,
+        dose_ids: List[uuid.UUID],
+        patient_id: uuid.UUID,
+        action: str,
+        snooze_minutes: Optional[int] = None,
+    ) -> List[ScheduledDose]:
+        """Atomic batch CAS update for multiple doses: updates all rows matching
+        dose_ids that are still PENDING and owned by this patient.
+        Returns the list of updated ScheduledDose rows."""
+        if not dose_ids:
+            return []
+
+        if action == "TAKEN":
+            values: Dict[str, Any] = {"status": "TAKEN", "taken_at": func.now()}
+        elif action == "SKIPPED":
+            values = {"status": "SKIPPED"}
+        elif action == "SNOOZE":
+            values = {
+                "current_scheduled_at": ScheduledDose.current_scheduled_at
+                + timedelta(minutes=snooze_minutes or 0),
+                "snooze_count": ScheduledDose.snooze_count + 1,
+            }
+        else:
+            raise ValueError(f"Unsupported dose action: {action}")
+
+        stmt = (
+            update(ScheduledDose)
+            .where(
+                ScheduledDose.id.in_(dose_ids),
+                ScheduledDose.patient_id == patient_id,
+                ScheduledDose.status == "PENDING",
+            )
+            .values(**values)
+            .returning(ScheduledDose)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def insert_log(
         self,
         patient_id: uuid.UUID,
@@ -167,10 +226,56 @@ class AdherenceLogRepository:
         await self._db.flush()
         return log
 
+    async def insert_batch_logs(
+        self,
+        patient_id: uuid.UUID,
+        action: str,
+        action_source: str,
+        payload: Dict[str, Any],
+        idempotency_key: str,
+        scheduled_dose_ids: List[uuid.UUID],
+    ) -> List[AdherenceLog]:
+        """Insert adherence logs for multiple doses under a single batch request.
+        Suffixes the idempotency_key per dose (e.g. key:dose_id) to respect
+        unique constraint while guaranteeing idempotency."""
+        logs: List[AdherenceLog] = []
+        for dose_id in scheduled_dose_ids:
+            key = f"{idempotency_key}:{dose_id}"
+            log = AdherenceLog(
+                scheduled_dose_id=dose_id,
+                patient_id=patient_id,
+                action=action,
+                action_source=action_source,
+                payload=payload,
+                idempotency_key=key,
+            )
+            self._db.add(log)
+            logs.append(log)
+        await self._db.flush()
+        return logs
+
     async def get_log_by_idempotency_key(self, idempotency_key: str) -> Optional[AdherenceLog]:
         stmt = select(AdherenceLog).where(AdherenceLog.idempotency_key == idempotency_key)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_batch_logs_by_idempotency_key(
+        self, idempotency_key: str
+    ) -> List[AdherenceLog]:
+        """Fetch all adherence logs matching idempotency_key prefix."""
+        prefix = f"{idempotency_key}:%"
+        stmt = (
+            select(AdherenceLog)
+            .where(
+                or_(
+                    AdherenceLog.idempotency_key == idempotency_key,
+                    AdherenceLog.idempotency_key.like(prefix),
+                )
+            )
+            .order_by(AdherenceLog.created_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_dose_status_counts(
         self,
@@ -421,3 +526,82 @@ class AlertRepository:
         result = await self._db.execute(stmt)
         items = list(result.scalars().all())
         return items, total_count
+
+
+class NotificationRepository:
+    """Repository handling notification deliveries and dose junction items."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create_grouped_delivery(
+        self,
+        recipient_user_id: uuid.UUID,
+        channel: str,
+        template_code: str,
+        scheduled_at: datetime,
+        title: str,
+        body: str,
+        scheduled_dose_ids: List[uuid.UUID],
+        metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> NotificationDelivery:
+        """Create a consolidated notification delivery linked to multiple scheduled doses."""
+        delivery = NotificationDelivery(
+            recipient_user_id=recipient_user_id,
+            channel=channel,
+            template_code=template_code,
+            title=title,
+            body=body,
+            delivery_metadata=metadata or {},
+            scheduled_at=scheduled_at,
+            idempotency_key=idempotency_key,
+            status="QUEUED",
+        )
+        self._db.add(delivery)
+        await self._db.flush()
+
+        for dose_id in scheduled_dose_ids:
+            item = NotificationDoseItem(
+                notification_delivery_id=delivery.id,
+                scheduled_dose_id=dose_id,
+            )
+            self._db.add(item)
+        await self._db.flush()
+        return delivery
+
+    async def get_delivery_by_id(
+        self, delivery_id: uuid.UUID
+    ) -> Optional[NotificationDelivery]:
+        stmt = select(NotificationDelivery).where(NotificationDelivery.id == delivery_id)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_delivery_by_idempotency_key(
+        self, idempotency_key: str
+    ) -> Optional[NotificationDelivery]:
+        stmt = select(NotificationDelivery).where(
+            NotificationDelivery.idempotency_key == idempotency_key
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> List[str]:
+        stmt = select(UserDevice.fcm_token).where(
+            UserDevice.user_id == user_id,
+            UserDevice.is_active == True,
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_delivery_status(self, delivery_id: uuid.UUID, status: str) -> None:
+        stmt = (
+            update(NotificationDelivery)
+            .where(NotificationDelivery.id == delivery_id)
+            .values(
+                status=status,
+                sent_at=func.now() if status in ("SENT", "DELIVERED") else None,
+            )
+        )
+        await self._db.execute(stmt)
+
