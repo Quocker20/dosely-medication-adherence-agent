@@ -1,0 +1,9 @@
+[
+  {"id":"greeting","input":"Xin chào","expected":"greeting"},
+  {"id":"capability","input":"Hello, bạn làm được gì?","expected":"capability"},
+  {"id":"food","input":"Hôm nay tôi ăn gì vào buổi tối?","expected":"out_of_scope"},
+  {"id":"geography","input":"Hoàng Sa Trường Sa là của nước nào?","expected":"out_of_scope"},
+  {"id":"missing-name","input":"Thuốc này có tác dụng gì?","expected":"needs_drug_name"},
+  {"id":"drug-explicit","input":"Thuốc paracetamol có công dụng gì?","expected":"drug_query"},
+  {"id":"drug-known","input":"Paracetamol làm được gì?","expected":"drug_query","recognized_drug":true}
+]
