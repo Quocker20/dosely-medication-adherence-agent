@@ -20,8 +20,15 @@ class AgentState(TypedDict, total=False):
     # True khi safety_guard_node đã escalate (Red Alert) ở turn này — graph
     # dùng field này để ngắt, không đi tiếp vào agent_node bình thường.
     escalated: bool
+    # Deterministic medication-policy gate. When true, graph ends before any
+    # intent classifier, chat model, tool, or retrieval call.
+    safety_blocked: bool
+    safety_reason: str
     # Nhãn do classify_intent_node gán — graph dùng để route sang
     # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
     intent: str
+    # Result of SafeDrugRAG's citation and factual-grounding validation.
+    grounding_valid: bool
+    grounding_errors: list[str]
     error: str
     metadata: dict
