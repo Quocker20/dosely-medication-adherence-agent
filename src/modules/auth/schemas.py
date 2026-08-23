@@ -52,3 +52,10 @@ class MessageResponse(BaseModel):
     """Simple message response schema."""
 
     message: str
+
+
+class DeviceTokenRequest(BaseModel):
+    """Request schema for registering/updating FCM device token."""
+
+    fcm_token: str = Field(..., max_length=255)
+    device_name: str | None = Field(None, max_length=100)
