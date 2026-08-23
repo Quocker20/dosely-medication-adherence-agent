@@ -321,6 +321,28 @@ async def test_roster_search_and_alert_status_filters(client):
 
 
 @pytest.mark.asyncio
+async def test_roster_filters_by_adherence_band(client):
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    low_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân thấp")
+    high_id = await _create_patient("0900000019", "Bệnh nhân cao")
+    low_rx = await _create_prescription(low_id, doctor_id)
+    high_rx = await _create_prescription(high_id, doctor_id)
+    await _add_doses(low_id, low_rx, ["TAKEN", "MISSED"])
+    await _add_doses(high_id, high_rx, ["TAKEN", "TAKEN"])
+    headers = await _login(client, DOCTOR_PHONE)
+
+    low = await client.get(
+        "/api/v1/dashboard/patients", params={"adherenceBand": "LOW"}, headers=headers
+    )
+    high = await client.get(
+        "/api/v1/dashboard/patients", params={"adherenceBand": "HIGH"}, headers=headers
+    )
+
+    assert [row["patient_id"] for row in low.json()["data"]["content"]] == [str(low_id)]
+    assert [row["patient_id"] for row in high.json()["data"]["content"]] == [str(high_id)]
+
+
+@pytest.mark.asyncio
 async def test_admin_sees_patients_across_all_doctors(client):
     doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
     await _create_admin(ADMIN_PHONE)
