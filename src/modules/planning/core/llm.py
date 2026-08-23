@@ -1,12 +1,23 @@
+from typing import Any
+
 from langchain_openai import ChatOpenAI
 
 from src.core.config import get_settings
 
 
-def get_llm(temperature: float | None = None) -> ChatOpenAI:
+def get_llm(
+    temperature: float | None = None,
+    model: str | None = None,
+    **kwargs: Any,
+) -> ChatOpenAI:
     settings = get_settings()
-    return ChatOpenAI(
-        model=settings.model_name,
-        api_key=settings.openai_api_key,
-        temperature=settings.llm_temperature if temperature is None else temperature,
-    )
+    temp = settings.llm_temperature if temperature is None else temperature
+    client_kwargs: dict[str, Any] = {
+        "model": model or settings.model_name,
+        "api_key": settings.openai_api_key or None,
+        "temperature": temp,
+        **kwargs,
+    }
+    if settings.openai_base_url:
+        client_kwargs["base_url"] = settings.openai_base_url
+    return ChatOpenAI(**client_kwargs)
