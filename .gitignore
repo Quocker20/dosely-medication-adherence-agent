@@ -83,11 +83,17 @@ CLAUDE.md
 .claude/*
 !.claude/settings.json
 
-# Appetize.io embed config (contains a per-build publicKey, not meant to be shared globally)
-web/public/emulator/config.js
+# Android local SDK config (machine-specific)
+android/local.properties
+local.properties
 
-# Firebase secrets — never commit private keys
-firebase-adminsdk*.json
+# Scratch analysis documents (not meant for main repository)
+adhere-mind-drive-analysis*.md
+adheremind-ui.html
+db-sample.sql
+docs/escalation-rules-srs.md
+
+
 
 # Celery Beat schedule files (auto-generated, machine-specific)
 celerybeat-schedule.bak
