@@ -1,86 +1,51 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, waitForAgentRun } from "./api";
-import AdminPortal from "./components/admin/AdminPortal";
-import AlertsView from "./components/AlertsView";
-import GuardBanner from "./components/GuardBanner";
-import HomePage from "./components/HomePage";
-import KpiRow from "./components/KpiRow";
-import LoginScreen from "./components/LoginScreen";
-import PatientDrawer from "./components/PatientDrawer";
-import PatientPortal from "./components/patient/PatientPortal";
-import PatientTable from "./components/PatientTable";
-import PrescriptionView from "./components/PrescriptionView";
-import Sidebar from "./components/Sidebar";
-import { isoDate } from "./lib/labels";
-import { getSession, setSession, subscribe, type Session } from "./session";
+import { ApiError, api, waitForAgentRun } from "../../api";
+import GuardBanner from "../../components/shared/GuardBanner";
+import { useTheme } from "../../hooks/useTheme";
+import { useToasts } from "../../hooks/useToasts";
+import { setSession, type Session } from "../../session";
 import type {
   ActiveSchedule,
   AlertDetail,
   DashboardPatientDetail,
   DashboardPatientListItem,
   PatientRoutine,
-} from "./types";
+} from "../../types";
+import { isoDate, paginationRange } from "../../utils/labels";
+import AlertsView from "./components/AlertsView";
+import KpiRow from "./components/KpiRow";
+import PatientDrawer from "./components/PatientDrawer";
+import PatientTable from "./components/PatientTable";
+import PrescriptionView from "./components/PrescriptionView";
+import Sidebar from "./components/Sidebar";
 
-export type ViewName = "dashboard" | "alerts" | "rx";
-export type ThemeMode = "system" | "light" | "dark";
+export type ViewName = "dashboard" | "patients" | "alerts" | "rx";
 
 const TITLES: Record<ViewName, [string, string]> = {
-  dashboard: ["Dashboard theo dõi", "Theo dõi tuân thủ điều trị theo thời gian thực"],
+  dashboard: ["Dashboard", "Tổng quan tuân thủ điều trị theo thời gian thực"],
+  patients: ["Danh sách bệnh nhân", "Tìm kiếm và theo dõi bệnh nhân đang điều trị"],
   alerts: ["Cảnh báo khẩn", "Closed-loop Red Alert · chỉ bác sĩ được đóng cảnh báo"],
   rx: ["Kê đơn thuốc điện tử", "Đơn phải được bác sĩ duyệt trước khi sinh lịch nhắc"],
 };
 
-const NEXT_THEME: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
+const ALERT_FILTERS: { value: string; label: string }[] = [
+  { value: "", label: "Tất cả trạng thái" },
+  { value: "OPEN", label: "Đang mở" },
+  { value: "ACKNOWLEDGED", label: "Đã tiếp nhận" },
+  { value: "RESOLVED", label: "Đã đóng" },
+];
 
-export default function App() {
-  const [session, setLocalSession] = useState<Session | null>(getSession);
-  const [, setPathname] = useState(() => window.location.pathname);
-  // Cổng trước đăng nhập: trang chủ trước, form đăng nhập chỉ hiện sau khi bấm nút.
-  const [showLogin, setShowLogin] = useState(false);
+const ADHERENCE_FILTERS = [
+  { value: "", label: "Mọi mức tuân thủ" },
+  { value: "LOW", label: "Tuân thủ dưới 50%" },
+  { value: "MEDIUM", label: "Tuân thủ 50–69%" },
+  { value: "HIGH", label: "Tuân thủ từ 70%" },
+];
 
-  // api.ts tự xoá phiên khi refresh token hết hạn — App phải nghe để quay về màn đăng nhập.
-  useEffect(() => subscribe(setLocalSession), []);
-
-  // Session rớt về null (hết hạn hoặc logout) thì luôn quay lại trang chủ,
-  // không văng thẳng vào form đăng nhập.
-  useEffect(() => {
-    if (!session) setShowLogin(false);
-  }, [session]);
-
-  useEffect(() => {
-    const onPopState = () => setPathname(window.location.pathname);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-
-  useEffect(() => {
-    if (!session) return;
-    const expected = session.user.role === "ADMIN" ? "/admin/" : session.user.role === "PATIENT" ? "/patient/" : "/doctor/";
-    if (window.location.pathname !== expected) {
-      window.history.replaceState({}, "", expected);
-      setPathname(expected);
-    }
-  }, [session, setPathname]);
-
-  if (!session) {
-    return showLogin ? (
-      <LoginScreen onBack={() => setShowLogin(false)} />
-    ) : (
-      <HomePage onLogin={() => setShowLogin(true)} />
-    );
-  }
-  if (session.user.role === "ADMIN") return <AdminPortal session={session} />;
-  if (session.user.role === "DOCTOR") return <Portal session={session} />;
-  if (session.user.role === "PATIENT") return <PatientPortal session={session} />;
-  // Role không hợp lệ nhưng vẫn có session (vd. dữ liệu localStorage cũ) —
-  // xoá phiên và quay lại trang chủ thay vì render vỡ.
-  return <HomePage onLogin={() => setSession(null)} />;
-}
-
-function Portal({ session }: { session: Session }) {
+export default function DoctorPortal({ session }: { session: Session }) {
   const [view, setView] = useState<ViewName>("dashboard");
-  const [theme, setTheme] = useState<ThemeMode>("system");
+  const { theme, cycleTheme } = useTheme();
 
   const [patients, setPatients] = useState<DashboardPatientListItem[]>([]);
   const [totalPatients, setTotalPatients] = useState(0);
@@ -94,33 +59,35 @@ function Portal({ session }: { session: Session }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerBusy, setDrawerBusy] = useState(false);
   const [patientSearch, setPatientSearch] = useState("");
+  const [debouncedPatientSearch, setDebouncedPatientSearch] = useState("");
   const [alertFilter, setAlertFilter] = useState("");
+  const [adherenceFilter, setAdherenceFilter] = useState("");
   const [patientPage, setPatientPage] = useState(1);
 
   const [rxPhone, setRxPhone] = useState("");
   const [alertBusyId, setAlertBusyId] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
-
-  const toast = useCallback((text: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((current) => [...current, { id, text }]);
-    setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 2600);
-  }, []);
+  const { toasts, notify: toast } = useToasts(2600);
 
   const refresh = useCallback(async () => {
     const [patientPageResult, alertPage] = await Promise.all([
       api.dashboardPatients({
         page: patientPage,
         size: 20,
-        search: patientSearch,
+        search: debouncedPatientSearch,
         alertStatus: alertFilter || undefined,
+        adherenceBand: adherenceFilter || undefined,
       }),
       api.alerts({ size: 50, status: alertFilter || undefined }),
     ]);
     setPatients(patientPageResult.content);
     setTotalPatients(patientPageResult.total_elements);
     setAlerts(alertPage.content);
-  }, [alertFilter, patientPage, patientSearch]);
+  }, [adherenceFilter, alertFilter, debouncedPatientSearch, patientPage]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedPatientSearch(patientSearch), 300);
+    return () => window.clearTimeout(timer);
+  }, [patientSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,12 +139,6 @@ function Portal({ session }: { session: Session }) {
 
     return () => socket.close();
   }, [session.accessToken, refresh]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
-  }, [theme]);
 
   async function openPatient(patientId: string) {
     setDrawerOpen(true);
@@ -261,6 +222,7 @@ function Portal({ session }: { session: Session }) {
     (alert) => alert.status === "OPEN" || alert.status === "ACKNOWLEDGED",
   ).length;
   const watching = patients.filter((p) => p.open_alerts_count === 0 && p.adherence_rate < 70).length;
+  const activeFilterCount = Number(Boolean(alertFilter)) + Number(Boolean(adherenceFilter));
   const [title, subtitle] = TITLES[view];
 
   return (
@@ -273,7 +235,7 @@ function Portal({ session }: { session: Session }) {
           theme={theme}
           user={session.user}
           onView={setView}
-          onTheme={() => setTheme((current) => NEXT_THEME[current])}
+          onTheme={cycleTheme}
           onLogout={logout}
         />
 
@@ -282,54 +244,8 @@ function Portal({ session }: { session: Session }) {
             <div>
               <h1>{title}</h1>
               <p className="topbar-meta">
-                {view === "dashboard" ? `${totalPatients} bệnh nhân đang điều trị · ` : ""}
                 {subtitle}
               </p>
-            </div>
-            <div className="topbar-actions">
-              <input
-                className="topbar-search"
-                aria-label="Tìm bệnh nhân"
-                placeholder="Tìm bệnh nhân / SĐT"
-                value={patientSearch}
-                onChange={(event) => {
-                  setPatientPage(1);
-                  setPatientSearch(event.target.value);
-                }}
-              />
-              <select
-                aria-label="Lọc cảnh báo"
-                value={alertFilter}
-                onChange={(event) => {
-                  setPatientPage(1);
-                  setAlertFilter(event.target.value);
-                }}
-              >
-                <option value="">Tất cả trạng thái</option>
-                <option value="OPEN">Đang mở</option>
-                <option value="ACKNOWLEDGED">Đã tiếp nhận</option>
-                <option value="RESOLVED">Đã đóng</option>
-              </select>
-              <button
-                className="btn sm"
-                onClick={() => {
-                  refresh()
-                    .then(() => toast("Đã đồng bộ dữ liệu mới nhất"))
-                    .catch((error) =>
-                      toast(error instanceof ApiError ? error.message : "Không đồng bộ được dữ liệu"),
-                    );
-                }}
-              >
-                ↻ Làm mới
-              </button>
-              <span className={`pill ${liveAlerts ? "crit" : "ok"}`}>
-                <span className="dot" />
-                {liveAlerts} cảnh báo chưa xong
-              </span>
-              <span className="pill warn">
-                <span className="dot" />
-                {watching} cần theo dõi
-              </span>
             </div>
           </header>
 
@@ -348,20 +264,6 @@ function Portal({ session }: { session: Session }) {
           {view === "dashboard" && (
             <section className="view">
               <KpiRow patients={patients} alerts={alerts} totalPatients={totalPatients} loading={loading} />
-              <PatientTable patients={patients} onOpen={openPatient} />
-              <div className="row-actions pagination">
-                <button className="btn sm" disabled={patientPage <= 1} onClick={() => setPatientPage((page) => page - 1)}>
-                  ← Trang trước
-                </button>
-                <span className="rail-note">Trang {patientPage}</span>
-                <button
-                  className="btn sm"
-                  disabled={totalPatients <= patientPage * 20}
-                  onClick={() => setPatientPage((page) => page + 1)}
-                >
-                  Trang sau →
-                </button>
-              </div>
               <GuardBanner title="Ranh giới của AI trong hệ thống này">
                 <li>
                   Planning Agent chỉ <b>tính giờ nhắc</b> từ đơn đã được bác sĩ duyệt và lịch sinh hoạt bệnh nhân.
@@ -373,6 +275,139 @@ function Portal({ session }: { session: Session }) {
                   Xung đột không giải được thì agent dừng và giữ nguyên lịch cũ, không tự suy đoán.
                 </li>
               </GuardBanner>
+            </section>
+          )}
+
+          {view === "patients" && (
+            <section className="view">
+              <div className="dashboard-toolbar">
+                <div className="search-box">
+                  <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                    <circle cx="6.8" cy="6.8" r="4.3" />
+                    <path d="M10.2 10.2 14 14" strokeLinecap="round" />
+                  </svg>
+                  <input
+                    aria-label="Tìm bệnh nhân"
+                    placeholder="Tìm bệnh nhân / SĐT"
+                    value={patientSearch}
+                    onChange={(event) => {
+                      setPatientPage(1);
+                      setPatientSearch(event.target.value);
+                    }}
+                  />
+                </div>
+                <details className="dashboard-filter">
+                  <summary>
+                    <span aria-hidden="true">☷</span> Bộ lọc
+                    {activeFilterCount > 0 && <em>{activeFilterCount}</em>}
+                  </summary>
+                  <div className="dashboard-filter-menu">
+                    <label>
+                      <span>Trạng thái cảnh báo</span>
+                      <select
+                        aria-label="Lọc cảnh báo"
+                        value={alertFilter}
+                        onChange={(event) => {
+                          setPatientPage(1);
+                          setAlertFilter(event.target.value);
+                        }}
+                      >
+                        {ALERT_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Mức tuân thủ</span>
+                      <select
+                        aria-label="Lọc theo mức tuân thủ"
+                        value={adherenceFilter}
+                        onChange={(event) => {
+                          setPatientPage(1);
+                          setAdherenceFilter(event.target.value);
+                        }}
+                      >
+                        {ADHERENCE_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
+                      </select>
+                    </label>
+                    <div className="dashboard-filter-actions">
+                      <button
+                        type="button"
+                        className="btn sm"
+                        disabled={activeFilterCount === 0}
+                        onClick={() => {
+                          setPatientPage(1);
+                          setAlertFilter("");
+                          setAdherenceFilter("");
+                        }}
+                      >
+                        Đặt lại
+                      </button>
+                      <button
+                        type="button"
+                        className="btn primary sm"
+                        onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+                      >
+                        Xong
+                      </button>
+                    </div>
+                  </div>
+                </details>
+                <span className={`pill ${liveAlerts ? "crit" : "ok"}`}>
+                  <span className="dot" />
+                  {liveAlerts} cảnh báo chưa xong
+                </span>
+                <span className="pill warn">
+                  <span className="dot" />
+                  {watching} cần theo dõi
+                </span>
+              </div>
+              <PatientTable
+                patients={patients}
+                onOpen={openPatient}
+                onRefresh={() => {
+                  refresh()
+                    .then(() => toast("Đã đồng bộ dữ liệu mới nhất"))
+                    .catch((error) =>
+                      toast(error instanceof ApiError ? error.message : "Không đồng bộ được dữ liệu"),
+                    );
+                }}
+                onAdd={() => {
+                  setRxPhone("");
+                  setView("rx");
+                }}
+                selectedPatientId={drawerOpen ? (detail?.patient.user_id ?? null) : null}
+              />
+              <nav className="row-actions pager" aria-label="Phân trang bệnh nhân">
+                <button
+                  className="pager-btn"
+                  disabled={patientPage <= 1}
+                  onClick={() => setPatientPage((page) => page - 1)}
+                >
+                  ← Trước
+                </button>
+                {paginationRange(patientPage, Math.max(1, Math.ceil(totalPatients / 20))).map((item, index) =>
+                  item === "ellipsis" ? (
+                    <span key={`ellip-${index}`} className="pager-ellip">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      className={`pager-btn ${item === patientPage ? "active" : ""}`}
+                      aria-current={item === patientPage}
+                      onClick={() => setPatientPage(item)}
+                    >
+                      {item}
+                    </button>
+                  ),
+                )}
+                <button
+                  className="pager-btn"
+                  disabled={totalPatients <= patientPage * 20}
+                  onClick={() => setPatientPage((page) => page + 1)}
+                >
+                  Sau →
+                </button>
+              </nav>
             </section>
           )}
 

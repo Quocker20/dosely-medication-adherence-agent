@@ -1,0 +1,115 @@
+/* Design tokens của portal RemindRx. Sáng/tối đều đi qua biến, không hardcode
+   màu trong component. */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --line: #edf0f2;
+  --line-2: #dde2e7;
+  --text: #1a1f24;
+  --text-2: #6b7280;
+  --accent: #0f74ba;
+  --accent-2: #0b5990;
+  --accent-soft: #e6f2fb;
+  --crit: #c0261c;
+  --crit-soft: #fdecea;
+  --crit-line: #f5c6c0;
+  --warn: #9a6300;
+  --warn-soft: #fdf3dd;
+  --warn-line: #f0dbab;
+  --ok: #1a7a4d;
+  --ok-soft: #e3f6ec;
+  --ok-line: #c2e6d1;
+  --on-accent: #ffffff;
+  --on-crit: #ffffff;
+  --shadow: 0 1px 2px rgba(15, 23, 28, 0.04), 0 10px 32px -16px rgba(15, 23, 28, 0.1);
+  --radius: 10px;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, "SF Mono", "Roboto Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f14;
+    --surface: #12171d;
+    --surface-2: #1a2128;
+    --line: #232b33;
+    --line-2: #313b45;
+    --text: #eef1f4;
+    --text-2: #93a0ad;
+    --accent: #5ab8f2;
+    --accent-2: #86cbf5;
+    --accent-soft: #10222c;
+    --crit: #f2948a;
+    --crit-soft: #2c1613;
+    --crit-line: #4d251f;
+    --warn: #e6c065;
+    --warn-soft: #2b2211;
+    --warn-line: #4c3c18;
+    --ok: #63d199;
+    --ok-soft: #11291e;
+    --ok-line: #204630;
+    --on-accent: #08222e;
+    --on-crit: #2b0e0a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --surface: #12171d;
+  --surface-2: #1a2128;
+  --line: #232b33;
+  --line-2: #313b45;
+  --text: #eef1f4;
+  --text-2: #93a0ad;
+  --accent: #5ab8f2;
+  --accent-2: #86cbf5;
+  --accent-soft: #10222c;
+  --crit: #f2948a;
+  --crit-soft: #2c1613;
+  --crit-line: #4d251f;
+  --warn: #e6c065;
+  --warn-soft: #2b2211;
+  --warn-line: #4c3c18;
+  --ok: #63d199;
+  --ok-soft: #11291e;
+  --ok-line: #204630;
+  --on-accent: #08222e;
+  --on-crit: #2b0e0a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --line: #edf0f2;
+  --line-2: #dde2e7;
+  --text: #1a1f24;
+  --text-2: #6b7280;
+  --accent: #0f74ba;
+  --accent-2: #0b5990;
+  --accent-soft: #e6f2fb;
+  --crit: #c0261c;
+  --crit-soft: #fdecea;
+  --crit-line: #f5c6c0;
+  --warn: #9a6300;
+  --warn-soft: #fdf3dd;
+  --warn-line: #f0dbab;
+  --ok: #1a7a4d;
+  --ok-soft: #e3f6ec;
+  --ok-line: #c2e6d1;
+  --on-accent: #ffffff;
+  --on-crit: #ffffff;
+  --shadow: 0 1px 2px rgba(15, 23, 28, 0.04), 0 10px 32px -16px rgba(15, 23, 28, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}

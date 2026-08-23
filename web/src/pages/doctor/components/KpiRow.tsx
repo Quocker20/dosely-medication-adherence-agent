@@ -1,5 +1,5 @@
-import { adherenceTone } from "../lib/labels";
-import type { AlertDetail, DashboardPatientListItem } from "../types";
+import { adherenceTone } from "../../../utils/labels";
+import type { AlertDetail, DashboardPatientListItem } from "../../../types";
 
 interface Props {
   patients: DashboardPatientListItem[];

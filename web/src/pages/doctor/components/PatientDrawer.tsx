@@ -7,8 +7,8 @@ import {
   alertTriggerLabel,
   formatDateTime,
   patientDisplayName,
-} from "../lib/labels";
-import type { ActiveSchedule, DashboardPatientDetail, PatientRoutine } from "../types";
+} from "../../../utils/labels";
+import type { ActiveSchedule, DashboardPatientDetail, PatientRoutine } from "../../../types";
 
 interface Props {
   detail: DashboardPatientDetail | null;
