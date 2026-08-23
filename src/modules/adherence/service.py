@@ -26,6 +26,8 @@ from src.modules.adherence.schemas import (
     AdherenceLogDetailResponse,
     AdherenceSummaryResponse,
     AlertDetailResponse,
+    BatchRecordDoseActionRequest,
+    BatchRecordDoseActionResponse,
     HealthSurveyDetailResponse,
     RecordDoseActionRequest,
     ResolveAlertRequest,
@@ -157,6 +159,90 @@ class AdherenceLogService:
         # happened. publish_dashboard_event is fail-open, so a Redis outage
         # costs the portal its liveness and not the clinical write.
         await publish_dashboard_event("adherence.updated", response.model_dump(mode="json"))
+        return response
+
+    async def batch_record_dose_action(
+        self,
+        request: BatchRecordDoseActionRequest,
+        actor_payload: dict,
+        idempotency_key: Optional[str],
+    ) -> BatchRecordDoseActionResponse:
+        """PATIENT only, scoped to the patient's own doses.
+        Executes a synchronized dose action (TAKEN/SNOOZE/SKIPPED) across multiple doses.
+        Idempotency-Key header is required."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if not idempotency_key or not idempotency_key.strip():
+            raise ValidationException(message="Idempotency-Key header is required")
+
+        existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
+        if existing_logs:
+            log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
+            dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+            return BatchRecordDoseActionResponse(
+                patient_id=actor_id,
+                action=existing_logs[0].action,
+                updated_dose_count=len(dose_ids),
+                updated_dose_ids=dose_ids,
+                logs=log_responses,
+            )
+
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        snooze_minutes = (
+            self._resolve_snooze_minutes(request.payload)
+            if request.action == "SNOOZE"
+            else None
+        )
+
+        try:
+            async with self._db.begin():
+                updated_doses = await self._repo.batch_apply_dose_actions_cas(
+                    request.dose_ids, actor_id, request.action, snooze_minutes
+                )
+                if not updated_doses:
+                    existing_doses = await self._repo.get_doses_scoped(
+                        request.dose_ids, actor_id
+                    )
+                    if not existing_doses:
+                        raise NotFoundException(message="Scheduled doses not found")
+                    raise ConflictException(message="None of the scheduled doses are pending")
+
+                updated_dose_ids = [d.id for d in updated_doses]
+                logs = await self._repo.insert_batch_logs(
+                    patient_id=actor_id,
+                    action=request.action,
+                    action_source=request.action_source,
+                    payload=request.payload,
+                    idempotency_key=idempotency_key,
+                    scheduled_dose_ids=updated_dose_ids,
+                )
+        except IntegrityError:
+            existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
+            if existing_logs:
+                log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
+                dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+                return BatchRecordDoseActionResponse(
+                    patient_id=actor_id,
+                    action=existing_logs[0].action,
+                    updated_dose_count=len(dose_ids),
+                    updated_dose_ids=dose_ids,
+                    logs=log_responses,
+                )
+            raise
+
+        log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in logs]
+        response = BatchRecordDoseActionResponse(
+            patient_id=actor_id,
+            action=request.action,
+            updated_dose_count=len(updated_doses),
+            updated_dose_ids=[d.id for d in updated_doses],
+            logs=log_responses,
+        )
+
+        for l_resp in log_responses:
+            await publish_dashboard_event("adherence.updated", l_resp.model_dump(mode="json"))
+
         return response
 
     async def get_adherence_summary(

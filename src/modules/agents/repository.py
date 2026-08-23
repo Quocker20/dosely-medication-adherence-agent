@@ -506,3 +506,48 @@ class ScheduledDoseRepository:
         for patient_id, status in result.all():
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped
+
+    async def get_due_dose_groups(
+        self, cutoff: datetime
+    ) -> Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]]:
+        """Fetch all PENDING doses due at or before cutoff, grouped by
+        (patient_id, current_scheduled_at). Each group contains the individual
+        scheduled doses with medication display name and dosage snapshot,
+        ready for consolidating into a single push notification delivery."""
+        stmt = (
+            select(ScheduledDose, PrescriptionItem.display_name)
+            .join(
+                PrescriptionItem,
+                ScheduledDose.prescription_item_id == PrescriptionItem.id,
+            )
+            .where(
+                ScheduledDose.status == "PENDING",
+                ScheduledDose.current_scheduled_at <= cutoff,
+            )
+            .order_by(
+                ScheduledDose.patient_id,
+                ScheduledDose.current_scheduled_at,
+                ScheduledDose.id,
+            )
+        )
+        result = await self._db.execute(stmt)
+        grouped: Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]] = {}
+        for dose, medication_name in result.all():
+            key = (dose.patient_id, dose.current_scheduled_at)
+            grouped.setdefault(key, []).append(
+                {
+                    "scheduled_dose_id": dose.id,
+                    "prescription_item_id": dose.prescription_item_id,
+                    "medication_id": dose.medication_id,
+                    "medication_name": medication_name,
+                    "current_scheduled_at": dose.current_scheduled_at,
+                    "dose_slot": dose.dose_slot,
+                    "dose_value": dose.dose_value,
+                    "dose_unit": dose.dose_unit,
+                    "meal_relation": dose.meal_relation,
+                    "snooze_count": dose.snooze_count,
+                    "status": dose.status,
+                }
+            )
+        return grouped
+
