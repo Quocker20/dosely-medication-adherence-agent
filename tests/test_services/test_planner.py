@@ -10,7 +10,7 @@ from src.modules.agents.planner import FrequencyGuardrailError, PlannableItem, v
 def _item(**overrides) -> PlannableItem:
     defaults = dict(
         id=uuid.uuid4(),
-        medication_id=None,
+        medication_id=uuid.uuid4(),
         dose_unit="tablet",
         morning_dose=Decimal("1"),
         noon_dose=None,
