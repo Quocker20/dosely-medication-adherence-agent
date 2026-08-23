@@ -1,5 +1,6 @@
-import type { ThemeMode, ViewName } from "../App";
-import type { UserResponse } from "../types";
+import { THEME_LABEL, type ThemeMode } from "../../../hooks/useTheme";
+import type { UserResponse } from "../../../types";
+import type { ViewName } from "../DoctorPortal";
 
 interface Props {
   view: ViewName;
@@ -11,12 +12,6 @@ interface Props {
   onTheme: () => void;
   onLogout: () => void;
 }
-
-const THEME_LABEL: Record<ThemeMode, string> = {
-  system: "theo hệ thống",
-  light: "sáng",
-  dark: "tối",
-};
 
 export default function Sidebar({
   view,
@@ -38,16 +33,6 @@ export default function Sidebar({
         </div>
       </div>
 
-      <div className="doctor">
-        <div className="avatar">{user?.role === "ADMIN" ? "AD" : "BS"}</div>
-        <div>
-          <div className="doctor-name">{user?.phone ?? "—"}</div>
-          <div className="doctor-role">
-            {user?.role ?? "—"} · {patientsTotal} bệnh nhân
-          </div>
-        </div>
-      </div>
-
       <nav>
         <div className="nav-group">
           <div className="eyebrow">Theo dõi</div>
@@ -59,6 +44,14 @@ export default function Sidebar({
               <rect x="9" y="8" width="5" height="6" rx="1" />
             </svg>
             Dashboard
+          </button>
+          <button className="nav-item" aria-current={view === "patients"} onClick={() => onView("patients")}>
+            <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <circle cx="6" cy="5" r="2.3" />
+              <path d="M2 13c.3-2.6 1.7-4 4-4s3.7 1.4 4 4M10.8 3.5a2.1 2.1 0 0 1 0 4M11.5 9.3c1.5.4 2.3 1.6 2.5 3.7" strokeLinecap="round" />
+            </svg>
+            Bệnh nhân
+            {patientsTotal > 0 && <span className="count muted">{patientsTotal}</span>}
           </button>
           <button className="nav-item" aria-current={view === "alerts"} onClick={() => onView("alerts")}>
             <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
@@ -83,6 +76,16 @@ export default function Sidebar({
       </nav>
 
       <div className="rail-foot">
+        <div className="rail-hitl-card">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M8 1.5 13 3.4v3.9c0 3.2-2 5.8-5 7.2-3-1.4-5-4-5-7.2V3.4z" strokeLinejoin="round" />
+            <path d="m5.8 8 1.4 1.4 3-3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div>
+            <b>Ràng buộc HITL</b>
+            <small>Thay đổi phác đồ cần bác sĩ duyệt.</small>
+          </div>
+        </div>
         <button className="theme-toggle" onClick={onTheme}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden="true">
             <circle cx="8" cy="8" r="3.2" />
@@ -93,10 +96,18 @@ export default function Sidebar({
           </svg>
           <span>Giao diện: {THEME_LABEL[theme]}</span>
         </button>
-        <button className="btn ghost sm" style={{ width: "100%" }} onClick={onLogout}>
-          Đăng xuất
-        </button>
-        <p className="rail-note">Mọi thay đổi phác đồ đều cần bác sĩ duyệt (HITL).</p>
+        <div className="doctor rail-profile">
+          <div className="avatar">{user?.role === "ADMIN" ? "AD" : "BS"}</div>
+          <div className="rail-profile-copy">
+            <div className="doctor-name">Bác sĩ phụ trách</div>
+            <div className="doctor-role">{user?.phone ?? "—"} · {patientsTotal} bệnh nhân</div>
+          </div>
+          <button className="rail-logout" aria-label="Đăng xuất" title="Đăng xuất" onClick={onLogout}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M6.5 2.5H3.8A1.3 1.3 0 0 0 2.5 3.8v8.4a1.3 1.3 0 0 0 1.3 1.3h2.7M9.5 5l3 3-3 3M12.5 8h-7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
       </div>
     </aside>
   );

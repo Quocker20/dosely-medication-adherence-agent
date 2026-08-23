@@ -6,9 +6,9 @@ import {
   alertTriggerLabel,
   formatDateTime,
   patientDisplayName,
-} from "../lib/labels";
-import type { AlertDetail, DashboardPatientListItem } from "../types";
-import GuardBanner from "./GuardBanner";
+} from "../../../utils/labels";
+import type { AlertDetail, DashboardPatientListItem } from "../../../types";
+import GuardBanner from "../../../components/shared/GuardBanner";
 
 interface Props {
   alerts: AlertDetail[];

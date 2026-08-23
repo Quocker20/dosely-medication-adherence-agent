@@ -1,19 +1,40 @@
-import { adherenceTone, formatDate, initialsOf, patientDisplayName, patientPriority } from "../lib/labels";
-import type { DashboardPatientListItem } from "../types";
+import { adherenceTone, formatDate, initialsOf, patientDisplayName, patientPriority } from "../../../utils/labels";
+import type { DashboardPatientListItem } from "../../../types";
 
 interface Props {
   patients: DashboardPatientListItem[];
   onOpen: (patientId: string) => void;
+  onRefresh: () => void;
+  onAdd: () => void;
+  selectedPatientId?: string | null;
 }
 
-export default function PatientTable({ patients, onOpen }: Props) {
+export default function PatientTable({ patients, onOpen, onRefresh, onAdd, selectedPatientId = null }: Props) {
   return (
     <div className="card">
       <div className="card-head">
-        <h2>Bệnh nhân theo mức ưu tiên</h2>
-        <span className="pill mono">GET /dashboard/patients</span>
+        <h2>Bệnh nhân</h2>
         <div className="spacer" />
-        <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>Bấm một dòng để mở hồ sơ</span>
+        <div className="patient-table-actions">
+          <span>Bấm một dòng để mở hồ sơ</span>
+          <button className="btn" onClick={onRefresh}>↻ Làm mới</button>
+          <button className="btn primary" onClick={onAdd}>＋ Thêm bệnh nhân</button>
+        </div>
+      </div>
+
+      <div className="legend">
+        <span>
+          <i style={{ background: "var(--crit)" }} />
+          Cần xử lý
+        </span>
+        <span>
+          <i style={{ background: "var(--warn)" }} />
+          Theo dõi: tuân thủ &lt; 70%
+        </span>
+        <span>
+          <i style={{ background: "var(--ok)" }} />
+          Ổn định
+        </span>
       </div>
 
       <div className="table-wrap">
@@ -31,10 +52,11 @@ export default function PatientTable({ patients, onOpen }: Props) {
             {patients.map((patient) => {
               const priority = patientPriority(patient.open_alerts_count, patient.adherence_rate);
               const tone = adherenceTone(patient.adherence_rate);
+              const isSelected = patient.patient_id === selectedPatientId;
               return (
                 <tr
                   key={patient.patient_id}
-                  className={priority.row}
+                  className={`${priority.row} ${isSelected ? "is-selected" : ""}`}
                   tabIndex={0}
                   role="button"
                   aria-label={`Mở hồ sơ ${patientDisplayName(patient.patient_name)}`}
@@ -75,7 +97,7 @@ export default function PatientTable({ patients, onOpen }: Props) {
                     <div className="cell-note">{formatDate(patient.last_survey_date)}</div>
                   </td>
                   <td>
-                    <span className={`pill ${priority.tone}`}>
+                    <span className={`pill flat ${priority.tone}`}>
                       <span className="dot" />
                       {priority.label}
                     </span>
@@ -97,21 +119,6 @@ export default function PatientTable({ patients, onOpen }: Props) {
             )}
           </tbody>
         </table>
-      </div>
-
-      <div className="legend">
-        <span>
-          <i style={{ background: "var(--crit)" }} />
-          Cần xử lý: có cảnh báo đang mở (OPEN hoặc ACKNOWLEDGED)
-        </span>
-        <span>
-          <i style={{ background: "var(--warn)" }} />
-          Theo dõi: tuân thủ &lt; 70%
-        </span>
-        <span>
-          <i style={{ background: "var(--ok)" }} />
-          Ổn định
-        </span>
       </div>
     </div>
   );

@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { ApiError, api, waitForAgentRun } from "../api";
-import { formatTime, isoDate } from "../lib/labels";
+import { ApiError, api, waitForAgentRun } from "../../../api";
+import { formatTime, isoDate } from "../../../utils/labels";
 import type {
   ActiveSchedule,
   AgentRunStatus,
   MedicationDetail,
   PrescriptionDetail,
   PrescriptionItemIn,
-} from "../types";
-import GuardBanner from "./GuardBanner";
+} from "../../../types";
+import GuardBanner from "../../../components/shared/GuardBanner";
 
 interface Props {
   phone: string;

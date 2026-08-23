@@ -1,11 +1,11 @@
 import { useState } from "react";
 
-import { ApiError, api } from "../api";
+import { ApiError, api } from "../../api";
 import PinDotInput from "./PinDotInput";
-import { delay, MIN_STEP_DELAY_MS } from "../lib/delay";
-import { cleanPhoneNumber } from "../lib/phone";
-import { sessionFromTokens, setSession } from "../session";
-import type { AuthTokenResponse } from "../types";
+import { delay, MIN_STEP_DELAY_MS } from "./delay";
+import { cleanPhoneNumber } from "./phone";
+import { sessionFromTokens, setSession } from "../../session";
+import type { AuthTokenResponse } from "../../types";
 
 type Step = "phone" | "pin" | "changePin";
 

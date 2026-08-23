@@ -108,3 +108,24 @@ export function isoDate(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
+
+/**
+ * Dải số trang cho pagination dạng pill-strip: luôn có trang đầu/cuối,
+ * current±1, còn lại gộp thành "ellipsis". Ví dụ current=5,total=10 ->
+ * [1, "ellipsis", 4, 5, 6, "ellipsis", 10].
+ */
+export function paginationRange(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 1) return [1];
+
+  const pages = new Set<number>([1, total, current]);
+  if (current - 1 >= 1) pages.add(current - 1);
+  if (current + 1 <= total) pages.add(current + 1);
+
+  const sorted = [...pages].sort((a, b) => a - b);
+  const result: (number | "ellipsis")[] = [];
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) result.push("ellipsis");
+    result.push(page);
+  });
+  return result;
+}
