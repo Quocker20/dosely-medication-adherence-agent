@@ -1,0 +1,9 @@
+/* Thứ tự @import dưới đây = đúng thứ tự trong styles.css gốc trước khi tách.
+   Không đảo thứ tự: cascade CSS phụ thuộc vào nó, đảo là đổi giao diện.
+   Vite gộp các @import này thành một file CSS duy nhất lúc build. */
+
+@import "./tokens.css";
+@import "./shell.css";
+@import "./patient.css";
+@import "./home.css";
+@import "./auth.css";

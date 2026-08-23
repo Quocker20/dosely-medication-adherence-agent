@@ -1,0 +1,5 @@
+import type { ScheduledDoseRow } from "../../../types";
+import DoseCard from "./DoseCard";
+import { doseStatus, prettyTime, type DoseAction } from "./utils";
+
+export default function ScheduleView({ doses, busyId, onAction }: { doses: ScheduledDoseRow[]; busyId: string | null; onAction: DoseAction }) { return <section className="web-card schedule-page-card"><div className="web-card-head"><div><span className="section-eyebrow">LỊCH CÁ NHÂN</span><h2>Lịch uống thuốc hôm nay</h2><p>Các cữ được tạo từ đơn thuốc đã được bác sĩ phê duyệt.</p></div><span className="date-chip">{new Date().toLocaleDateString("vi-VN")}</span></div><div className="schedule-timeline">{doses.length ? doses.map((dose, index) => <div className="timeline-row" key={dose.scheduled_dose_id}><div className="timeline-marker"><span>{prettyTime(dose.current_scheduled_at)}</span><i className={doseStatus(dose.status)[1]}/>{index < doses.length - 1 && <b/>}</div><DoseCard dose={dose} busy={busyId === dose.scheduled_dose_id} onAction={onAction}/></div>) : <div className="patient-empty">Hôm nay chưa có lịch thuốc. Lịch sẽ xuất hiện sau khi bác sĩ duyệt đơn.</div>}</div></section>; }
