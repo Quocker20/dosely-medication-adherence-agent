@@ -337,3 +337,60 @@ class TestBatchDoseActionsService:
         assert response.updated_dose_count == 2
         assert response.updated_dose_ids == [DOSE_ID_1, DOSE_ID_2]
         mock_repo.batch_apply_dose_actions_cas.assert_not_called()
+
+    async def test_snooze_exceeds_max_count(self):
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_batch_logs_by_idempotency_key.return_value = []
+
+        dose_with_max_snooze = _fake_dose(DOSE_ID_1, snooze_count=3)
+        mock_repo.get_doses_scoped.return_value = [dose_with_max_snooze]
+
+        service = AdherenceLogService(db=mock_db, adherence_log_repository=mock_repo)
+
+        request = BatchRecordDoseActionRequest(
+            dose_ids=[DOSE_ID_1],
+            action="SNOOZE",
+            payload={"snooze_duration_minutes": 15},
+        )
+
+        with pytest.raises(ConflictException) as exc_info:
+            await service.batch_record_dose_action(
+                request=request,
+                actor_payload={"sub": str(PATIENT_ID), "role": "PATIENT"},
+                idempotency_key="snooze-max-key",
+            )
+        assert "giới hạn hoãn tối đa" in str(exc_info.value.message)
+
+    async def test_snooze_violates_min_dose_gap(self):
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_batch_logs_by_idempotency_key.return_value = []
+
+        current_time = datetime(2026, 8, 23, 8, 0, tzinfo=timezone.utc)
+        dose = _fake_dose(DOSE_ID_1, snooze_count=0)
+        dose.current_scheduled_at = current_time
+        mock_repo.get_doses_scoped.return_value = [dose]
+
+        # Next dose is only 60 minutes away, but minimum required gap is 120 minutes
+        next_dose = _fake_dose(DOSE_ID_2, snooze_count=0)
+        next_dose.current_scheduled_at = current_time + timedelta(minutes=60)
+        mock_repo.get_next_dose_and_min_gap.return_value = (next_dose, 120)
+
+        service = AdherenceLogService(db=mock_db, adherence_log_repository=mock_repo)
+
+        request = BatchRecordDoseActionRequest(
+            dose_ids=[DOSE_ID_1],
+            action="SNOOZE",
+            payload={"snooze_duration_minutes": 15},
+        )
+
+        with pytest.raises(ConflictException) as exc_info:
+            await service.batch_record_dose_action(
+                request=request,
+                actor_payload={"sub": str(PATIENT_ID), "role": "PATIENT"},
+                idempotency_key="snooze-gap-key",
+            )
+        assert "khoảng cách tối thiểu" in str(exc_info.value.message)

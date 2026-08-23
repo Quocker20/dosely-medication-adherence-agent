@@ -18,7 +18,7 @@ from src.modules.adherence.models import (
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import UserDevice
 from src.modules.patients.models import CaregiverLink, PatientProfile
-from src.modules.prescriptions.models import Prescription
+from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,29 @@ class AdherenceLogRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_next_dose_and_min_gap(
+        self, dose: ScheduledDose, patient_id: uuid.UUID
+    ) -> Tuple[Optional[ScheduledDose], Optional[int]]:
+        """Fetch the next pending dose for the same prescription item and the item's minimum_interval_minutes."""
+        stmt = (
+            select(ScheduledDose, PrescriptionItem.minimum_interval_minutes)
+            .join(PrescriptionItem, ScheduledDose.prescription_item_id == PrescriptionItem.id)
+            .where(
+                ScheduledDose.prescription_item_id == dose.prescription_item_id,
+                ScheduledDose.patient_id == patient_id,
+                ScheduledDose.status == "PENDING",
+                ScheduledDose.id != dose.id,
+                ScheduledDose.current_scheduled_at > dose.current_scheduled_at,
+            )
+            .order_by(ScheduledDose.current_scheduled_at.asc())
+            .limit(1)
+        )
+        result = await self._db.execute(stmt)
+        row = result.first()
+        if row:
+            return row[0], row[1]
+        return None, None
+
     async def batch_apply_dose_actions_cas(
         self,
         dose_ids: List[uuid.UUID],
@@ -263,13 +286,18 @@ class AdherenceLogRepository:
         self, idempotency_key: str
     ) -> List[AdherenceLog]:
         """Fetch all adherence logs matching idempotency_key prefix."""
-        prefix = f"{idempotency_key}:%"
+        escaped_key = (
+            idempotency_key.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        prefix = f"{escaped_key}:%"
         stmt = (
             select(AdherenceLog)
             .where(
                 or_(
                     AdherenceLog.idempotency_key == idempotency_key,
-                    AdherenceLog.idempotency_key.like(prefix),
+                    AdherenceLog.idempotency_key.like(prefix, escape="\\"),
                 )
             )
             .order_by(AdherenceLog.created_at.asc())
