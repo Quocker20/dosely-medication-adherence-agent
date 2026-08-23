@@ -1,0 +1,37 @@
+[
+  {
+    "id": "acid-ascorbic-identity",
+    "question": "Acid ascorbic có tên gọi và phân loại thuốc như thế nào?",
+    "expected_drug": "ACID ASCORBIC",
+    "expected_section": "identity",
+    "must_contain": ["ascorbic acid"]
+  },
+  {
+    "id": "acid-ascorbic-forms",
+    "question": "Acid ascorbic có dạng thuốc và hàm lượng nào?",
+    "expected_drug": "ACID ASCORBIC",
+    "expected_section": "forms_strengths",
+    "must_contain": ["viên"]
+  },
+  {
+    "id": "pas-interactions",
+    "question": "PAS tương tác với diphenhydramin như thế nào?",
+    "expected_section": "interactions",
+    "must_contain": ["diphenhydramin", "giảm hấp thu"]
+  },
+  {"id":"abacavir-contraindications","question":"Abacavir có chống chỉ định gì?","expected_drug":"ABACAVIR","expected_section":"contraindications"},
+  {"id":"abacavir-warnings","question":"Cảnh báo và thận trọng khi dùng abacavir?","expected_drug":"ABACAVIR","expected_section":"warnings"},
+  {"id":"aciclovir-pk","question":"Dược động học của aciclovir như thế nào?","expected_drug":"ACICLOVIR","expected_section":"pharmacokinetics"},
+  {"id":"aciclovir-pregnancy","question":"Thông tin aciclovir trong thời kỳ mang thai?","expected_drug":"ACICLOVIR","expected_section":"pregnancy"},
+  {"id":"amoxicilin-indications","question":"Amoxicilin có những chỉ định nào?","expected_drug":"AMOXICILIN","expected_section":"indications"},
+  {"id":"amoxicilin-forms","question":"Amoxicilin có dạng thuốc và hàm lượng nào?","expected_drug":"AMOXICILIN","expected_section":"forms_strengths"},
+  {"id":"amoxicilin-lactation","question":"Amoxicilin dùng khi cho con bú có thông tin gì?","expected_drug":"AMOXICILIN","expected_section":"lactation"},
+  {"id":"diazepam-overdose","question":"Quá liều diazepam được mô tả thế nào?","expected_drug":"DIAZEPAM","expected_section":"overdose"},
+  {"id":"diazepam-interactions","question":"Diazepam có các tương tác thuốc nào?","expected_drug":"DIAZEPAM","expected_section":"interactions"},
+  {"id":"digoxin-adverse","question":"Digoxin có tác dụng không mong muốn nào?","expected_drug":"DIGOXIN","expected_section":"adverse_effects"},
+  {"id":"aminocaproic-dosage","question":"Liều dùng acid aminocaproic trong Dược thư?","expected_drug":"ACID AMINOCAPROIC","expected_section":"dosage_administration"},
+  {"id":"aminobenzoic-contraindications","question":"Acid aminobenzoic có chống chỉ định gì?","expected_drug":"ACID AMINOBENZOIC","expected_section":"contraindications"},
+  {"id":"unknown-drug","question":"Thuốc ZZZ-NOT-A-DRUG có chỉ định gì?","drug_filter":"zzznotadrug","expected_empty":true},
+  {"id":"unknown-section-drug","question":"Thuốc không tồn tại có chống chỉ định gì?","drug_filter":"khongtontai","expected_empty":true},
+  {"id":"volume-two-drug","question":"Zolpidem có thông tin gì trong quyển này?","drug_filter":"zolpidem","expected_empty":true}
+]
