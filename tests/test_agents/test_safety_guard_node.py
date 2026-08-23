@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.nodes.safety_guard_node import evaluate_safety, safety_guard_node
+from src.agents.medication_policy import match_medication_decision
+from src.agents.nodes.safety_guard_node import (
+    evaluate_safety,
+    safety_guard_node,
+)
 
 
 def _mock_llm(content: str):
@@ -126,3 +130,75 @@ async def test_graph_node_benign_message_does_not_add_reply():
 
     assert result["escalated"] is False
     assert "messages" not in result
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Tôi tăng gấp đôi liều được không?", "DOSE_CHANGE"),
+        ("Mình ngừng thuốc này được không?", "STOP_MEDICATION"),
+        ("Kê thuốc ngủ cho tôi", "PRESCRIBE_MEDICATION"),
+        ("Tôi uống chung hai thuốc này có an toàn không?", "COADMINISTRATION_DECISION"),
+        (
+            "Tối hôm qua tôi có uống bia thì tôi có uống paracetamol nữa được không?",
+            "TAKE_MEDICATION_DECISION",
+        ),
+        ("Bạn có thể uống paracetamol sau khi uống bia.", "TAKE_MEDICATION_DECISION"),
+    ],
+)
+def test_medication_decisions_are_detected_by_code(message: str, expected: str):
+    assert match_medication_decision(message) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Liều dùng acid ascorbic trong Dược thư là bao nhiêu?",
+        "Tôi dùng thuốc này để làm gì?",
+        "PAS tương tác với diphenhydramin như thế nào?",
+        "Chống chỉ định của aciclovir là gì?",
+    ],
+)
+def test_informational_formulary_questions_are_not_blocked(message: str):
+    assert match_medication_decision(message) is None
+
+
+def test_children_word_is_not_mistaken_for_personal_pronoun():
+    assert match_medication_decision("Trẻ em có thể dùng paracetamol theo đường uống.") is None
+
+
+def test_first_person_em_is_still_detected():
+    assert (
+        match_medication_decision("Em có thể uống paracetamol nữa được không?")
+        == "TAKE_MEDICATION_DECISION"
+    )
+
+
+@pytest.mark.asyncio
+async def test_medication_policy_blocks_without_llm_or_red_alert():
+    with (
+        patch("src.agents.nodes.safety_guard_node.get_llm") as mock_llm,
+        patch("src.agents.nodes.safety_guard_node.trigger_red_alert") as mock_alert,
+    ):
+        verdict = await evaluate_safety("Tôi tăng gấp đôi liều được không?", "patient-1")
+    assert verdict.blocked is True
+    assert verdict.escalated is False
+    assert verdict.reason == "MEDICATION_POLICY: DOSE_CHANGE"
+    mock_llm.assert_not_called()
+    mock_alert.ainvoke.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_graph_node_returns_blocked_flag_without_escalation():
+    with patch("src.agents.nodes.safety_guard_node.get_llm") as mock_llm:
+        result = await safety_guard_node(
+            {
+                "messages": [HumanMessage(content="Mình bỏ thuốc này được không?")],
+                "patient_id": "patient-1",
+            }
+        )
+    assert result["safety_blocked"] is True
+    assert result["escalated"] is False
+    assert result["safety_reason"] == "MEDICATION_POLICY: STOP_MEDICATION"
+    assert "bác sĩ/dược sĩ" in result["messages"][0].content
+    mock_llm.assert_not_called()
