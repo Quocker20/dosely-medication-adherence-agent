@@ -46,8 +46,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # Firebase
+    firebase_service_account_key_path: str = "firebase-adminsdk.json"
+
     # LLM
     openai_api_key: str = ""
+    openai_base_url: str | None = None
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
