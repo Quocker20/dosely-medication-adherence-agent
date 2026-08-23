@@ -46,7 +46,7 @@ _FIXED_SAFE_REPLY = (
 _MEDICATION_POLICY_REPLY = (
     "Mình chỉ hỗ trợ tra cứu thông tin về một thuốc hoặc hoạt chất cụ thể, "
     "không thể lựa chọn, kê hoặc gợi ý thuốc điều trị cho bạn. Bạn vui lòng "
-    "hỏi bác sĩ hoặc dược sĩ để được tư vấn phù hợp."
+    "hỏi bác sĩ/dược sĩ để được tư vấn phù hợp."
 )
 
 

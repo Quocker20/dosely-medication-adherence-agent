@@ -48,17 +48,15 @@ def match_medication_decision(text: str) -> str | None:
         return "STOP_MEDICATION"
     if _RECOMMENDATION_REQUEST.search(normalized):
         return "PRESCRIBE_MEDICATION"
-    # Catch patient-specific take/use decisions even when the medicine name sits
-    # between the verb and "nữa/được không", e.g. "tôi có uống paracetamol nữa
-    # được không". This must run before retrieval and is also reused by the
-    # output validator as a deterministic second layer.
-    if has_decision and has_personal and re.search(
-        r"\b(?:uong|dung|tiem|boi|dat)\b", normalized
-    ):
-        return "TAKE_MEDICATION_DECISION"
     for code, actions in MEDICATION_RULES:
         if any(action in normalized for action in actions) and (
             code == "PRESCRIBE_MEDICATION" or has_decision or has_personal
         ):
             return code
+    # Catch patient-specific take/use decisions after the more specific rules,
+    # so phrases such as "uong chung" remain coadministration decisions.
+    if has_decision and has_personal and re.search(
+        r"\b(?:uong|dung|tiem|boi|dat)\b", normalized
+    ):
+        return "TAKE_MEDICATION_DECISION"
     return None
