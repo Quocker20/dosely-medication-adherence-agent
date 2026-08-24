@@ -85,14 +85,8 @@ CLAUDE.md
 .claude/*
 !.claude/settings.json
 
-# Firebase secrets — never commit private keys
-firebase-adminsdk*.json
-
-# Scratch analysis documents (not meant for main repository)
-adhere-mind-drive-analysis*.md
-adheremind-ui.html
-db-sample.sql
-docs/escalation-rules-srs.md
+# Built APK dropped on the server for direct download — not a git artifact
+downloads/
 
 # Celery Beat schedule files (auto-generated, machine-specific)
 celerybeat-schedule.bak
@@ -101,4 +95,7 @@ celerybeat-schedule.dir
 
 # Local dev / debug scripts (not part of app source)
 manage_schedule.py
-test_fcm_now.py 
+test_fcm_now.py
+
+# Firebase service account credentials — never commit
+firebase-adminsdk.json

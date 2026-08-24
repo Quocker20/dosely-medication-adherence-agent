@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://pin-total-lasting-listed.trycloudflare.com/api/:path*" },
+    { "source": "/downloads/:path*", "destination": "https://pin-total-lasting-listed.trycloudflare.com/downloads/:path*" }
+  ]
+}
