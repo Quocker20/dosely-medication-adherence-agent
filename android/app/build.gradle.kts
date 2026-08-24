@@ -27,6 +27,15 @@ android {
             // Override this value with the deployed HTTPS endpoint before release.
             buildConfigField("String", "API_BASE_URL", "\"https://api.remindrx.invalid/api/v1/\"")
         }
+        create("demo") {
+            // Debug-signed build pointed at the public VPS backend, for uploading
+            // as a direct-download APK so people can try the app — see
+            // docs/android-app-testing.md. URL is an ephemeral Cloudflare quick
+            // tunnel; update here if it changes (e.g. after a VPS/tunnel restart).
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            buildConfigField("String", "API_BASE_URL", "\"https://pin-total-lasting-listed.trycloudflare.com/api/v1/\"")
+        }
     }
 
     buildFeatures {
