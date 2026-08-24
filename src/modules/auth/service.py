@@ -195,3 +195,12 @@ class AuthService:
         async with self._db.begin():
             await self._repository.revoke_refresh_token(token_hash)
         return MessageResponse(message="Logged out successfully")
+
+    async def register_device_token(
+        self, user_id: str | uuid.UUID, fcm_token: str, device_name: str | None = None
+    ) -> MessageResponse:
+        """Register or update an FCM token for the user."""
+        uid = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
+        async with self._db.begin():
+            await self._repository.upsert_user_device(uid, fcm_token, device_name)
+        return MessageResponse(message="Device token registered successfully")

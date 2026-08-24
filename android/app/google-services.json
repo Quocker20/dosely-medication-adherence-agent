@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "943248823390",
+    "project_id": "remindrx-13aad",
+    "storage_bucket": "remindrx-13aad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:943248823390:android:2e49123e16e1ac574110cf",
+        "android_client_info": {
+          "package_name": "com.remindrx.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDg2RFd1p1D9oNoV1g0hwyV34uICeYhO_k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

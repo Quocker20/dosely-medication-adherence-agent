@@ -15,6 +15,7 @@ from src.modules.adherence.repository import (
     HealthSurveyRepository,
 )
 from src.modules.adherence.schemas import (
+    BatchRecordDoseActionRequest,
     RecordDoseActionRequest,
     ResolveAlertRequest,
     SubmitHealthSurveyRequest,
@@ -106,6 +107,29 @@ async def record_dose_action(
     return success_response(
         data=result.model_dump(mode="json"),
         message="Dose action recorded successfully",
+        code=status.HTTP_201_CREATED,
+    )
+
+
+@dose_actions_router.post(
+    "/scheduled-doses/batch-actions", status_code=status.HTTP_201_CREATED
+)
+async def batch_record_dose_action(
+    request_body: BatchRecordDoseActionRequest,
+    current_user: PatientUserDep,
+    service: AdherenceLogServiceDep,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+) -> JSONResponse:
+    """Record synchronized dose-intake actions across multiple doses (TAKEN/SNOOZE/SKIPPED),
+    Patient only, scoped to the patient's own doses. Idempotency-Key header is required."""
+    result = await service.batch_record_dose_action(
+        request=request_body,
+        actor_payload=current_user,
+        idempotency_key=idempotency_key,
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Batch dose actions recorded successfully",
         code=status.HTTP_201_CREATED,
     )
 

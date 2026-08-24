@@ -20,3 +20,9 @@ data class AuthTokenResponseDto(
     val isFirstLogin: Boolean,
     val user: UserDto,
 )
+
+// Khớp src/modules/auth/schemas.py DeviceTokenRequest
+data class DeviceTokenRequestDto(
+    val fcmToken: String,
+    val deviceName: String? = null,
+)

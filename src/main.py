@@ -9,6 +9,7 @@ from src.common.exceptions import register_exception_handlers
 from src.common.middleware import RequestContextMiddleware
 from src.core.config import get_settings
 from src.core.redis import close_redis_connection
+from src.core.firebase_app import init_firebase
 from src.api.v1_router import v1_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
 
@@ -19,6 +20,7 @@ WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 async def lifespan(app: FastAPI):
     settings = get_settings()
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    init_firebase()
     yield
     await close_redis_connection()
     print("Shutting down...")
