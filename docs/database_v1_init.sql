@@ -118,7 +118,7 @@ CREATE TABLE refresh_tokens (
 -- Indexes for refresh_tokens optimization (Change Password & Logout)
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 
--- user_devices (For FCM Tokens)
+-- 6. user_devices (For FCM Tokens)
 CREATE TABLE user_devices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -129,7 +129,7 @@ CREATE TABLE user_devices (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_user_devices_user ON user_devices(user_id);
+CREATE INDEX ix_user_devices_user_active ON user_devices(user_id, is_active);
 CREATE INDEX idx_refresh_tokens_user_active ON refresh_tokens(user_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_refresh_tokens_active_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
 
@@ -583,27 +583,6 @@ CREATE TABLE messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 24. user_devices (FCM Push Notification tokens)
-CREATE TABLE IF NOT EXISTS user_devices (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    fcm_token VARCHAR(255) NOT NULL UNIQUE,
-    device_name VARCHAR(100),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS ix_user_devices_user_active ON user_devices (user_id, is_active);
-
--- 25. notification_dose_items (Consolidated 1-to-N reminders)
-CREATE TABLE IF NOT EXISTS notification_dose_items (
-    notification_delivery_id UUID NOT NULL REFERENCES notification_deliveries(id) ON DELETE CASCADE,
-    scheduled_dose_id UUID NOT NULL REFERENCES scheduled_doses(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT pk_notification_dose_items PRIMARY KEY (notification_delivery_id, scheduled_dose_id)
-);
-CREATE INDEX IF NOT EXISTS idx_notif_dose_items_dose_id ON notification_dose_items(scheduled_dose_id);
-
 -- This canonical bootstrap already contains every migration through 0013.
 -- Stamping fresh databases lets a future `alembic upgrade head` start from
 -- the next revision instead of replaying DDL that is already present.
@@ -612,4 +591,5 @@ CREATE TABLE IF NOT EXISTS alembic_version (
 );
 DELETE FROM alembic_version;
 INSERT INTO alembic_version(version_num) VALUES ('0013_user_devices');
+
 

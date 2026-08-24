@@ -131,7 +131,7 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
 
             tokens = await notif_repo.get_active_fcm_tokens(delivery.recipient_user_id)
             if tokens:
-                success = FCMService.send_push_notification(
+                success, dead_tokens = FCMService.send_push_notification(
                     tokens=tokens,
                     title=delivery.title,
                     body=delivery.body,
@@ -140,9 +140,17 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
                         "action": "dose_reminder",
                     },
                 )
+                if dead_tokens:
+                    logger.info("Deactivating %d expired/unregistered FCM token(s)", len(dead_tokens))
+                    await notif_repo.deactivate_fcm_tokens(dead_tokens)
+
                 status = "SENT" if success else "FAILED"
             else:
-                status = "FAILED"
+                logger.info(
+                    "Recipient user %s has no active FCM device tokens; marked as NO_DEVICE.",
+                    delivery.recipient_user_id,
+                )
+                status = "NO_DEVICE"
 
             await notif_repo.update_delivery_status(delivery.id, status)
             await session.commit()
