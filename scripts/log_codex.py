@@ -157,21 +157,29 @@ def read_session(path: Path, repo_root: str, cutoff: datetime | None) -> Iterato
 
 
 def logged_ids(log_file: Path) -> set[str]:
+    """IDs already in the pending file *or* already submitted+archived —
+    submit_log.py empties log_file after each successful submit, so archive/
+    must also be checked or already-submitted entries get re-logged forever."""
     ids: set[str] = set()
-    if not log_file.exists():
-        return ids
-    try:
-        with log_file.open(encoding="utf-8-sig") as log:
-            for line in log:
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                entry_id = entry.get("entry_id")
-                if isinstance(entry_id, str):
-                    ids.add(entry_id)
-    except OSError:
-        pass
+    archive_dir = log_file.parent / "archive"
+    candidates = [log_file]
+    if archive_dir.exists():
+        candidates.extend(sorted(archive_dir.glob("*.jsonl")))
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            with path.open(encoding="utf-8-sig") as log:
+                for line in log:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    entry_id = entry.get("entry_id")
+                    if isinstance(entry_id, str):
+                        ids.add(entry_id)
+        except OSError:
+            pass
     return ids
 
 
