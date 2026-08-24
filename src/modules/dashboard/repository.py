@@ -108,6 +108,7 @@ class DashboardRepository:
         page: int = 1,
         size: int = 10,
         alert_status: Optional[str] = None,
+        adherence_band: Optional[str] = None,
         search: Optional[str] = None,
     ) -> Tuple[List[Tuple[uuid.UUID, str, int, int, int, Optional[date]]], int]:
         """One page of roster rows: (patient_id, name, total_doses, taken_doses,
@@ -128,6 +129,10 @@ class DashboardRepository:
         before LIMIT can apply, which is a full scan on every page request.
         """
         filters = []
+        total_doses = self._dose_count_subquery(PatientProfile.user_id, range_start)
+        taken_doses = self._dose_count_subquery(
+            PatientProfile.user_id, range_start, "TAKEN"
+        )
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
         if search and search.strip():
@@ -142,6 +147,22 @@ class DashboardRepository:
                 )
                 .exists()
             )
+        if adherence_band == "LOW":
+            # No logged doses is displayed as 0% in the dashboard, so it belongs
+            # in the low-adherence band too.
+            filters.append(
+                or_(
+                    total_doses == 0,
+                    taken_doses * 100 < total_doses * 50,
+                )
+            )
+        elif adherence_band == "MEDIUM":
+            filters.append(
+                taken_doses * 100 >= total_doses * 50,
+            )
+            filters.append(taken_doses * 100 < total_doses * 70)
+        elif adherence_band == "HIGH":
+            filters.append(taken_doses * 100 >= total_doses * 70)
 
         count_stmt = select(func.count(PatientProfile.user_id)).join(
             User, PatientProfile.user_id == User.id
@@ -158,8 +179,8 @@ class DashboardRepository:
             select(
                 PatientProfile.user_id,
                 PatientProfile.name,
-                self._dose_count_subquery(PatientProfile.user_id, range_start),
-                self._dose_count_subquery(PatientProfile.user_id, range_start, "TAKEN"),
+                total_doses,
+                taken_doses,
                 open_alerts,
                 self._last_survey_date_subquery(PatientProfile.user_id),
             )

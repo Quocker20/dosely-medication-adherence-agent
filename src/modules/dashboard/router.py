@@ -43,6 +43,9 @@ async def list_dashboard_patients(
     alert_status: Optional[str] = Query(
         None, alias="alertStatus", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"
     ),
+    adherence_band: Optional[str] = Query(
+        None, alias="adherenceBand", pattern=r"^(LOW|MEDIUM|HIGH)$"
+    ),
     search: Optional[str] = Query(None, min_length=2, description="Search by name or phone"),
 ) -> JSONResponse:
     """Doctor portal roster (Doctor/Admin). A doctor sees only patients they
@@ -53,6 +56,7 @@ async def list_dashboard_patients(
         page=page,
         size=size,
         alert_status=alert_status,
+        adherence_band=adherence_band,
         search=search,
     )
     return success_response(

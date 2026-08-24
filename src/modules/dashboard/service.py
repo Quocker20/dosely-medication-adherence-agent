@@ -63,6 +63,7 @@ class DashboardService:
         page: int = 1,
         size: int = 10,
         alert_status: Optional[str] = None,
+        adherence_band: Optional[str] = None,
         search: Optional[str] = None,
     ) -> PageResponse[DashboardPatientListResponse]:
         """Roster page, most-alerting patients first. A doctor with no
@@ -75,6 +76,7 @@ class DashboardService:
             page=page,
             size=size,
             alert_status=alert_status,
+            adherence_band=adherence_band,
             search=search,
         )
 
