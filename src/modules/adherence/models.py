@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -186,3 +186,89 @@ class Alert(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default="NOW()",
     )
+
+
+class NotificationDelivery(Base):
+    """Notification dispatch log database model."""
+
+    __tablename__ = "notification_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default="gen_random_uuid()",
+    )
+    scheduled_dose_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scheduled_doses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    alert_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("alerts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    template_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_metadata: Mapped[Dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
+    )
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="QUEUED", server_default="'QUEUED'"
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="NOW()",
+    )
+
+    dose_items: Mapped[List["NotificationDoseItem"]] = relationship(
+        "NotificationDoseItem", lazy="raise", cascade="all, delete-orphan"
+    )
+
+
+class NotificationDoseItem(Base):
+    """Junction model connecting a consolidated notification delivery to individual scheduled doses."""
+
+    __tablename__ = "notification_dose_items"
+
+    notification_delivery_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("notification_deliveries.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scheduled_dose_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scheduled_doses.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="NOW()",
+    )
+

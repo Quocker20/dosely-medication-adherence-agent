@@ -3,6 +3,7 @@ package com.remindrx.app.data.repository
 import com.remindrx.app.data.remote.ApiEnvelope
 import com.remindrx.app.data.remote.AuthTokenResponseDto
 import com.remindrx.app.data.remote.ChangePasswordRequestDto
+import com.remindrx.app.data.remote.DeviceTokenRequestDto
 import com.remindrx.app.data.remote.LoginRequestDto
 import com.remindrx.app.data.remote.LogoutRequestDto
 import com.remindrx.app.data.remote.RefreshTokenRequestDto
@@ -90,6 +91,17 @@ class RemoteAuthRepositoryImpl @Inject constructor(
             }
         } finally {
             sessionStore.clearIfCurrent(sessionBeingLoggedOut)
+        }
+    }
+
+    override suspend fun registerDeviceToken(fcmToken: String, deviceName: String?) {
+        try {
+            api.registerDeviceToken(
+                DeviceTokenRequestDto(fcmToken = fcmToken, deviceName = deviceName)
+            )
+        } catch (e: Exception) {
+            // Log nhưng không ném exception — gửi token thất bại không được làm hỏng app
+            android.util.Log.w("DeviceToken", "Failed to register FCM token: ${e.message}")
         }
     }
 
