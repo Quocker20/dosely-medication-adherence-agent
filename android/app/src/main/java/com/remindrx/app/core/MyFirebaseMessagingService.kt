@@ -1,13 +1,17 @@
 package com.remindrx.app.core
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.remindrx.app.MainActivity
@@ -71,6 +75,25 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun showNotification(title: String, body: String) {
+        val notificationManager = NotificationManagerCompat.from(this)
+
+        // Guard check permission on Android 13+ (API 33) to prevent MissingPermission lint error
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.w("FCM_MSG", "Cannot show notification: POST_NOTIFICATIONS permission not granted")
+                return
+            }
+        }
+
+        if (!notificationManager.areNotificationsEnabled()) {
+            Log.w("FCM_MSG", "Cannot show notification: notifications are disabled for app")
+            return
+        }
+
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
@@ -89,8 +112,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .build()
 
-        NotificationManagerCompat.from(this)
-            .notify(NOTIFICATION_ID, notification)
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     companion object {

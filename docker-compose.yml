@@ -114,7 +114,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: remindrx_beat
-    command: celery -A src.core.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    command: celery -A src.core.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule
     env_file:
       - .env
     environment:

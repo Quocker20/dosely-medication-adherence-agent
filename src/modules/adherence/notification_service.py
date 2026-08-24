@@ -1,4 +1,5 @@
 """Notification dispatch service for consolidated dose reminders."""
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -113,8 +114,10 @@ class NotificationDispatchService:
         for (patient_id, scheduled_at), doses in grouped.items():
             dose_ids = [d["scheduled_dose_id"] for d in doses]
             title, body = self.format_notification_text(scheduled_at, doses)
+            sorted_dose_ids_str = ",".join(sorted(str(d_id) for d_id in dose_ids))
+            doses_hash = hashlib.sha256(sorted_dose_ids_str.encode("utf-8")).hexdigest()[:16]
             idempotency_key = (
-                f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{len(dose_ids)}"
+                f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{doses_hash}"
             )
 
             existing = await self._notif_repo.get_delivery_by_idempotency_key(

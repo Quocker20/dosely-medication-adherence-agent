@@ -101,5 +101,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Intentionally only drop the junction table and newly added index.
+    # notification_deliveries is a core system table containing delivery records
+    # and must be preserved during rollback of the dose-grouping feature.
     op.execute("DROP TABLE IF EXISTS notification_dose_items CASCADE")
     op.execute("DROP INDEX IF EXISTS idx_notif_deliveries_recipient_scheduled")

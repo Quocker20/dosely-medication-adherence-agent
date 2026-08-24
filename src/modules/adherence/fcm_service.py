@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from firebase_admin import messaging
 
@@ -14,16 +14,18 @@ class FCMService:
         tokens: List[str],
         title: str,
         body: str,
-        data: Dict[str, Any] = None,
-    ) -> bool:
+        data: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, List[str]]:
         """
         Send a multicast push notification via FCM.
-        Returns True if at least one message was successfully handed off to FCM,
-        False if there was a failure for all tokens or no tokens provided.
+        Returns:
+            (success: bool, dead_tokens: List[str])
+            success: True if at least one message was successfully delivered.
+            dead_tokens: List of unregistered/invalid tokens that should be deactivated in DB.
         """
         if not tokens:
             logger.warning("No FCM tokens provided to send_push_notification.")
-            return False
+            return False, []
 
         # Convert data dict values to string (FCM requires string values in data payload)
         fcm_data = {}
@@ -44,19 +46,29 @@ class FCMService:
             tokens=tokens,
         )
 
+        dead_tokens: List[str] = []
         try:
             response = messaging.send_each_for_multicast(message)
-            logger.info(f"FCM Multicast response: {response.success_count} successes, {response.failure_count} failures.")
-            
-            # Optionally: Handle failed tokens (e.g. Unregistered) to clean up DB
-            # We would return the failed tokens so the caller can delete them.
+            logger.info(
+                f"FCM Multicast response: {response.success_count} successes, {response.failure_count} failures."
+            )
+
             if response.failure_count > 0:
                 for idx, resp in enumerate(response.responses):
                     if not resp.success:
-                        # e.g., messaging.UnregisteredError implies token is dead
-                        logger.warning(f"Failed to send to token {tokens[idx][:10]}...: {resp.exception}")
+                        logger.warning(
+                            f"Failed to send to token {tokens[idx][:10]}...: {resp.exception}"
+                        )
+                        if isinstance(
+                            resp.exception,
+                            (
+                                messaging.UnregisteredError,
+                                messaging.SenderIdMismatchError,
+                            ),
+                        ) or "registration-token-not-registered" in str(resp.exception).lower():
+                            dead_tokens.append(tokens[idx])
 
-            return response.success_count > 0
+            return response.success_count > 0, dead_tokens
         except Exception as e:
             logger.error(f"Error sending FCM message: {e}")
-            return False
+            return False, []

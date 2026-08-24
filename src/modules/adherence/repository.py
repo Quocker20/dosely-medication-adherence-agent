@@ -617,7 +617,7 @@ class NotificationRepository:
     async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> List[str]:
         stmt = select(UserDevice.fcm_token).where(
             UserDevice.user_id == user_id,
-            UserDevice.is_active == True,
+            UserDevice.is_active.is_(True),
         )
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
@@ -630,6 +630,17 @@ class NotificationRepository:
                 status=status,
                 sent_at=func.now() if status in ("SENT", "DELIVERED") else None,
             )
+        )
+        await self._db.execute(stmt)
+
+    async def deactivate_fcm_tokens(self, tokens: List[str]) -> None:
+        """Deactivate expired or unregistered FCM tokens to prevent accumulation."""
+        if not tokens:
+            return
+        stmt = (
+            update(UserDevice)
+            .where(UserDevice.fcm_token.in_(tokens))
+            .values(is_active=False, updated_at=datetime.now(dt_timezone.utc))
         )
         await self._db.execute(stmt)
 

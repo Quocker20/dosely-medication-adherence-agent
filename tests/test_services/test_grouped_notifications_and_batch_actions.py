@@ -199,7 +199,7 @@ class TestNotificationDispatchService:
             mock_repo.get_delivery_by_id.return_value = fake_delivery
             mock_repo.get_active_fcm_tokens.return_value = ["token_123"]
             mock_repo_cls.return_value = mock_repo
-            mock_fcm.return_value = True
+            mock_fcm.return_value = (True, [])
 
             await _execute_send_notification(str(delivery_id))
 
@@ -212,6 +212,83 @@ class TestNotificationDispatchService:
                 data={"delivery_id": str(delivery_id), "action": "dose_reminder"},
             )
             mock_repo.update_delivery_status.assert_awaited_once_with(delivery_id, "SENT")
+
+    async def test_execute_send_notification_deactivates_dead_tokens(self):
+        from src.modules.agents.tasks import _execute_send_notification
+        delivery_id = uuid.uuid4()
+        fake_delivery = SimpleNamespace(
+            id=delivery_id,
+            recipient_user_id=PATIENT_ID,
+            title="Nhắc nhở",
+            body="Đến giờ uống thuốc",
+        )
+
+        mock_session = MagicMock()
+        mock_session.begin.return_value.__aenter__ = AsyncMock()
+        mock_session.begin.return_value.__aexit__ = AsyncMock()
+
+        with (
+            patch("src.modules.agents.tasks.create_async_engine") as mock_engine_cls,
+            patch("src.modules.agents.tasks.async_sessionmaker") as mock_sm_cls,
+            patch("src.modules.agents.tasks.NotificationRepository") as mock_repo_cls,
+            patch("src.modules.agents.tasks.FCMService.send_push_notification") as mock_fcm,
+        ):
+            mock_engine = AsyncMock()
+            mock_engine_cls.return_value = mock_engine
+            mock_sm = MagicMock()
+            mock_sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_sm.return_value.__aexit__ = AsyncMock()
+            mock_sm_cls.return_value = mock_sm
+
+            mock_repo = AsyncMock()
+            mock_repo.get_delivery_by_id.return_value = fake_delivery
+            mock_repo.get_active_fcm_tokens.return_value = ["good_token", "dead_token"]
+            mock_repo_cls.return_value = mock_repo
+            mock_fcm.return_value = (True, ["dead_token"])
+
+            await _execute_send_notification(str(delivery_id))
+
+            mock_repo.deactivate_fcm_tokens.assert_awaited_once_with(["dead_token"])
+            mock_repo.update_delivery_status.assert_awaited_once_with(delivery_id, "SENT")
+
+    async def test_execute_send_notification_no_device_tokens(self):
+        from src.modules.agents.tasks import _execute_send_notification
+        delivery_id = uuid.uuid4()
+        fake_delivery = SimpleNamespace(
+            id=delivery_id,
+            recipient_user_id=PATIENT_ID,
+            title="Nhắc nhở",
+            body="Đến giờ uống thuốc",
+        )
+
+        mock_session = MagicMock()
+        mock_session.begin.return_value.__aenter__ = AsyncMock()
+        mock_session.begin.return_value.__aexit__ = AsyncMock()
+
+        with (
+            patch("src.modules.agents.tasks.create_async_engine") as mock_engine_cls,
+            patch("src.modules.agents.tasks.async_sessionmaker") as mock_sm_cls,
+            patch("src.modules.agents.tasks.NotificationRepository") as mock_repo_cls,
+            patch("src.modules.agents.tasks.FCMService.send_push_notification") as mock_fcm,
+        ):
+            mock_engine = AsyncMock()
+            mock_engine_cls.return_value = mock_engine
+            mock_sm = MagicMock()
+            mock_sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_sm.return_value.__aexit__ = AsyncMock()
+            mock_sm_cls.return_value = mock_sm
+
+            mock_repo = AsyncMock()
+            mock_repo.get_delivery_by_id.return_value = fake_delivery
+            mock_repo.get_active_fcm_tokens.return_value = []  # No tokens
+            mock_repo_cls.return_value = mock_repo
+
+            await _execute_send_notification(str(delivery_id))
+
+            mock_repo.get_delivery_by_id.assert_awaited_once_with(delivery_id)
+            mock_repo.get_active_fcm_tokens.assert_awaited_once_with(PATIENT_ID)
+            mock_fcm.assert_not_called()
+            mock_repo.update_delivery_status.assert_awaited_once_with(delivery_id, "NO_DEVICE")
 
 
 def _fake_dose(dose_id, patient_id=PATIENT_ID, status="PENDING", snooze_count=0):
