@@ -72,3 +72,37 @@ class RefreshToken(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default="NOW()",
     )
+
+
+class UserDevice(Base):
+    """User FCM Device database model."""
+
+    __tablename__ = "user_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default="gen_random_uuid()",
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    fcm_token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    device_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="TRUE"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="NOW()",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="NOW()",
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

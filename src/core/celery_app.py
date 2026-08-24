@@ -1,8 +1,10 @@
 from datetime import timedelta
 
 from celery import Celery
+from celery.signals import worker_process_init
 
 from src.core.config import get_settings
+from src.core.firebase_app import init_firebase
 
 settings = get_settings()
 
@@ -24,5 +26,13 @@ celery_app.conf.update(
             "task": "agents.scan_missed_doses",
             "schedule": timedelta(minutes=settings.missed_dose_scan_interval_minutes),
         },
+        "scan-due-doses": {
+            "task": "agents.scan_due_doses",
+            "schedule": timedelta(minutes=1),
+        },
     },
 )
+
+@worker_process_init.connect
+def init_worker(**kwargs):
+    init_firebase()

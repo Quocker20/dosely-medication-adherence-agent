@@ -116,7 +116,20 @@ CREATE TABLE refresh_tokens (
 );
 
 -- Indexes for refresh_tokens optimization (Change Password & Logout)
-CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
+
+-- 6. user_devices (For FCM Tokens)
+CREATE TABLE user_devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    fcm_token VARCHAR(255) NOT NULL UNIQUE,
+    device_name VARCHAR(100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_user_devices_user_active ON user_devices(user_id, is_active);
 CREATE INDEX idx_refresh_tokens_user_active ON refresh_tokens(user_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_refresh_tokens_active_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
 
@@ -490,6 +503,9 @@ CREATE TABLE notification_deliveries (
     recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel VARCHAR(20) NOT NULL,
     template_code VARCHAR(50) NOT NULL,
+    title VARCHAR(255),
+    body TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     provider_message_id VARCHAR(255),
     status VARCHAR(20) NOT NULL,
     attempt_no SMALLINT NOT NULL DEFAULT 1,
@@ -499,6 +515,18 @@ CREATE TABLE notification_deliveries (
     idempotency_key VARCHAR(100) UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_notif_deliveries_recipient_scheduled ON notification_deliveries(recipient_user_id, scheduled_at);
+
+-- notification_dose_items (Junction Table)
+CREATE TABLE notification_dose_items (
+    notification_delivery_id UUID NOT NULL REFERENCES notification_deliveries(id) ON DELETE CASCADE,
+    scheduled_dose_id UUID NOT NULL REFERENCES scheduled_doses(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_notification_dose_items PRIMARY KEY (notification_delivery_id, scheduled_dose_id)
+);
+
+CREATE INDEX idx_notif_dose_items_dose_id ON notification_dose_items(scheduled_dose_id);
 
 
 -- =============================================================================
@@ -555,11 +583,13 @@ CREATE TABLE messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- This canonical bootstrap already contains every migration through 0011.
+-- This canonical bootstrap already contains every migration through 0013.
 -- Stamping fresh databases lets a future `alembic upgrade head` start from
 -- the next revision instead of replaying DDL that is already present.
 CREATE TABLE IF NOT EXISTS alembic_version (
     version_num VARCHAR(32) NOT NULL PRIMARY KEY
 );
 DELETE FROM alembic_version;
-INSERT INTO alembic_version(version_num) VALUES ('0011_schedule_snapshots');
+INSERT INTO alembic_version(version_num) VALUES ('0013_user_devices');
+
+
