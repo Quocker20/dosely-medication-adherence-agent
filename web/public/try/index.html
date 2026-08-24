@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Tải app Android RemindRx (bản demo) để test thử." />
+    <title>RemindRx — Tải app Android để test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        justify-content: center;
+        padding: 32px 16px 64px;
+      }
+      main { max-width: 520px; width: 100%; }
+      h1 { font-size: 1.4rem; margin: 0 0 8px; }
+      p { line-height: 1.6; color: var(--muted); }
+      .card {
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 24px;
+        margin-top: 20px;
+      }
+      .download-btn {
+        display: block;
+        text-align: center;
+        background: var(--accent);
+        color: #0f172a;
+        font-weight: 600;
+        text-decoration: none;
+        padding: 14px 20px;
+        border-radius: 10px;
+        font-size: 1.05rem;
+      }
+      .download-btn:active { opacity: 0.85; }
+      ol { padding-left: 20px; line-height: 1.7; }
+      code {
+        background: rgba(148, 163, 184, 0.15);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .warn {
+        border-left: 3px solid var(--accent);
+        padding-left: 12px;
+        margin-top: 16px;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>RemindRx — Tải app Android để test</h1>
+      <p>Bản demo, cài trực tiếp trên điện thoại Android. App đã kết nối sẵn với backend thật đang chạy trên server.</p>
+
+      <div class="card">
+        <a class="download-btn" href="/downloads/remindrx-demo.apk" download>⬇ Tải file APK</a>
+      </div>
+
+      <div class="card">
+        <p style="color: var(--text); margin-top: 0"><strong>Cách cài:</strong></p>
+        <ol>
+          <li>Tải file <code>.apk</code> ở nút trên bằng trình duyệt trên điện thoại Android.</li>
+          <li>Mở file vừa tải. Nếu Android hỏi "Cài ứng dụng không rõ nguồn gốc" (unknown sources), bấm <strong>Cho phép</strong> / <strong>Cài đặt</strong> — bình thường vì app chưa lên Google Play.</li>
+          <li>Mở app, đăng nhập bằng số điện thoại demo <code>0900000000</code>, mã PIN <code>123456</code>.</li>
+        </ol>
+      </div>
+
+      <p class="warn">Dữ liệu trong bản demo chỉ là dữ liệu mẫu — không nhập thông tin bệnh nhân thật. Cần điện thoại Android thật (không cài được trên iPhone).</p>
+    </main>
+  </body>
+</html>

@@ -12,19 +12,16 @@ services:
     env_file:
       - .env
     environment:
-      # .env holds the host-side URLs so pytest/alembic work outside a
-      # container; in-network hostnames are re-applied here.
-      - POSTGRES_HOST=postgres
+      # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -34,29 +31,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # 2. Database PostgreSQL Service (Mapping 21 Tables)
-  postgres:
-    image: postgres:15-alpine
-    container_name: remindrx_postgres
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-remindrx}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
-      POSTGRES_DB: ${POSTGRES_DB:-remindrx_db}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docs/database_v1_init.sql:/docker-entrypoint-initdb.d/init.sql # Tự động init 21 bảng khi chạy lần đầu
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-remindrx} -d ${POSTGRES_DB:-remindrx_db}" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # 3. Redis Service (Quản lý Auth Token Blacklist, Rate Limit & Celery Broker)
+  # 2. Redis Service (Quản lý Auth Token Blacklist, Rate Limit & Celery Broker)
   redis:
     image: redis:7-alpine
     container_name: remindrx_redis
@@ -71,7 +46,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 4. Celery Worker Service (Xử lý bất đồng bộ cho OCR, RAG & AI Agent)
+  # 3. Celery Worker Service (Xử lý bất đồng bộ cho OCR, RAG & AI Agent)
   worker:
     build:
       context: .
@@ -81,18 +56,15 @@ services:
     env_file:
       - .env
     environment:
-      # Same override as the backend service — see the comment there.
-      - POSTGRES_HOST=postgres
+      # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./data:/app/data
+      - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -108,7 +80,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # 5. Celery Beat Service (Lên lịch quét missed-dose định kỳ — Red Alert Trigger 1)
+  # 4. Celery Beat Service (Lên lịch quét missed-dose định kỳ — Red Alert Trigger 1)
   beat:
     build:
       context: .
@@ -118,18 +90,14 @@ services:
     env_file:
       - .env
     environment:
-      # Same override as the backend/worker services — see the comment there.
-      - POSTGRES_HOST=postgres
+      # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./data:/app/data
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -144,5 +112,4 @@ services:
       disable: true
 
 volumes:
-  postgres_data:
   redis_data:
