@@ -47,6 +47,27 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+# Load .env variables manually if python-dotenv is not installed
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    env_path = Path(".env")
+    if env_path.exists():
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                        val = val[1:-1]
+                    if key not in os.environ:
+                        os.environ[key] = val
+
 # Fix Windows console encoding so VN diacritics in prompts print cleanly.
 if sys.platform == "win32":
     try:
@@ -210,15 +231,149 @@ def get_logged_entry_ids(log_file: Path) -> set[str]:
 # Iterating user inputs
 # ---------------------------------------------------------------------------
 
+def read_varint(data: bytes, offset: int) -> tuple[int, int]:
+    result = 0
+    shift = 0
+    while True:
+        if offset >= len(data):
+            return result, offset
+        b = data[offset]
+        offset += 1
+        result |= (b & 0x7f) << shift
+        if not (b & 0x80):
+            break
+        shift += 7
+    return result, offset
+
+def extract_workspace_uri(blob: bytes) -> str:
+    m = re.search(b'file:///([^\x00-\x1F]+)', blob)
+    if m:
+        return m.group(1).decode('utf-8', errors='replace')
+    return ""
+
+def extract_prompt_from_step_blob(blob: bytes) -> str:
+    try:
+        offset = 0
+        while offset < len(blob):
+            tag, offset = read_varint(blob, offset)
+            wire_type = tag & 0x07
+            field_num = tag >> 3
+            
+            if field_num == 19 and wire_type == 2:
+                msg_len, offset = read_varint(blob, offset)
+                end_offset = offset + msg_len
+                
+                while offset < end_offset:
+                    sub_tag, offset = read_varint(blob, offset)
+                    sub_wire_type = sub_tag & 0x07
+                    sub_field_num = sub_tag >> 3
+                    
+                    if sub_field_num == 2 and sub_wire_type == 2:
+                        str_len, offset = read_varint(blob, offset)
+                        prompt_bytes = blob[offset:offset+str_len]
+                        return prompt_bytes.decode('utf-8', errors='replace')
+                    else:
+                        if sub_wire_type == 0:
+                            _, offset = read_varint(blob, offset)
+                        elif sub_wire_type == 1:
+                            offset += 8
+                        elif sub_wire_type == 2:
+                            f_len, offset = read_varint(blob, offset)
+                            offset += f_len
+                        elif sub_wire_type == 5:
+                            offset += 4
+                        else:
+                            break
+                break
+            else:
+                if wire_type == 0:
+                    _, offset = read_varint(blob, offset)
+                elif wire_type == 1:
+                    offset += 8
+                elif wire_type == 2:
+                    f_len, offset = read_varint(blob, offset)
+                    offset += f_len
+                elif wire_type == 5:
+                    offset += 4
+                else:
+                    break
+    except Exception:
+        pass
+    return ""
+
 def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                      only_conv: str | None, repo_root_n: str):
-    """Yield user-input dicts from every matching conversation transcript."""
+    """Yield user-input dicts from every matching conversation transcript or db."""
+    import sqlite3
+    seen_convs = set()
+
     for brain in brain_dirs:
+        # 1. Check Antigravity 2.0 SQLite databases
+        conv_dir_sqlite = brain.parent / "conversations"
+        if conv_dir_sqlite.exists() and conv_dir_sqlite.is_dir():
+            for db_file in conv_dir_sqlite.glob("*.db"):
+                conv_id = db_file.stem
+                if only_conv and conv_id != only_conv:
+                    continue
+                
+                try:
+                    # Use read-only mode if possible, but standard connect works
+                    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+                    
+                    ws_uri = ""
+                    for row in conn.execute("SELECT data FROM trajectory_metadata_blob LIMIT 1;"):
+                        if row[0]:
+                            ws_uri = extract_workspace_uri(row[0])
+                    
+                    ws_n = _normalize(ws_uri.replace("file:///", "").replace("file://", ""))
+                    if repo_root_n and not _conv_matches_repo({ws_n}, repo_root_n):
+                        conn.close()
+                        continue
+                        
+                    db_mtime = db_file.stat().st_mtime
+                    if cutoff:
+                        db_dt = datetime.fromtimestamp(db_mtime, tz=timezone.utc)
+                        if db_dt < cutoff:
+                            conn.close()
+                            continue
+                            
+                    for row in conn.execute("SELECT idx, step_payload FROM steps WHERE step_type=14;"):
+                        idx = row[0]
+                        blob = row[1]
+                        if not blob:
+                            continue
+                        
+                        prompt = extract_prompt_from_step_blob(blob)
+                        # Remove wrappers if any
+                        prompt = extract_user_prompt(prompt)
+                        if len(prompt) < 2:
+                            continue
+                        
+                        ts = datetime.fromtimestamp(db_mtime, tz=timezone.utc).isoformat()
+                        
+                        yield {
+                            "conv_id": conv_id,
+                            "step_index": idx,
+                            "timestamp": ts,
+                            "text": prompt,
+                        }
+                    conn.close()
+                    seen_convs.add(conv_id)
+                except Exception:
+                    pass
+
+        # 2. Check Antigravity 1.x legacy JSONL
+        if not brain.exists():
+            continue
+            
         for conv_dir in sorted(brain.iterdir()):
             if not conv_dir.is_dir():
                 continue
             if only_conv and conv_dir.name != only_conv:
                 continue
+            if conv_dir.name in seen_convs:
+                continue
+                
             transcript = (
                 conv_dir / ".system_generated" / "logs" / "transcript.jsonl"
             )

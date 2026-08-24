@@ -13,6 +13,26 @@ class RecordDoseActionRequest(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
+class BatchRecordDoseActionRequest(BaseModel):
+    """Request schema for POST /scheduled-doses/batch-actions."""
+
+    dose_ids: List[uuid.UUID] = Field(..., min_length=1)
+    action: Literal["TAKEN", "SNOOZE", "SKIPPED"]
+    action_source: str = "PATIENT_MOBILE_APP"
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchRecordDoseActionResponse(BaseModel):
+    """Response schema for batch dose action execution."""
+
+    patient_id: uuid.UUID
+    action: str
+    updated_dose_count: int
+    updated_dose_ids: List[uuid.UUID]
+    logs: List["AdherenceLogDetailResponse"]
+
+
+
 class AdherenceLogDetailResponse(BaseModel):
     """Response schema for a single adherence log entry."""
 

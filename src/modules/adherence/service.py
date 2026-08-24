@@ -26,6 +26,8 @@ from src.modules.adherence.schemas import (
     AdherenceLogDetailResponse,
     AdherenceSummaryResponse,
     AlertDetailResponse,
+    BatchRecordDoseActionRequest,
+    BatchRecordDoseActionResponse,
     HealthSurveyDetailResponse,
     RecordDoseActionRequest,
     ResolveAlertRequest,
@@ -38,6 +40,8 @@ from src.modules.patients.repository import PatientRepository
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SNOOZE_MINUTES = 15
+_MAX_SNOOZE_COUNT = 3
+_DEFAULT_MIN_GAP_MINUTES = 240
 _SEVERE_SYMPTOM_ALERT_TYPE = "RED_ALERT"
 _SEVERE_SYMPTOM_ALERT_SEVERITY = "HIGH"
 
@@ -111,11 +115,35 @@ class AdherenceLogService:
             # already begun on this Session".
             await self._db.commit()
 
-        snooze_minutes = (
-            self._resolve_snooze_minutes(request.payload)
-            if request.action == "SNOOZE"
-            else None
-        )
+        if request.action == "SNOOZE":
+            snooze_minutes = self._resolve_snooze_minutes(request.payload)
+            # Guardrail 1: Validate max snooze count
+            existing_dose = await self._repo.get_dose_scoped(scheduled_dose_id, actor_id)
+            if existing_dose is None:
+                raise NotFoundException(message="Scheduled dose not found")
+            if existing_dose.status != "PENDING":
+                raise ConflictException(message="Scheduled dose is no longer pending")
+            if existing_dose.snooze_count >= _MAX_SNOOZE_COUNT:
+                raise ConflictException(
+                    message=f"Đã đạt giới hạn hoãn tối đa ({_MAX_SNOOZE_COUNT} lần)"
+                )
+            # Guardrail 2: Validate minimum dose gap with next dose
+            next_dose, min_gap = await self._repo.get_next_dose_and_min_gap(existing_dose, actor_id)
+            if next_dose is not None:
+                required_gap = min_gap or _DEFAULT_MIN_GAP_MINUTES
+                new_scheduled_at = existing_dose.current_scheduled_at + timedelta(minutes=snooze_minutes)
+                gap_minutes = (next_dose.current_scheduled_at - new_scheduled_at).total_seconds() / 60.0
+                if gap_minutes < required_gap:
+                    raise ConflictException(
+                        message=(
+                            f"Không thể hoãn: khoảng cách tới liều tiếp theo ({int(gap_minutes)} phút) "
+                            f"nhỏ hơn khoảng cách tối thiểu cho phép ({required_gap} phút)"
+                        )
+                    )
+            if self._db.in_transaction():
+                await self._db.commit()
+        else:
+            snooze_minutes = None
 
         try:
             async with self._db.begin():
@@ -157,6 +185,113 @@ class AdherenceLogService:
         # happened. publish_dashboard_event is fail-open, so a Redis outage
         # costs the portal its liveness and not the clinical write.
         await publish_dashboard_event("adherence.updated", response.model_dump(mode="json"))
+        return response
+
+    async def batch_record_dose_action(
+        self,
+        request: BatchRecordDoseActionRequest,
+        actor_payload: dict,
+        idempotency_key: Optional[str],
+    ) -> BatchRecordDoseActionResponse:
+        """PATIENT only, scoped to the patient's own doses.
+        Executes a synchronized dose action (TAKEN/SNOOZE/SKIPPED) across multiple doses.
+        Idempotency-Key header is required."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if not idempotency_key or not idempotency_key.strip():
+            raise ValidationException(message="Idempotency-Key header is required")
+
+        existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
+        if existing_logs:
+            log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
+            dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+            return BatchRecordDoseActionResponse(
+                patient_id=actor_id,
+                action=existing_logs[0].action,
+                updated_dose_count=len(dose_ids),
+                updated_dose_ids=dose_ids,
+                logs=log_responses,
+            )
+
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        if request.action == "SNOOZE":
+            snooze_minutes = self._resolve_snooze_minutes(request.payload)
+            target_doses = await self._repo.get_doses_scoped(request.dose_ids, actor_id)
+            if not target_doses:
+                raise NotFoundException(message="Scheduled doses not found")
+            for d in target_doses:
+                if d.status != "PENDING":
+                    raise ConflictException(message="Một số liều thuốc không còn ở trạng thái chờ uống")
+                if d.snooze_count >= _MAX_SNOOZE_COUNT:
+                    raise ConflictException(
+                        message=f"Liều thuốc đã đạt giới hạn hoãn tối đa ({_MAX_SNOOZE_COUNT} lần)"
+                    )
+                next_d, min_gap = await self._repo.get_next_dose_and_min_gap(d, actor_id)
+                if next_d is not None:
+                    required_gap = min_gap or _DEFAULT_MIN_GAP_MINUTES
+                    new_at = d.current_scheduled_at + timedelta(minutes=snooze_minutes)
+                    gap_mins = (next_d.current_scheduled_at - new_at).total_seconds() / 60.0
+                    if gap_mins < required_gap:
+                        raise ConflictException(
+                            message=(
+                                f"Không thể hoãn: khoảng cách tới liều tiếp theo ({int(gap_mins)} phút) "
+                                f"nhỏ hơn khoảng cách tối thiểu cho phép ({required_gap} phút)"
+                            )
+                        )
+            if self._db.in_transaction():
+                await self._db.commit()
+        else:
+            snooze_minutes = None
+
+        try:
+            async with self._db.begin():
+                updated_doses = await self._repo.batch_apply_dose_actions_cas(
+                    request.dose_ids, actor_id, request.action, snooze_minutes
+                )
+                if not updated_doses:
+                    existing_doses = await self._repo.get_doses_scoped(
+                        request.dose_ids, actor_id
+                    )
+                    if not existing_doses:
+                        raise NotFoundException(message="Scheduled doses not found")
+                    raise ConflictException(message="None of the scheduled doses are pending")
+
+                updated_dose_ids = [d.id for d in updated_doses]
+                logs = await self._repo.insert_batch_logs(
+                    patient_id=actor_id,
+                    action=request.action,
+                    action_source=request.action_source,
+                    payload=request.payload,
+                    idempotency_key=idempotency_key,
+                    scheduled_dose_ids=updated_dose_ids,
+                )
+        except IntegrityError:
+            existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
+            if existing_logs:
+                log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
+                dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+                return BatchRecordDoseActionResponse(
+                    patient_id=actor_id,
+                    action=existing_logs[0].action,
+                    updated_dose_count=len(dose_ids),
+                    updated_dose_ids=dose_ids,
+                    logs=log_responses,
+                )
+            raise
+
+        log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in logs]
+        response = BatchRecordDoseActionResponse(
+            patient_id=actor_id,
+            action=request.action,
+            updated_dose_count=len(updated_doses),
+            updated_dose_ids=[d.id for d in updated_doses],
+            logs=log_responses,
+        )
+
+        for l_resp in log_responses:
+            await publish_dashboard_event("adherence.updated", l_resp.model_dump(mode="json"))
+
         return response
 
     async def get_adherence_summary(

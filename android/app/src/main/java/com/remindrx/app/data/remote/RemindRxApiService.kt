@@ -135,4 +135,9 @@ interface RemindRxApiService {
     suspend fun sendVoiceChatMessage(
         @Part audio: MultipartBody.Part,
     ): ApiEnvelope<VoiceChatResponseDto>
+
+    @POST("auth/device-token")
+    suspend fun registerDeviceToken(
+        @Body request: DeviceTokenRequestDto,
+    ): ApiEnvelope<Unit?>
 }

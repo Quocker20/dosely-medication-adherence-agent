@@ -7,7 +7,9 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.auth.models import RefreshToken, User
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from src.modules.auth.models import RefreshToken, User, UserDevice
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,31 @@ class AuthRepository:
             update(User)
             .where(User.id == user_id)
             .values(status=status, updated_at=datetime.now(timezone.utc))
+        )
+        await self._db.execute(stmt)
+
+    async def upsert_user_device(
+        self, user_id: uuid.UUID, fcm_token: str, device_name: Optional[str] = None
+    ) -> None:
+        """Upsert an FCM token for the user. If token already exists (for any user), 
+        reassign it to the current user and update device_name/active status."""
+        stmt = (
+            pg_insert(UserDevice)
+            .values(
+                user_id=user_id,
+                fcm_token=fcm_token,
+                device_name=device_name,
+                is_active=True,
+            )
+            .on_conflict_do_update(
+                index_elements=["fcm_token"],
+                set_={
+                    "user_id": user_id,
+                    "device_name": device_name,
+                    "is_active": True,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
         )
         await self._db.execute(stmt)
 

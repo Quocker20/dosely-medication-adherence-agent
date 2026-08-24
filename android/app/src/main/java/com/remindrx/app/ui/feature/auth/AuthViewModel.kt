@@ -58,6 +58,8 @@ class AuthViewModel @Inject constructor(
             result
                 .onSuccess { session ->
                     _state.update { it.copy(isLoading = false, session = session) }
+                    // B2: Đồng bộ FCM token vào user_devices ngay sau khi login
+                    syncFcmTokenAfterLogin()
                     onSuccess(session.isFirstLogin)
                 }
                 .onFailure { error ->
@@ -69,6 +71,24 @@ class AuthViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+    }
+
+    private fun syncFcmTokenAfterLogin() {
+        viewModelScope.launch {
+            try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { token ->
+                        viewModelScope.launch {
+                            repository.registerDeviceToken(
+                                fcmToken = token,
+                                deviceName = android.os.Build.MODEL,
+                            )
+                        }
+                    }
+            } catch (e: Exception) {
+                android.util.Log.w("FCM_TOKEN", "Không thể đồng bộ FCM token sau login: ${e.message}")
+            }
         }
     }
 

@@ -12,6 +12,7 @@ from src.modules.auth.schemas import (
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
+    DeviceTokenRequest,
 )
 from src.modules.auth.service import AuthService
 
@@ -74,4 +75,20 @@ async def logout(
 ) -> JSONResponse:
     """Revoke refresh token session for authenticated user."""
     result = await service.logout(request.refresh_token)
+    return success_response(data=None, message=result.message)
+
+
+@router.post("/device-token")
+async def register_device_token(
+    request: DeviceTokenRequest,
+    current_user: CurrentUserDep,
+    service: AuthServiceDep,
+) -> JSONResponse:
+    """Register or update an FCM token for the authenticated user's device."""
+    user_id = current_user["sub"]
+    result = await service.register_device_token(
+        user_id=user_id,
+        fcm_token=request.fcm_token,
+        device_name=request.device_name,
+    )
     return success_response(data=None, message=result.message)

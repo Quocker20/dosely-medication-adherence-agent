@@ -17,4 +17,5 @@ interface AuthRepository {
     suspend fun changePin(accessToken: String, currentPin: String, newPin: String)
     suspend fun refreshSession(): AuthSession
     suspend fun logout()
+    suspend fun registerDeviceToken(fcmToken: String, deviceName: String? = null)
 }
