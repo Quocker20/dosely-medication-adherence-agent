@@ -14,6 +14,7 @@ from src.api.v1_router import v1_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+DOWNLOADS_DIR = Path(__file__).resolve().parent.parent / "downloads"
 
 
 @asynccontextmanager
@@ -62,7 +63,13 @@ async def health():
     return {"status": "ok", "env": settings.app_env}
 
 
+# File APK để tải trực tiếp (xem docs/android-app-testing.md). Bind-mount riêng
+# ngoài image Docker nên cập nhật APK không cần build lại image.
+if DOWNLOADS_DIR.is_dir():
+    app.mount("/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downloads")
+
 # Portal bác sĩ đã build (npm run build trong web/) được serve ngay từ FastAPI.
 # Lúc dev thì chạy `npm run dev` — Vite proxy /api sang cổng 8000.
+# Mount sau cùng vì đây là catch-all "/" — mount trước nó sẽ bị che khuất.
 if WEB_DIST.is_dir():
     app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="portal")

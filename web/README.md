@@ -26,13 +26,12 @@ cd web && npm run build
 `web/dist/` được `src/main.py` tự mount vào `/` khi tồn tại, nên sau khi build
 thì chỉ cần chạy backend là có cả UI ở http://localhost:8000.
 
-## Thử app Android trên web
+## Tải app Android để test
 
-`public/emulator/index.html` nhúng player Appetize.io để chạy thật app
-Android (native, ở `android/`) ngay trong trình duyệt — dùng để demo/test cho
-người không có Android Studio. Xem
-[docs/android-web-emulator-testing.md](../docs/android-web-emulator-testing.md)
-để build APK, upload, và điền `public/emulator/config.js`.
+`public/try/index.html` là trang tải file APK demo (build từ `android/`, đã
+trỏ sẵn vào backend công khai) để cài trực tiếp lên điện thoại Android. Xem
+[docs/android-app-testing.md](../docs/android-app-testing.md) để build APK và
+đưa file lên server.
 
 ## Cấu trúc
 
