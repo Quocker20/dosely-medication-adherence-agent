@@ -121,9 +121,15 @@ export default function DoctorPortal({ session }: { session: Session }) {
 
   // WS /ws/dashboard nằm ngoài /api/v1 và nhận token qua query — browser
   // WebSocket không set được header Authorization.
+  //
+  // Vercel không proxy được WebSocket qua rewrite (chỉ HTTP thường), nên khi
+  // deploy tách domain (web ở Vercel, backend ở nơi khác) phải nối thẳng vào
+  // backend qua VITE_WS_HOST thay vì same-origin. Để trống thì dùng
+  // window.location.host như cũ — đúng cho dev/khi web và backend cùng origin.
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/ws/dashboard?token=${encodeURIComponent(session.accessToken)}`;
+    const wsHost = import.meta.env.VITE_WS_HOST || window.location.host;
+    const url = `${protocol}//${wsHost}/ws/dashboard?token=${encodeURIComponent(session.accessToken)}`;
 
     let socket: WebSocket;
     try {

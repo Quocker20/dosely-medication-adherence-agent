@@ -137,6 +137,13 @@ class PrescriptionItemDetailResponse(BaseModel):
     created_at: datetime
 
 
+class CurrentMedicationListResponse(BaseModel):
+    """Currently active medicines from the authenticated patient's approved prescriptions."""
+
+    as_of: date
+    medications: List[PrescriptionItemDetailResponse] = Field(default_factory=list)
+
+
 class PrescriptionDetailResponse(BaseModel):
     """Response schema representing a full prescription with its line items.
 
