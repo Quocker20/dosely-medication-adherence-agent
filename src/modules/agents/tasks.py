@@ -23,6 +23,7 @@ from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.service import (
     AgentRunLeaseBusyError,
+    AutoscheduleOutcome,
     MissedDoseScanService,
     SchedulingService,
 )
@@ -65,6 +66,47 @@ def generate_schedule_task(self, run_id: str, patient_id: str, is_reschedule: bo
             exc=exc,
             countdown=get_settings().planning_run_lease_seconds,
         ) from exc
+
+
+async def _execute_autoschedule(
+    patient_id: str, prescription_id: str | None, trigger_type: str
+) -> AutoscheduleOutcome:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
+    try:
+        async with session_factory() as session:
+            service = SchedulingService(
+                db=session,
+                agent_run_repository=AgentRunRepository(session),
+                scheduled_dose_repository=ScheduledDoseRepository(session),
+            )
+            return await service.request_autoschedule(
+                patient_id=uuid.UUID(patient_id),
+                prescription_id=uuid.UUID(prescription_id) if prescription_id else None,
+                trigger_type=trigger_type,
+            )
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(bind=True, name="agents.autoschedule")
+def autoschedule_task(self, patient_id: str, prescription_id: str | None, trigger_type: str) -> None:
+    """Plan (or replan) after a prescription approval or a routine change.
+
+    Separate from generate_schedule_task because this one has to create the
+    AgentRun itself, and creating it can lose a race against
+    uq_agent_runs_one_running. Dropping the message there would leave the
+    patient without reminders for the drug that was just approved, so a busy
+    patient is retried rather than swallowed.
+    """
+    settings = get_settings()
+    outcome = asyncio.run(_execute_autoschedule(patient_id, prescription_id, trigger_type))
+    if outcome is AutoscheduleOutcome.RUN_IN_FLIGHT:
+        raise self.retry(
+            countdown=settings.prescription_autoschedule_retry_seconds,
+            max_retries=settings.prescription_autoschedule_max_retries,
+        )
 
 
 async def _execute_missed_dose_scan() -> None:
