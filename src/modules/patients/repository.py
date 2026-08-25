@@ -124,6 +124,21 @@ class PatientRepository:
             return None
         return row[0], row[1]
 
+    async def get_patient_by_phone(
+        self, phone: str
+    ) -> Optional[Tuple[PatientProfile, User]]:
+        """Fetch patient profile and user record globally by phone (unscoped by doctor)."""
+        stmt = (
+            select(PatientProfile, User)
+            .join(User, PatientProfile.user_id == User.id)
+            .where(User.phone == phone)
+        )
+        result = await self._db.execute(stmt)
+        row = result.first()
+        if row is None:
+            return None
+        return row[0], row[1]
+
     async def list_patients(
         self,
         doctor_id: Optional[uuid.UUID] = None,

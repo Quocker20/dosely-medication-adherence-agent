@@ -3,7 +3,7 @@ import math
 import secrets
 import string
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Optional, Tuple
 
@@ -143,15 +143,18 @@ class PrescriptionService:
         )
 
     async def _resolve_or_create_patient(
-        self, cleaned_phone: str
+        self,
+        cleaned_phone: str,
+        name: Optional[str] = None,
+        dob: Optional[date] = None,
+        sex: Optional[str] = None,
+        emergency_note: Optional[str] = None,
     ) -> Tuple[User, Optional[str]]:
         """Find the patient's user account by phone, creating one with a temp
         PIN if it doesn't exist yet (same pattern as
         PatientService._resolve_or_create_caregiver).
 
-        NOT NULL patient_profiles columns with no DB default (name) are
-        filled with the placeholder literal "NULL" — the patient corrects
-        this via self-onboarding (POST /patients/me/profile) on first login.
+        Patient profile demographics are populated directly if provided.
 
         Runs the create as its own transaction, separate from the prescription
         insert that follows: an IntegrityError here (concurrent create on the
@@ -185,7 +188,10 @@ class PrescriptionService:
                 )
                 await self._patient_repo.create_patient_profile(
                     user_id=user.id,
-                    name="NULL",
+                    name=name or "NULL",
+                    dob=dob,
+                    sex=sex,
+                    emergency_note=emergency_note,
                 )
         except IntegrityError:
             user = await self._auth_repo.get_user_by_phone(cleaned_phone)
@@ -224,14 +230,20 @@ class PrescriptionService:
 
         1. Find-or-create the patient account by phone (own transaction).
         2. Confirm the acting doctor is still ACTIVE (token may outlive a
-           deactivation — this closes most of that window, not all of it).
+            deactivation — this closes most of that window, not all of it).
         3. Persist Prescription, PrescriptionItems (bulk, single flush), and
-           AuditLog in one transaction.
+            AuditLog in one transaction.
         """
         cleaned_phone = validate_phone_number(request.phone)
         doctor_id = uuid.UUID(actor_payload["sub"])
 
-        patient_user, temp_pin = await self._resolve_or_create_patient(cleaned_phone)
+        patient_user, temp_pin = await self._resolve_or_create_patient(
+            cleaned_phone,
+            name=request.name,
+            dob=request.dob,
+            sex=request.sex,
+            emergency_note=request.emergency_note,
+        )
 
         item_fields = [
             await self._snapshot_item_fields(item.model_dump())
