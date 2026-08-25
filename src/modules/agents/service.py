@@ -3,6 +3,7 @@ import logging
 import time as time_module
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
+from enum import Enum
 from zoneinfo import ZoneInfo
 
 from fastapi import status
@@ -52,10 +53,19 @@ logger = logging.getLogger(__name__)
 
 _GRAPH_VERSION = "planning-langgraph-v2"
 _GENERATE_TASK_NAME = "agents.generate_schedule"
+_ROUTINE_UPDATED_TRIGGER = "ROUTINE_UPDATED"
 
 
 class AgentRunLeaseBusyError(RuntimeError):
     """A redelivered task arrived before the previous claim expired."""
+
+
+class AutoscheduleOutcome(str, Enum):
+    """Why an automatic planning trigger did or didn't start a run."""
+
+    DISPATCHED = "DISPATCHED"
+    NOTHING_TO_PLAN = "NOTHING_TO_PLAN"
+    RUN_IN_FLIGHT = "RUN_IN_FLIGHT"
 
 
 class SchedulingService:
@@ -150,6 +160,58 @@ class SchedulingService:
 
         self._dispatch_generate(run.id, patient_id, is_reschedule=True)
         return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    async def request_autoschedule(
+        self,
+        patient_id: uuid.UUID,
+        prescription_id: uuid.UUID | None,
+        trigger_type: str,
+    ) -> AutoscheduleOutcome:
+        """Worker-side planning trigger for prescription approval / routine
+        change. No actor scoping: authorisation already happened at the HTTP
+        layer, on the doctor approving or the patient editing their own
+        routine.
+
+        Returns an outcome instead of raising ConflictException the way the
+        HTTP entrypoints do — a busy patient means "try again shortly", not a
+        409 for a caller that no longer exists.
+        """
+        is_reschedule = trigger_type == _ROUTINE_UPDATED_TRIGGER
+
+        # Nothing approved means nothing to plan. Bailing out here keeps a
+        # patient who edits their routine before ever being prescribed
+        # anything from accumulating NEEDS_REVIEW runs that no clinician
+        # needs to look at.
+        item_pairs = await self._dose_repo.get_approved_items(patient_id)
+        if self._db.in_transaction():
+            await self._db.commit()
+        if not item_pairs:
+            logger.info(
+                "Skipping %s autoschedule for patient %s: no approved prescription items",
+                trigger_type,
+                patient_id,
+            )
+            return AutoscheduleOutcome.NOTHING_TO_PLAN
+
+        try:
+            async with self._db.begin():
+                run = await self._agent_run_repo.create_run(
+                    patient_id=patient_id,
+                    agent_type="RESCHEDULING_AGENT" if is_reschedule else "PLANNING_AGENT",
+                    trigger_type=trigger_type,
+                    graph_version=_GRAPH_VERSION,
+                    prescription_id=prescription_id,
+                )
+        except IntegrityError:
+            # uq_agent_runs_one_running. The in-flight run re-reads approved
+            # items inside its own commit transaction, so it may well pick this
+            # change up on its own — but only if it hasn't committed yet.
+            # Retrying is what closes the case where it already has.
+            logger.info("Autoschedule for patient %s deferred: a run is in flight", patient_id)
+            return AutoscheduleOutcome.RUN_IN_FLIGHT
+
+        self._dispatch_generate(run.id, patient_id, is_reschedule=is_reschedule)
+        return AutoscheduleOutcome.DISPATCHED
 
     async def get_schedule(
         self, patient_id: uuid.UUID, actor_payload: dict, target_date: date

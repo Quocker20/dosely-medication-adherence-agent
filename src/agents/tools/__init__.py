@@ -19,6 +19,7 @@ from src.agents.tools.drug_rag_tools import search_drug_formulary
 from src.agents.tools.health_tools import record_health_survey
 from src.agents.tools.patient_tools import (
     get_adherence_stats,
+    get_current_medications,
     get_patient_profile,
     get_prescriptions,
     get_scheduled_doses,
@@ -27,6 +28,7 @@ from src.agents.tools.safety_tools import trigger_red_alert
 from src.agents.tools.schedule_tools import record_dose_action, reschedule_remaining_doses
 
 READ_ONLY_TOOLS = [
+    get_current_medications,
     get_prescriptions,
     get_patient_profile,
     get_scheduled_doses,
@@ -51,6 +53,7 @@ CHAT_TOOLS = READ_ONLY_TOOLS + WRITE_TOOLS
 
 __all__ = [
     "get_prescriptions",
+    "get_current_medications",
     "get_patient_profile",
     "get_scheduled_doses",
     "get_adherence_stats",
