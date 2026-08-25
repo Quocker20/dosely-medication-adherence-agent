@@ -1,2 +1,4 @@
 # Git hooks execute this launcher with Bash even on Windows.
 scripts/_pyrun.sh text eol=lf
+data/rag_dense_index_q1_q2/records.jsonl filter=lfs diff=lfs merge=lfs -text
+data/rag_dense_index_q1_q2/vectors.npy filter=lfs diff=lfs merge=lfs -text
