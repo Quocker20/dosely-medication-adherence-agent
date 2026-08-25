@@ -10,6 +10,7 @@ import type {
   PrescriptionItemIn,
 } from "../../../types";
 import GuardBanner from "../../../components/shared/GuardBanner";
+import MedicationCombobox from "./MedicationCombobox";
 
 interface Props {
   phone: string;
@@ -223,21 +224,18 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                   </div>
 
                   <div className="rx-fields">
-                    <label className="wide">
-                      Thuốc (danh mục)
-                      <select
-                        value={item.medication_id}
-                        onChange={(event) => patchItem(index, { medication_id: event.target.value })}
-                      >
-                        <option value="">— Chọn thuốc —</option>
-                        {medications.map((medication) => (
-                          <option key={medication.id} value={medication.id}>
-                            {medication.name}
-                            {medication.composition ? ` · ${medication.composition}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <div className="wide">
+                      <label style={{ marginBottom: 5 }}>Thuốc (danh mục)</label>
+                      <MedicationCombobox
+                        medications={medications}
+                        selectedId={item.medication_id}
+                        onSelect={(medication) =>
+                          patchItem(index, {
+                            medication_id: medication ? medication.id : "",
+                          })
+                        }
+                      />
+                    </div>
 
                     <label>
                       Đơn vị liều
