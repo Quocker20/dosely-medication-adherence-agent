@@ -26,10 +26,25 @@ from pydantic import BaseModel, Field
 from src.agents.state import AgentState
 from src.modules.planning.core.llm import get_llm
 
+_MY_MEDICATION_PHRASES = (
+    "tôi đang uống thuốc",
+    "tôi đang dùng thuốc",
+    "thuốc tôi đang uống",
+    "thuốc tôi đang dùng",
+    "thuốc hiện tại của tôi",
+    "danh sách thuốc hiện tại",
+    "bác sĩ đang cho tôi dùng thuốc",
+    "bác sĩ kê cho tôi thuốc",
+    "what medicines am i taking",
+    "what medications am i taking",
+    "my current medications",
+)
+
 _CLASSIFY_SYSTEM_PROMPT = """Phân loại tin nhắn của bệnh nhân vào ĐÚNG 1 nhãn:
 
 - "report_meal_shift": bệnh nhân báo một bữa ăn hôm nay bị lệch giờ (ăn sớm/muộn hơn thường lệ)
 - "ask_schedule": hỏi về lịch uống thuốc, đã uống thuốc chưa, cữ tiếp theo lúc nào
+- "ask_my_medications": hỏi danh sách thuốc bản thân đang được kê/đang sử dụng
 - "ask_drug_info": hỏi thông tin về một loại thuốc (công dụng, cách dùng...)
 - "general": mọi trường hợp khác (chào hỏi, hỏi chung, yêu cầu đổi liều/ngưng thuốc, v.v.)
 
@@ -37,7 +52,9 @@ Chỉ trả về đúng nhãn, không giải thích."""
 
 
 class IntentClassification(BaseModel):
-    intent: Literal["report_meal_shift", "ask_schedule", "ask_drug_info", "general"] = Field(
+    intent: Literal[
+        "report_meal_shift", "ask_schedule", "ask_my_medications", "ask_drug_info", "general"
+    ] = Field(
         description="Nhãn ý định của tin nhắn — xem hướng dẫn."
     )
 
@@ -51,6 +68,19 @@ def _last_human_text(state: AgentState) -> str:
 
 async def classify_intent_node(state: AgentState) -> dict:
     text = _last_human_text(state)
+    normalized = " ".join(text.casefold().split())
+    asks_about_own_current_medicines = (
+        "thuốc" in normalized
+        and "tôi" in normalized
+        and any(
+            marker in normalized
+            for marker in ("đang uống", "đang dùng", "hiện tại", "danh sách", "bác sĩ")
+        )
+    )
+    if asks_about_own_current_medicines or any(
+        phrase in normalized for phrase in _MY_MEDICATION_PHRASES
+    ):
+        return {"intent": "ask_my_medications"}
     try:
         llm = get_llm(temperature=0).with_structured_output(IntentClassification)
         result = await llm.ainvoke(
