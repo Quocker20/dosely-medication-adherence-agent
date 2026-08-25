@@ -422,6 +422,61 @@ async def test_patient_can_read_own_prescriptions(client):
 
 
 @pytest.mark.asyncio
+async def test_current_medications_returns_only_approved_date_active_items(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+
+    active = await _draft_with_item(client, doctor_headers, med_id)
+    await client.post(f"/api/v1/prescriptions/{active['id']}/approve", headers=doctor_headers)
+
+    # A draft item must never be presented as a medicine the patient is using.
+    await _draft_with_item(client, doctor_headers, med_id)
+
+    expired_response = await client.post(
+        "/api/v1/prescriptions",
+        json={
+            "phone": PATIENT_PHONE,
+            "items": [
+                _item_payload(
+                    med_id,
+                    start_date=(date.today() - timedelta(days=10)).isoformat(),
+                    end_date=(date.today() - timedelta(days=1)).isoformat(),
+                )
+            ],
+        },
+        headers=doctor_headers,
+    )
+    expired = expired_response.json()["data"]["prescription"]
+    await client.post(f"/api/v1/prescriptions/{expired['id']}/approve", headers=doctor_headers)
+
+    patient_headers = await _login(client, PATIENT_PHONE)
+    response = await client.get(
+        "/api/v1/patients/me/medications/current", headers=patient_headers
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["as_of"] == date.today().isoformat()
+    assert [item["id"] for item in data["medications"]] == [active["items"][0]["id"]]
+
+
+@pytest.mark.asyncio
+async def test_current_medications_requires_patient_authentication(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+
+    unauthenticated = await client.get("/api/v1/patients/me/medications/current")
+    wrong_role = await client.get(
+        "/api/v1/patients/me/medications/current", headers=doctor_headers
+    )
+
+    assert unauthenticated.status_code == 401
+    assert wrong_role.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_patient_cannot_read_another_patients_prescriptions(client):
     """Out-of-scope reads come back as an empty page, not 403/404 — the same
     list-style filtering the dashboard roster uses, which avoids confirming

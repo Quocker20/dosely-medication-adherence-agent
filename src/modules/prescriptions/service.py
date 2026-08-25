@@ -3,7 +3,7 @@ import math
 import secrets
 import string
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Optional, Tuple
 
@@ -16,6 +16,8 @@ from src.common.exceptions import (
     ValidationException,
 )
 from src.common.schemas import PageResponse
+from src.core.celery_app import celery_app
+from src.core.config import get_settings
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.agents.repository import ScheduledDoseRepository
@@ -29,6 +31,7 @@ from src.modules.prescriptions.schemas import (
     CreatePrescriptionItemRequest,
     CreatePrescriptionRequest,
     CreatePrescriptionResponse,
+    CurrentMedicationListResponse,
     MedicationDetailResponse,
     PrescriptionDetailResponse,
     PrescriptionItemDetailResponse,
@@ -37,6 +40,8 @@ from src.modules.prescriptions.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+_AUTOSCHEDULE_TASK_NAME = "agents.autoschedule"
 
 _MUTABLE_STATUS = "DRAFT"
 _CANCELLABLE_STATUSES = ("DRAFT", "APPROVED")
@@ -111,6 +116,31 @@ class PrescriptionService:
     def _generate_temp_pin() -> str:
         """Generate a random 6-digit PIN string."""
         return "".join(secrets.choice(string.digits) for _ in range(6))
+
+    @staticmethod
+    def _dispatch_schedule_generation(patient_id: uuid.UUID, prescription_id: uuid.UUID) -> None:
+        """Start the Planning Agent once a prescription is approved — the
+        PrescriptionApproved event the API spec (mục 8) calls for.
+
+        Fail-open on purpose: approval is the doctor's clinical HITL decision
+        and it is already committed. Rolling it back because a broker is down
+        would be the worse failure, and the schedule can still be produced via
+        POST /patients/{id}/schedules/generate. The cost of this choice is that
+        an approved prescription can briefly have no reminders, which is why
+        the run is retried rather than best-effort.
+        """
+        if not get_settings().prescription_autoschedule_enabled:
+            return
+        try:
+            celery_app.send_task(
+                _AUTOSCHEDULE_TASK_NAME,
+                args=[str(patient_id), str(prescription_id), "PRESCRIPTION_APPROVED"],
+            )
+        except Exception:
+            logger.exception(
+                "Auto-schedule dispatch failed for prescription %s; approval stands",
+                prescription_id,
+            )
 
     @staticmethod
     def _to_item_detail(item: PrescriptionItem) -> PrescriptionItemDetailResponse:
@@ -373,6 +403,9 @@ class PrescriptionService:
             )
 
         items = await self._rx_repo.get_items(prescription_id)
+        # After the commit: the prescription is APPROVED, so the Planning Agent
+        # can now read it (it only ever reads APPROVED rows).
+        self._dispatch_schedule_generation(prescription.patient_id, prescription_id)
         return self._to_detail(prescription, items)
 
     async def cancel_prescription(
@@ -528,3 +561,13 @@ class PrescriptionService:
                 old_values={"display_name": existing_item.display_name},
                 ip_address=ip_address,
             )
+    async def get_current_medications(
+        self, patient_id: uuid.UUID, as_of: Optional[date] = None
+    ) -> CurrentMedicationListResponse:
+        """Read the authenticated patient's approved, date-active medication items."""
+        effective_date = as_of or date.today()
+        items = await self._rx_repo.list_current_medications(patient_id, effective_date)
+        return CurrentMedicationListResponse(
+            as_of=effective_date,
+            medications=[PrescriptionItemDetailResponse.model_validate(item) for item in items],
+        )
