@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: remindrx_backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -37,7 +37,7 @@ services:
     container_name: remindrx_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -111,5 +111,22 @@ services:
     healthcheck:
       disable: true
 
+  # 5. Caddy — reverse proxy + tự cấp/gia hạn HTTPS (Let's Encrypt) cho domain trỏ vào VPS.
+  caddy:
+    image: caddy:2-alpine
+    container_name: remindrx_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
 volumes:
   redis_data:
+  caddy_data:
+  caddy_config:
