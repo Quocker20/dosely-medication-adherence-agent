@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
     planning_grouping_enabled: bool = False
+    # Duyệt đơn xong thì Planning Agent tự sinh lịch (docs mục 8: approve phát
+    # event PrescriptionApproved). Tắt cờ này thì bác sĩ phải gọi tay
+    # POST /patients/{id}/schedules/generate như trước.
+    prescription_autoschedule_enabled: bool = True
+    # uq_agent_runs_one_running chỉ cho một run/bệnh nhân. Duyệt hai đơn liên
+    # tiếp thì đơn sau phải đợi — retry cho tới khi run trước xong, vì bỏ qua
+    # đồng nghĩa bệnh nhân không có lịch nhắc cho thuốc vừa được kê.
+    prescription_autoschedule_retry_seconds: int = Field(default=30, ge=5, le=600)
+    prescription_autoschedule_max_retries: int = Field(default=10, ge=1, le=60)
     notification_group_window_minutes: int = Field(default=30, ge=0, le=180)
     # Slice 6: rolling generation window. Bounds scheduled_doses row count for
     # open-ended prescriptions (nullable end_date) — a Beat job tops this up

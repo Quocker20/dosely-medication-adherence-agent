@@ -58,11 +58,13 @@ async def test_update_routine_upserts_for_profile_without_existing_routine():
 
     repository.upsert_routine.assert_awaited_once_with(
         patient_id=patient_id,
-        wake_time=saved.wake_time,
-        breakfast_time=saved.breakfast_time,
-        lunch_time=saved.lunch_time,
-        dinner_time=saved.dinner_time,
-        sleep_time=saved.sleep_time,
+        updates={
+            "wake_time": saved.wake_time,
+            "breakfast_time": saved.breakfast_time,
+            "lunch_time": saved.lunch_time,
+            "dinner_time": saved.dinner_time,
+            "sleep_time": saved.sleep_time,
+        },
     )
     assert result.patient_id == patient_id
     assert result.wake_time == time(6, 30)
