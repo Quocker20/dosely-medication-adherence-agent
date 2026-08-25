@@ -21,8 +21,6 @@ from src.modules.patients.schemas import (
     CreatePatientByDoctorRequest,
     CreatePatientResponse,
     PatientDetailResponse,
-    PatientOnboardingRequest,
-    PatientProfileDetailResponse,
     PatientRoutineResponse,
     UpdateRoutineRequest,
 )
@@ -186,6 +184,15 @@ class PatientService:
         profile, user = result
         return self._to_detail(profile, user)
 
+    async def get_patient_by_phone(self, phone: str) -> PatientDetailResponse:
+        """Fetch patient detail globally by validated phone."""
+        cleaned_phone = validate_phone_number(phone)
+        result = await self._patient_repo.get_patient_by_phone(cleaned_phone)
+        if result is None:
+            raise NotFoundException(message="Patient not found")
+        profile, user = result
+        return self._to_detail(profile, user)
+
     @staticmethod
     def _to_routine_response(routine: PatientRoutine) -> PatientRoutineResponse:
         return PatientRoutineResponse(
@@ -212,45 +219,6 @@ class PatientService:
             status=link.status,
             created_at=link.created_at,
             temp_password=temp_password,
-        )
-
-    async def onboard_patient(
-        self, request: PatientOnboardingRequest, actor_payload: dict
-    ) -> PatientProfileDetailResponse:
-        """PATIENT self-onboarding: fills in profile details (row already exists
-        from doctor-creation) and sets the initial daily routine.
-
-        upsert_routine makes the routine half idempotent against a double-submit
-        (e.g. a double-tapped submit button) without a pre-check race window.
-        """
-        patient_id = uuid.UUID(actor_payload["sub"])
-
-        async with self._db.begin():
-            await self._patient_repo.update_patient_profile(
-                user_id=patient_id,
-                name=request.name,
-                dob=request.dob,
-                sex=request.sex,
-                timezone=request.timezone,
-                emergency_note=request.emergency_note,
-            )
-            routine = await self._patient_repo.upsert_routine(
-                patient_id=patient_id,
-                wake_time=request.routine.wake_time,
-                breakfast_time=request.routine.breakfast_time,
-                lunch_time=request.routine.lunch_time,
-                dinner_time=request.routine.dinner_time,
-                sleep_time=request.routine.sleep_time,
-            )
-
-        result = await self._patient_repo.get_patient_with_user(patient_id)
-        if result is None:
-            raise NotFoundException(message="Patient not found")
-        profile, user = result
-
-        return PatientProfileDetailResponse(
-            profile=self._to_detail(profile, user),
-            routine=self._to_routine_response(routine),
         )
 
     async def get_routine(
