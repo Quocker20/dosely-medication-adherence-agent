@@ -242,39 +242,54 @@ class PatientRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    _ROUTINE_FIELDS = (
+        "wake_time",
+        "breakfast_time",
+        "lunch_time",
+        "dinner_time",
+        "sleep_time",
+    )
+
     async def upsert_routine(
         self,
         patient_id: uuid.UUID,
-        wake_time: Optional[time] = None,
-        breakfast_time: Optional[time] = None,
-        lunch_time: Optional[time] = None,
-        dinner_time: Optional[time] = None,
-        sleep_time: Optional[time] = None,
+        updates: dict[str, Optional[time]],
     ) -> PatientRoutine:
-        """Insert-or-update the routine row for a patient in one statement.
+        """Insert-or-update only the routine fields the caller actually sent.
 
         INSERT ... ON CONFLICT (patient_id) DO UPDATE is race-safe against a
         concurrent double-submit of the onboarding endpoint — no SELECT-then-
         branch window where two requests could both see "no row yet".
+
+        `updates` carries only the fields present in the request (the caller
+        builds it with exclude_unset). DO UPDATE sets exactly those columns, so
+        a partial PUT no longer NULLs the anchors it didn't mention: wiping
+        breakfast_time is what makes expand_schedule raise
+        MissingRoutineAnchorError, which would silently cost the patient every
+        morning reminder. The trade-off is that a field can no longer be
+        cleared back to NULL through this path — deliberate, since every
+        patient is seeded with a full default routine at creation.
         """
-        values = {
-            "patient_id": patient_id,
-            "wake_time": wake_time,
-            "breakfast_time": breakfast_time,
-            "lunch_time": lunch_time,
-            "dinner_time": dinner_time,
-            "sleep_time": sleep_time,
-        }
-        stmt = pg_insert(PatientRoutine).values(**values)
+        unknown = set(updates) - set(self._ROUTINE_FIELDS)
+        if unknown:
+            raise ValueError(f"Unknown routine field(s): {sorted(unknown)}")
+
+        if not updates:
+            # Nothing to write. Return the current row rather than clobbering
+            # it with an all-NULL insert.
+            existing = await self._db.execute(
+                select(PatientRoutine).where(PatientRoutine.patient_id == patient_id)
+            )
+            routine = existing.scalar_one_or_none()
+            if routine is not None:
+                return routine
+            updates = {}
+
+        stmt = pg_insert(PatientRoutine).values(patient_id=patient_id, **updates)
         stmt = stmt.on_conflict_do_update(
             index_elements=[PatientRoutine.patient_id],
-            set_={
-                "wake_time": stmt.excluded.wake_time,
-                "breakfast_time": stmt.excluded.breakfast_time,
-                "lunch_time": stmt.excluded.lunch_time,
-                "dinner_time": stmt.excluded.dinner_time,
-                "sleep_time": stmt.excluded.sleep_time,
-            },
+            set_={field: stmt.excluded[field] for field in updates}
+            or {"patient_id": stmt.excluded.patient_id},
         ).returning(PatientRoutine)
         result = await self._db.execute(stmt)
         return result.scalar_one()

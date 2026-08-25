@@ -14,6 +14,7 @@ from src.modules.patients.repository import CaregiverRepository, PatientReposito
 from src.modules.patients.schemas import (
     CreateCaregiverLinkRequest,
     CreatePatientByDoctorRequest,
+    PatientOnboardingRequest,
     UpdateRoutineRequest,
 )
 from src.modules.patients.service import PatientService
@@ -128,6 +129,21 @@ async def get_patient_detail(
 self_router = APIRouter(
     prefix="/patients", tags=["Patient Profile, Routine & Caregiver Links"]
 )
+
+
+@self_router.post("/me/profile")
+async def onboard_patient(
+    request_body: PatientOnboardingRequest,
+    current_user: PatientOnlyUserDep,
+    service: PatientServiceDep,
+) -> JSONResponse:
+    """Patient self-onboarding: fills in profile details and sets the initial
+    daily routine on first login (Patient only, self via token)."""
+    result = await service.onboard_patient(request=request_body, actor_payload=current_user)
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Onboarding completed successfully",
+    )
 
 
 @self_router.get("/{patient_id}/routine")

@@ -10,9 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
 from src.common.schemas import PageResponse
+from src.core.celery_app import celery_app
+from src.core.config import get_settings
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.auth.repository import AuthRepository
+from src.modules.patients.constants import DEFAULT_ROUTINE
 from src.modules.patients.models import CaregiverLink, PatientRoutine
 from src.modules.patients.repository import CaregiverRepository, PatientRepository
 from src.modules.patients.schemas import (
@@ -21,11 +24,15 @@ from src.modules.patients.schemas import (
     CreatePatientByDoctorRequest,
     CreatePatientResponse,
     PatientDetailResponse,
+    PatientOnboardingRequest,
+    PatientProfileDetailResponse,
     PatientRoutineResponse,
     UpdateRoutineRequest,
 )
 
 logger = logging.getLogger(__name__)
+
+_AUTOSCHEDULE_TASK_NAME = "agents.autoschedule"
 
 
 class PatientService:
@@ -51,6 +58,26 @@ class PatientService:
     def _generate_temp_pin() -> str:
         """Generate a random 6-digit PIN string."""
         return "".join(secrets.choice(string.digits) for _ in range(6))
+
+    @staticmethod
+    def _dispatch_reschedule(patient_id: uuid.UUID) -> None:
+        """Ask the Rescheduling Agent to move future doses onto the new meal
+        times (ck_agent_runs_trigger_type's ROUTINE_UPDATED).
+
+        Fail-open on purpose: the patient's routine is already committed, and a
+        dead broker is no reason to hand them an error for a change that
+        succeeded. The worker only shifts times — dose, frequency and drug are
+        untouched — and the schedule stays on the old times until it runs.
+        """
+        if not get_settings().prescription_autoschedule_enabled:
+            return
+        try:
+            celery_app.send_task(
+                _AUTOSCHEDULE_TASK_NAME,
+                args=[str(patient_id), None, "ROUTINE_UPDATED"],
+            )
+        except Exception:
+            logger.exception("Reschedule dispatch failed for patient %s", patient_id)
 
     @staticmethod
     def _to_detail(profile, user) -> PatientDetailResponse:
@@ -111,6 +138,15 @@ class PatientService:
                     sex=request.sex,
                     timezone=request.timezone,
                     emergency_note=request.emergency_note,
+                )
+                # Same transaction as the profile: a patient must never exist
+                # without routine anchors, or their first approved prescription
+                # plans straight into NEEDS_REVIEW. Written through the
+                # repository rather than PUT /patients/{id}/routine because
+                # that endpoint is PATIENT-self-only and this runs as DOCTOR.
+                await self._patient_repo.upsert_routine(
+                    patient_id=user.id,
+                    updates=dict(DEFAULT_ROUTINE),
                 )
                 await self._audit_repo.create_audit_log(
                     action="CREATE_PATIENT",
@@ -221,6 +257,52 @@ class PatientService:
             temp_password=temp_password,
         )
 
+    async def onboard_patient(
+        self, request: PatientOnboardingRequest, actor_payload: dict
+    ) -> PatientProfileDetailResponse:
+        """PATIENT self-onboarding: fills in profile details (row already exists
+        from doctor-creation) and sets the initial daily routine.
+
+        upsert_routine makes the routine half idempotent against a double-submit
+        (e.g. a double-tapped submit button) without a pre-check race window.
+        """
+        patient_id = uuid.UUID(actor_payload["sub"])
+
+        async with self._db.begin():
+            await self._patient_repo.update_patient_profile(
+                user_id=patient_id,
+                name=request.name,
+                dob=request.dob,
+                sex=request.sex,
+                timezone=request.timezone,
+                emergency_note=request.emergency_note,
+            )
+            routine = await self._patient_repo.upsert_routine(
+                patient_id=patient_id,
+                updates={
+                    "wake_time": request.routine.wake_time,
+                    "breakfast_time": request.routine.breakfast_time,
+                    "lunch_time": request.routine.lunch_time,
+                    "dinner_time": request.routine.dinner_time,
+                    "sleep_time": request.routine.sleep_time,
+                },
+            )
+
+        result = await self._patient_repo.get_patient_with_user(patient_id)
+        if result is None:
+            raise NotFoundException(message="Patient not found")
+        profile, user = result
+
+        # Onboarding replaces the seeded defaults with the patient's real
+        # times, so anything already planned against those defaults is now
+        # wrong. Same event as a routine edit, same trigger.
+        self._dispatch_reschedule(patient_id)
+
+        return PatientProfileDetailResponse(
+            profile=self._to_detail(profile, user),
+            routine=self._to_routine_response(routine),
+        )
+
     async def get_routine(
         self, patient_id: uuid.UUID, actor_payload: dict
     ) -> PatientRoutineResponse:
@@ -253,15 +335,20 @@ class PatientService:
         if actor_id != patient_id:
             raise NotFoundException(message="Routine not found")
 
+        # exclude_unset distinguishes "field omitted" from "field sent as null":
+        # only what the patient actually changed is written, so editing dinner
+        # alone can't wipe the breakfast/lunch anchors the planner needs.
+        updates = request.model_dump(exclude_unset=True)
+
         async with self._db.begin():
             routine = await self._patient_repo.upsert_routine(
-                patient_id=patient_id,
-                wake_time=request.wake_time,
-                breakfast_time=request.breakfast_time,
-                lunch_time=request.lunch_time,
-                dinner_time=request.dinner_time,
-                sleep_time=request.sleep_time,
+                patient_id=patient_id, updates=updates
             )
+
+        # After the commit, and only when something actually changed: the
+        # already-generated future doses still sit on the old meal times.
+        if updates:
+            self._dispatch_reschedule(patient_id)
         return self._to_routine_response(routine)
 
     async def _resolve_or_create_caregiver(self, cleaned_phone: str) -> tuple:

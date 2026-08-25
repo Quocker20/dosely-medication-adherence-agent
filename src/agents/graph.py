@@ -5,6 +5,7 @@ from langgraph.prebuilt import ToolNode
 # pyrefly: ignore [missing-import]
 from src.agents.nodes.chat_node import agent_node, should_continue
 from src.agents.nodes.classify_intent_node import classify_intent_node
+from src.agents.nodes.current_medications_node import current_medications_node
 from src.agents.nodes.drug_rag_node import drug_rag_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.safety_guard_node import safety_guard_node
@@ -21,6 +22,8 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "rescheduling"
     if state.get("intent") == "ask_drug_info":
         return "drug_rag"
+    if state.get("intent") == "ask_my_medications":
+        return "current_medications"
     return "agent"
 
 
@@ -31,6 +34,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("classify_intent", classify_intent_node)
     graph.add_node("rescheduling", rescheduling_node)
     graph.add_node("drug_rag", drug_rag_node)
+    graph.add_node("current_medications", current_medications_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(CHAT_TOOLS, handle_tool_errors=True))
 
@@ -45,10 +49,16 @@ def build_graph() -> CompiledStateGraph:
     graph.add_conditional_edges(
         "classify_intent",
         _route_after_classify_intent,
-        {"rescheduling": "rescheduling", "drug_rag": "drug_rag", "agent": "agent"},
+        {
+            "rescheduling": "rescheduling",
+            "drug_rag": "drug_rag",
+            "current_medications": "current_medications",
+            "agent": "agent",
+        },
     )
     graph.add_edge("rescheduling", END)
     graph.add_edge("drug_rag", END)
+    graph.add_edge("current_medications", END)
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.

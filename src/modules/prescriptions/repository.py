@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Exists, delete, func, or_, select, update
@@ -223,6 +224,24 @@ class PrescriptionRepository:
         result = await self._db.execute(stmt)
         items = [row[0] for row in result.all()]
         return items, total_count
+
+    async def list_current_medications(
+        self, patient_id: uuid.UUID, as_of: date
+    ) -> List[PrescriptionItem]:
+        """Return date-active items from APPROVED prescriptions for one patient."""
+        stmt = (
+            select(PrescriptionItem)
+            .join(Prescription, Prescription.id == PrescriptionItem.prescription_id)
+            .where(
+                Prescription.patient_id == patient_id,
+                Prescription.status == "APPROVED",
+                PrescriptionItem.start_date <= as_of,
+                or_(PrescriptionItem.end_date.is_(None), PrescriptionItem.end_date >= as_of),
+            )
+            .order_by(PrescriptionItem.display_name.asc(), PrescriptionItem.created_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
 
     async def update_diagnosis_if_draft(
         self, prescription_id: uuid.UUID, doctor_id: uuid.UUID, diagnosis_note: Optional[str]

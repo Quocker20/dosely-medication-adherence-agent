@@ -80,6 +80,30 @@ class PatientRoutineResponse(BaseModel):
     updated_at: datetime
 
 
+class PatientOnboardingRequest(BaseModel):
+    """Request schema for PATIENT self-onboarding on first login.
+
+    Payload for POST /patients/me/profile.
+    """
+
+    name: str = Field(..., max_length=255)
+    dob: Optional[date] = None
+    sex: Optional[str] = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
+    timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=50)
+    emergency_note: Optional[str] = None
+    routine: UpdateRoutineRequest
+
+
+class PatientProfileDetailResponse(BaseModel):
+    """Response schema combining profile and routine after onboarding.
+
+    Used by: POST /patients/me/profile.
+    """
+
+    profile: PatientDetailResponse
+    routine: PatientRoutineResponse
+
+
 class CreateCaregiverLinkRequest(BaseModel):
     """Request schema for linking a Caregiver account to a patient."""
 
