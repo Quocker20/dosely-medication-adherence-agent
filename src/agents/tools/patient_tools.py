@@ -4,9 +4,25 @@ See cong_viec.md §2.1. Endpoints follow api-contract.md Slice 4/5/6/7.
 """
 from __future__ import annotations
 
+import json
+
 from langchain_core.tools import tool
 
 from src.modules.planning.core.backend_client import BackendAPIError, get
+
+
+@tool
+async def get_current_medications() -> str:
+    """Lấy các thuốc đang dùng từ đơn đã duyệt của bệnh nhân đang đăng nhập.
+
+    Không nhận patient_id: backend luôn suy ra danh tính từ access token để
+    tránh đọc nhầm hoặc làm lộ dữ liệu của bệnh nhân khác.
+    """
+    try:
+        result = await get("/patients/me/medications/current")
+    except BackendAPIError as e:
+        return f"Không lấy được danh sách thuốc hiện tại: {e.detail}"
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 @tool

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -58,6 +59,7 @@ MedicationServiceDep = Annotated[MedicationService, Depends(get_medication_servi
 PrescriptionServiceDep = Annotated[PrescriptionService, Depends(get_prescription_service)]
 AuthenticatedUserDep = Annotated[dict, Depends(get_current_user_payload)]
 DoctorUserDep = Annotated[dict, Depends(require_roles("DOCTOR"))]
+PatientUserDep = Annotated[dict, Depends(require_roles("PATIENT"))]
 
 router = APIRouter(tags=["Medications"])
 
@@ -93,6 +95,22 @@ async def get_medication_detail(
 
 
 prescriptions_router = APIRouter(tags=["Prescriptions & Prescription Items"])
+
+
+@prescriptions_router.get("/patients/me/medications/current")
+async def get_my_current_medications(
+    current_user: PatientUserDep,
+    service: PrescriptionServiceDep,
+    as_of: Optional[date] = Query(None, description="Local date; defaults to today"),
+) -> JSONResponse:
+    """Return only the authenticated patient's approved, date-active medicines."""
+    result = await service.get_current_medications(
+        patient_id=uuid.UUID(current_user["sub"]), as_of=as_of
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Current medications fetched successfully",
+    )
 
 
 @prescriptions_router.post("/prescriptions", status_code=status.HTTP_201_CREATED)

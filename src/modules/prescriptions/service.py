@@ -3,7 +3,7 @@ import math
 import secrets
 import string
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Optional, Tuple
 
@@ -29,6 +29,7 @@ from src.modules.prescriptions.schemas import (
     CreatePrescriptionItemRequest,
     CreatePrescriptionRequest,
     CreatePrescriptionResponse,
+    CurrentMedicationListResponse,
     MedicationDetailResponse,
     PrescriptionDetailResponse,
     PrescriptionItemDetailResponse,
@@ -528,3 +529,13 @@ class PrescriptionService:
                 old_values={"display_name": existing_item.display_name},
                 ip_address=ip_address,
             )
+    async def get_current_medications(
+        self, patient_id: uuid.UUID, as_of: Optional[date] = None
+    ) -> CurrentMedicationListResponse:
+        """Read the authenticated patient's approved, date-active medication items."""
+        effective_date = as_of or date.today()
+        items = await self._rx_repo.list_current_medications(patient_id, effective_date)
+        return CurrentMedicationListResponse(
+            as_of=effective_date,
+            medications=[PrescriptionItemDetailResponse.model_validate(item) for item in items],
+        )
