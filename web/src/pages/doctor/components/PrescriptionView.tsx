@@ -28,6 +28,24 @@ const MEAL_RELATIONS: { value: string; label: string }[] = [
 
 const ROUTES = ["ORAL", "INJECTION", "TOPICAL"];
 
+const SEXES: { value: PatientForm["sex"]; label: string }[] = [
+  { value: "MALE", label: "Nam" },
+  { value: "FEMALE", label: "Nữ" },
+  { value: "OTHER", label: "Khác" },
+];
+
+interface PatientForm {
+  name: string;
+  dob: string;
+  sex: "MALE" | "FEMALE" | "OTHER";
+  emergency_note: string;
+}
+
+const EMPTY_PATIENT: PatientForm = { name: "", dob: "", sex: "MALE", emergency_note: "" };
+
+/** Ô nào backend đã có dữ liệu thì khoá; ô rỗng vẫn để bác sĩ điền. */
+type LockedFields = Partial<Record<keyof PatientForm, boolean>>;
+
 function emptyItem(): PrescriptionItemIn {
   return {
     medication_id: "",
@@ -57,6 +75,27 @@ function doseValue(dose: number | null): string {
   return dose === null ? "" : String(dose);
 }
 
+/**
+ * Gợi ý thao tác theo error_code của agent run.
+ *
+ * error_code là tên class exception phía backend (src/modules/agents/planner.py),
+ * bản thân nó không nói bác sĩ phải sửa gì — bảng này dịch sang việc cần làm.
+ */
+function errorHint(code: string): string {
+  switch (code) {
+    case "ScheduleConstraintError":
+      return "Hai cữ của cùng một thuốc gần nhau hơn mức giãn cách tối thiểu. Tăng khoảng cách giữa các bữa trong lịch sinh hoạt bệnh nhân, hoặc giảm/bỏ trống ô “Giãn cách tối thiểu” của thuốc bị nêu ở trên.";
+    case "PlanningNeedsReviewError":
+      return "Dữ liệu đầu vào không đủ chắc để agent tự lập lịch. Kiểm tra lịch sinh hoạt của bệnh nhân và các cữ đã ghi nhận trước đó.";
+    case "MissingRoutineError":
+      return "Bệnh nhân chưa khai báo giờ ăn/ngủ nên agent không có mốc để neo cữ thuốc. Nhờ bệnh nhân cập nhật lịch sinh hoạt trong app.";
+    case "InvalidPrescriptionTimingError":
+      return "Một dòng thuốc có liều ≤ 0, không có cữ nào, hoặc “Giãn cách tối thiểu” nhập số ≤ 0. Muốn không ràng buộc giãn cách thì để trống ô đó thay vì điền 0.";
+    default:
+      return "Xem thông báo phía trên để biết chi tiết; sửa đơn hoặc lịch sinh hoạt rồi chạy lại.";
+  }
+}
+
 export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed }: Props) {
   const [medications, setMedications] = useState<MedicationDetail[]>([]);
   const [diagnosis, setDiagnosis] = useState("");
@@ -67,6 +106,13 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
   const [agentRun, setAgentRun] = useState<AgentRunStatus | null>(null);
   const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [patient, setPatient] = useState<PatientForm>(EMPTY_PATIENT);
+  const [locked, setLocked] = useState<LockedFields>({});
+  const [lookup, setLookup] = useState<{ state: "idle" | "busy" | "found" | "new"; message: string }>({
+    state: "idle",
+    message: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +138,13 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
     setAgentRun(null);
   }
 
+  function patchPatient(patch: Partial<PatientForm>) {
+    setPatient((current) => ({ ...current, ...patch }));
+    setPrescription(null);
+    setSchedule(null);
+    setAgentRun(null);
+  }
+
   function resetDraft() {
     setItems([emptyItem()]);
     setDiagnosis("");
@@ -100,7 +153,65 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
     setTempPassword(null);
     setSchedule(null);
     setAgentRun(null);
+    setPatient(EMPTY_PATIENT);
+    setLocked({});
+    setLookup({ state: "idle", message: "" });
     onToast("Đã xóa nháp");
+  }
+
+  /**
+   * Tra hồ sơ theo số điện thoại trước khi kê.
+   *
+   * 404 là kết quả hợp lệ, không phải sự cố: bệnh nhân chưa có hồ sơ thì bác sĩ
+   * điền tay và POST /prescriptions sẽ tự tạo tài khoản. Chỉ khoá đúng những ô
+   * backend trả về có dữ liệu — bệnh nhân tạo tự động từ đơn cũ có dob/sex NULL,
+   * khoá luôn ô rỗng sẽ làm form không submit được (name/dob/sex là bắt buộc).
+   */
+  async function lookupPatient() {
+    const trimmedPhone = phone.trim();
+    if (!trimmedPhone) {
+      onToast("Nhập số điện thoại trước khi kiểm tra");
+      return;
+    }
+
+    setLookup({ state: "busy", message: "" });
+    try {
+      const found = await api.patientByPhone(trimmedPhone);
+      const hasName = Boolean(found.name?.trim()) && found.name.trim() !== "NULL";
+      setPatient({
+        name: hasName ? found.name.trim() : "",
+        dob: found.dob ?? "",
+        sex: (found.sex as PatientForm["sex"]) || "MALE",
+        emergency_note: found.emergency_note ?? "",
+      });
+      setLocked({
+        name: hasName,
+        dob: Boolean(found.dob),
+        sex: Boolean(found.sex),
+        emergency_note: Boolean(found.emergency_note),
+      });
+
+      const missing = [
+        !hasName && "họ tên",
+        !found.dob && "ngày sinh",
+        !found.sex && "giới tính",
+      ].filter(Boolean);
+      setLookup({
+        state: "found",
+        message: missing.length
+          ? `Đã có hồ sơ nhưng thiếu ${missing.join(", ")} — điền nốt rồi kê đơn.`
+          : "Đã có hồ sơ, thông tin bên dưới lấy từ hệ thống và đã khoá.",
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setPatient(EMPTY_PATIENT);
+        setLocked({});
+        setLookup({ state: "new", message: "Chưa có hồ sơ — điền thông tin, hệ thống sẽ tạo tài khoản khi duyệt đơn." });
+        return;
+      }
+      setLookup({ state: "idle", message: "" });
+      onToast(error instanceof ApiError ? error.message : "Không tra cứu được bệnh nhân");
+    }
   }
 
   /**
@@ -117,6 +228,12 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
       onToast("Mỗi dòng phải chọn một thuốc trong danh mục");
       return;
     }
+    // Chặn tại chỗ thay vì để backend trả 422: 3 trường này là bắt buộc trong
+    // CreatePrescriptionRequest, báo sớm đỡ mất một vòng gọi mạng.
+    if (!patient.name.trim() || !patient.dob || !patient.sex) {
+      onToast("Cần đủ họ tên, ngày sinh và giới tính của bệnh nhân");
+      return;
+    }
 
     setBusy(true);
     setErrorDetails([]);
@@ -126,6 +243,10 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
     try {
       const created = await api.createPrescription({
         phone: trimmedPhone,
+        name: patient.name.trim(),
+        dob: patient.dob,
+        sex: patient.sex,
+        emergency_note: patient.emergency_note.trim() || null,
         diagnosis_note: diagnosis.trim() || null,
         items,
       });
@@ -152,6 +273,33 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
       } else {
         onToast(error instanceof Error ? error.message : "Lỗi không xác định");
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Chạy lại Planning Agent trên đơn đã duyệt, không tạo đơn mới.
+   *
+   * Đơn APPROVED bị đóng băng theo HITL nên không sửa được ở đây — nút này dành
+   * cho trường hợp nguyên nhân nằm ngoài đơn (lịch sinh hoạt bệnh nhân vừa được
+   * cập nhật), sửa xong thì chạy lại là ra lịch.
+   */
+  async function retryScheduling() {
+    if (!prescription) return;
+    setBusy(true);
+    try {
+      const dispatched = await api.generateSchedule(prescription.patient_id, "Bác sĩ chạy lại sau khi xem lỗi");
+      const run = await waitForAgentRun(dispatched.agent_run_id);
+      setAgentRun(run);
+      if (run.status === "COMPLETED") {
+        setSchedule(await api.schedule(prescription.patient_id, isoDate(new Date())));
+        onToast(`Đã sinh lịch · ${run.generated_dose_count ?? 0} cữ`);
+      } else {
+        onToast(`Agent vẫn dừng ở trạng thái ${run.status}`);
+      }
+    } catch (error) {
+      onToast(error instanceof ApiError ? error.message : "Không chạy lại được agent");
     } finally {
       setBusy(false);
     }
@@ -185,18 +333,81 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
           </div>
 
           <div className="card-body">
-            <label style={{ maxWidth: 340 }}>
-              Số điện thoại bệnh nhân
-              <input
-                type="tel"
-                placeholder="0901234567"
-                value={phone}
-                onChange={(event) => onPhone(event.target.value)}
-              />
-            </label>
-            <p className="rail-note">
-              Chưa có tài khoản thì hệ thống tự tạo và trả mã PIN tạm ngay trong lần kê đơn này.
-            </p>
+            <div className="row-actions" style={{ alignItems: "flex-end" }}>
+              <label style={{ flex: "1 1 240px", maxWidth: 340 }}>
+                Số điện thoại bệnh nhân
+                <input
+                  type="tel"
+                  placeholder="0901234567"
+                  value={phone}
+                  onChange={(event) => {
+                    onPhone(event.target.value);
+                    // Số đổi thì kết quả tra cứu cũ không còn đúng — mở khoá lại.
+                    setLocked({});
+                    setLookup({ state: "idle", message: "" });
+                  }}
+                />
+              </label>
+              <button className="btn" onClick={lookupPatient} disabled={lookup.state === "busy"}>
+                {lookup.state === "busy" ? "Đang tra…" : "Kiểm tra"}
+              </button>
+            </div>
+
+            {lookup.message ? (
+              <p className={`rail-note ${lookup.state === "found" ? "lookup-found" : "lookup-new"}`}>
+                {lookup.message}
+              </p>
+            ) : (
+              <p className="rail-note">
+                Bấm <b>Kiểm tra</b> để lấy sẵn hồ sơ nếu bệnh nhân đã có tài khoản. Chưa có thì hệ thống tự tạo và trả
+                mã PIN tạm khi duyệt đơn.
+              </p>
+            )}
+
+            <div className="rx-fields">
+              <label>
+                Họ tên bệnh nhân
+                <input
+                  value={patient.name}
+                  readOnly={locked.name}
+                  placeholder="Nguyễn Văn A"
+                  onChange={(event) => patchPatient({ name: event.target.value })}
+                />
+              </label>
+              <label>
+                Ngày sinh
+                <input
+                  type="date"
+                  value={patient.dob}
+                  readOnly={locked.dob}
+                  max={isoDate(new Date())}
+                  onChange={(event) => patchPatient({ dob: event.target.value })}
+                />
+              </label>
+              <label>
+                Giới tính
+                <select
+                  value={patient.sex}
+                  disabled={locked.sex}
+                  onChange={(event) => patchPatient({ sex: event.target.value as PatientForm["sex"] })}
+                >
+                  {SEXES.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wide">
+                Ghi chú khẩn cấp (không bắt buộc)
+                <input
+                  value={patient.emergency_note}
+                  readOnly={locked.emergency_note}
+                  placeholder="vd. dị ứng penicillin, người nhà: 09xx…"
+                  onChange={(event) => patchPatient({ emergency_note: event.target.value })}
+                />
+              </label>
+            </div>
 
             <label>
               Chẩn đoán
@@ -312,6 +523,24 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                     </label>
 
                     <label>
+                      Giãn cách tối thiểu (phút)
+                      {/* Để trống = không ràng buộc (DB NULL). Nhập 0 tường minh
+                          thì planner từ chối cả đơn, nên chặn từ min=1. */}
+                      <input
+                        type="number"
+                        min={1}
+                        step={15}
+                        placeholder="để trống nếu không ràng buộc"
+                        value={item.minimum_interval_minutes ?? ""}
+                        onChange={(event) =>
+                          patchItem(index, {
+                            minimum_interval_minutes: event.target.value === "" ? null : Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label>
                       Bắt đầu
                       <input
                         type="date"
@@ -417,8 +646,18 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
 
                   {agentRun.error_code && (
                     <div className="review-box">
-                      <b>Agent dừng lại — {agentRun.error_code}</b>
-                      <p>Lịch cũ giữ nguyên. Bác sĩ kiểm tra lại đơn rồi duyệt lại, agent không tự suy đoán.</p>
+                      <b>
+                        {agentRun.status === "NEEDS_REVIEW" ? "Cần bác sĩ xem lại" : "Agent dừng lại"} —{" "}
+                        <span className="mono">{agentRun.error_code}</span>
+                      </b>
+                      {agentRun.error_message && <p className="agent-error-message">{agentRun.error_message}</p>}
+                      <p>{errorHint(agentRun.error_code)}</p>
+                      <p>Lịch cũ giữ nguyên — agent không tự đoán giờ thay bác sĩ.</p>
+                      <div className="row-actions">
+                        <button className="btn sm" onClick={retryScheduling} disabled={busy || !prescription}>
+                          {busy ? "Đang chạy…" : "↻ Chạy lại Planning Agent"}
+                        </button>
+                      </div>
                     </div>
                   )}
 

@@ -7,6 +7,7 @@ import { alertsApi } from "./alerts";
 import { authApi } from "./auth";
 import { dashboardApi } from "./dashboard";
 import { medicationsApi } from "./medications";
+import { patientsApi } from "./patients";
 import { prescriptionsApi } from "./prescriptions";
 import { routineApi } from "./routine";
 import { schedulesApi } from "./schedules";
@@ -19,6 +20,7 @@ export const api = {
   ...dashboardApi,
   ...alertsApi,
   ...routineApi,
+  ...patientsApi,
   ...medicationsApi,
   ...prescriptionsApi,
   ...schedulesApi,

@@ -8,6 +8,7 @@
 
 export * from "./envelope";
 export * from "./auth";
+export * from "./patients";
 export * from "./medications";
 export * from "./routine";
 export * from "./prescriptions";
