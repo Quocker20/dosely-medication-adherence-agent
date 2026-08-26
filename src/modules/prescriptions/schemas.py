@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MedicationDetailResponse(BaseModel):
@@ -71,13 +71,28 @@ class CreatePrescriptionRequest(BaseModel):
     Payload for POST /prescriptions. patient_id is not supplied directly —
     the patient is identified by phone (plaintext); the service finds the
     existing account or provisions a new one (find-or-create) in the same
-    call. items may be included here and/or added later via
-    POST /prescriptions/{prescription_id}/items while still DRAFT.
+    call. Demographic fields (name, dob, sex, emergency_note) are provided
+    to ensure full patient profile data is recorded. items may be included
+    here and/or added later via POST /prescriptions/{prescription_id}/items
+    while still DRAFT.
     """
 
     phone: str = Field(..., pattern=r"^\+?[0-9]{9,15}$")
+    name: str = Field(..., max_length=255)
+    dob: date = Field(...)
+    sex: str = Field(..., pattern=r"^(MALE|FEMALE|OTHER)$")
+    emergency_note: Optional[str] = None
     diagnosis_note: Optional[str] = None
     items: List[CreatePrescriptionItemRequest] = Field(default_factory=list)
+
+    @field_validator("dob")
+    @classmethod
+    def validate_dob_sane(cls, v: date) -> date:
+        if v <= date(1900, 1, 1):
+            raise ValueError("Date of birth must be after 1900-01-01")
+        if v > date.today():
+            raise ValueError("Date of birth cannot be in the future")
+        return v
 
 
 class UpdatePrescriptionRequest(BaseModel):
