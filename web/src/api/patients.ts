@@ -13,5 +13,5 @@ export const patientsApi = {
    * gửi "+" thô thì server đọc thành dấu cách và trả 422.
    */
   patientByPhone: (phone: string) =>
-    request<PatientDetail>("/patients/by-phone", { query: { phone } }),
+    request<PatientDetail>("/doctors/patients/by-phone", { query: { phone } }),
 };
