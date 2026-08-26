@@ -82,6 +82,9 @@ patients_adherence_router = APIRouter(
     prefix="/patients", tags=["Adherence Logging & Safety Alerts"]
 )
 alerts_router = APIRouter(prefix="/alerts", tags=["Adherence Logging & Safety Alerts"])
+health_surveys_router = APIRouter(
+    prefix="/health-surveys", tags=["Adherence Logging & Safety Alerts"]
+)
 
 
 @dose_actions_router.post(
@@ -202,6 +205,33 @@ async def submit_health_survey(
     )
 
 
+@patients_adherence_router.get("/{patient_id}/health-surveys")
+async def list_patient_health_surveys(
+    patient_id: uuid.UUID,
+    current_user: AdherenceReaderDep,
+    service: HealthSurveyServiceDep,
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    page: int = Query(1, ge=1, le=1000, description="Page number"),
+    size: int = Query(10, ge=1, le=100, description="Items per page"),
+) -> JSONResponse:
+    """Fetch paginated health survey summaries for a patient over [from, to].
+    Same access derivation as get_adherence_summary — out-of-scope returns
+    an empty page."""
+    result = await service.list_patient_surveys(
+        patient_id=patient_id,
+        actor_payload=current_user,
+        from_date=from_date,
+        to_date=to_date,
+        page=page,
+        size=size,
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Patient health surveys fetched successfully",
+    )
+
+
 @patients_adherence_router.post("/{patient_id}/sos", status_code=status.HTTP_201_CREATED)
 async def trigger_sos(
     patient_id: uuid.UUID,
@@ -223,6 +253,53 @@ async def trigger_sos(
         data=result.model_dump(mode="json"),
         message="SOS alert triggered successfully",
         code=status.HTTP_201_CREATED,
+    )
+
+
+@health_surveys_router.get("")
+async def list_health_surveys(
+    current_user: DoctorOrAdminUserDep,
+    service: HealthSurveyServiceDep,
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    patient_id: Optional[uuid.UUID] = Query(None, alias="patientId"),
+    severity: Optional[str] = Query(
+        None, pattern=r"^(MILD|MODERATE|SEVERE)$"
+    ),
+    page: int = Query(1, ge=1, le=1000, description="Page number"),
+    size: int = Query(10, ge=1, le=100, description="Items per page"),
+) -> JSONResponse:
+    """Doctor dashboard health survey list (Doctor/Admin only). Doctor is
+    scoped to patients they've written at least one prescription for; Admin
+    is platform-wide."""
+    result = await service.list_surveys(
+        actor_payload=current_user,
+        from_date=from_date,
+        to_date=to_date,
+        patient_id=patient_id,
+        severity=severity,
+        page=page,
+        size=size,
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Health survey list fetched successfully",
+    )
+
+
+@health_surveys_router.get("/{survey_id}")
+async def get_health_survey(
+    survey_id: uuid.UUID,
+    current_user: AdherenceReaderDep,
+    service: HealthSurveyServiceDep,
+) -> JSONResponse:
+    """Fetch one health survey with its full answers and symptom list.
+    Access is role-agnostic: self-owned, doctor-prescribed, or
+    active-caregiver-linked — anything else (including nonexistent) is 404."""
+    result = await service.get_survey_detail(survey_id=survey_id, actor_payload=current_user)
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Health survey fetched successfully",
     )
 
 
