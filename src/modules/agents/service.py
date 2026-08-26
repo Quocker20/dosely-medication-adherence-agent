@@ -309,6 +309,7 @@ class SchedulingService:
                         run_id,
                         latency_ms,
                         error_code="UnsupportedAgentType",
+                        error_message=f"Agent type không hỗ trợ: {claimed_run.agent_type}",
                         claim_token=claim_token,
                         input_hash=empty_hash,
                         output_hash=empty_hash,
@@ -375,6 +376,9 @@ class SchedulingService:
                     run_id,
                     latency_ms,
                     error_code=type(exc).__name__[:100],
+                    # Message của planner nêu đích danh item và khoảng cách vi
+                    # phạm — bác sĩ cần đúng chỗ này mới biết sửa cái gì.
+                    error_message=str(exc) or None,
                     claim_token=claim_token,
                     **self._terminal_audit(draft_state, empty_hash, "needs_review"),
                 )
@@ -389,6 +393,7 @@ class SchedulingService:
                     run_id,
                     latency_ms,
                     error_code=type(exc).__name__[:100],
+                    error_message=str(exc) or None,
                     claim_token=claim_token,
                     **self._terminal_audit(draft_state, empty_hash, "failed"),
                 )

@@ -74,6 +74,20 @@ async def create_patient(
     )
 
 
+@router.get("/patients/by-phone")
+async def get_patient_by_phone(
+    current_user: DoctorUserDep,
+    service: PatientServiceDep,
+    phone: str = Query(..., pattern=r"^\+?[0-9]{9,15}$", description="Patient phone number"),
+) -> JSONResponse:
+    """Fetch specific patient profile globally by phone number (Doctor only)."""
+    result = await service.get_patient_by_phone(phone=phone)
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Patient details fetched successfully",
+    )
+
+
 @router.get("/patients")
 async def list_patients(
     current_user: DoctorUserDep,

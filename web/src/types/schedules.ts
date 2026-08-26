@@ -18,6 +18,8 @@ export interface AgentRunStatus {
   status: string;
   latency_ms: number | null;
   error_code: string | null;
+  /** Lý do dừng dạng đọc được — error_code chỉ là tên class exception. */
+  error_message: string | null;
   generated_dose_count: number | null;
   created_at: string;
 }
