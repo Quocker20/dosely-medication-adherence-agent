@@ -150,6 +150,7 @@ class AgentRunRepository:
         run_id: uuid.UUID,
         latency_ms: int,
         error_code: str,
+        error_message: str | None = None,
         claim_token: uuid.UUID | None = None,
         **audit: Any,
     ) -> bool:
@@ -160,6 +161,7 @@ class AgentRunRepository:
             status="FAILED",
             latency_ms=latency_ms,
             error_code=error_code,
+            error_message=error_message,
             claim_expires_at=None,
             **audit,
         ).returning(AgentRun.id)
@@ -171,6 +173,7 @@ class AgentRunRepository:
         run_id: uuid.UUID,
         latency_ms: int,
         error_code: str,
+        error_message: str | None = None,
         claim_token: uuid.UUID | None = None,
         **audit: Any,
     ) -> bool:
@@ -182,6 +185,7 @@ class AgentRunRepository:
                 status="NEEDS_REVIEW",
                 latency_ms=latency_ms,
                 error_code=error_code,
+                error_message=error_message,
                 generated_dose_count=0,
                 claim_expires_at=None,
                 **audit,

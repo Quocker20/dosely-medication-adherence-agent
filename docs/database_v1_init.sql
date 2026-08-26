@@ -478,6 +478,9 @@ CREATE TABLE agent_runs (
     latency_ms INTEGER
         CONSTRAINT ck_agent_runs_latency CHECK (latency_ms IS NULL OR latency_ms >= 0),
     error_code VARCHAR(100),
+    -- Lý do dừng ở dạng đọc được, thêm bởi migration 0017_agent_run_error_message.
+    -- error_code chỉ giữ tên class exception nên không đủ để bác sĩ biết sửa gì.
+    error_message TEXT,
     generated_dose_count INTEGER
         CONSTRAINT ck_agent_runs_dose_count CHECK (generated_dose_count IS NULL OR generated_dose_count >= 0),
     -- Structured Planning Agent audit fields. Added by migration
