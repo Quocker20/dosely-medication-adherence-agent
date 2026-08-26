@@ -62,20 +62,6 @@ class UpdateRoutineRequest(BaseModel):
     sleep_time: Optional[time] = None
 
 
-class PatientOnboardingRequest(BaseModel):
-    """Request schema for PATIENT self-onboarding on first login.
-
-    Payload for POST /patients/me/profile.
-    """
-
-    name: str = Field(..., max_length=255)
-    dob: Optional[date] = None
-    sex: Optional[str] = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
-    timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=50)
-    emergency_note: Optional[str] = None
-    routine: UpdateRoutineRequest
-
-
 class PatientRoutineResponse(BaseModel):
     """Response schema representing the patient's current daily routine.
 
@@ -92,6 +78,20 @@ class PatientRoutineResponse(BaseModel):
     dinner_time: Optional[time] = None
     sleep_time: Optional[time] = None
     updated_at: datetime
+
+
+class PatientOnboardingRequest(BaseModel):
+    """Request schema for PATIENT self-onboarding on first login.
+
+    Payload for POST /patients/me/profile.
+    """
+
+    name: str = Field(..., max_length=255)
+    dob: Optional[date] = None
+    sex: Optional[str] = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
+    timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=50)
+    emergency_note: Optional[str] = None
+    routine: UpdateRoutineRequest
 
 
 class PatientProfileDetailResponse(BaseModel):

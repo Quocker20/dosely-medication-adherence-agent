@@ -74,7 +74,12 @@ class Settings(BaseSettings):
     # Xem docs/RemindRx_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".
     max_frequency_per_day: int = Field(default=4, ge=1, le=12)
     max_treatment_days: int = Field(default=180, ge=1, le=3650)
-    min_dose_gap_minutes: int = Field(default=240, ge=0, le=1440)
+    # Chỉ là fallback khi PrescriptionItem.minimum_interval_minutes để NULL —
+    # tức bác sĩ cố ý không đặt ràng buộc giãn cách cho thuốc đó. Mặc định 0
+    # (không ép giãn cách): đặt sàn 4h như trước làm lịch ăn sáng/ăn trưa kiểu
+    # VN (7h/11h) vi phạm ngay và agent không sinh được lịch. Muốn dựng lại sàn
+    # an toàn toàn hệ thống thì set MIN_DOSE_GAP_MINUTES trong env.
+    min_dose_gap_minutes: int = Field(default=0, ge=0, le=1440)
     # D-01 chưa chốt (Brief "> 3" vs PRD "3") — baseline theo PRD, đổi bằng env.
     missed_dose_alert_threshold: int = Field(default=3, ge=1, le=10)
     # Missed-dose scan job (Celery Beat) — see prbm.md #1 / planner.py trigger 1.

@@ -251,6 +251,10 @@ CREATE TABLE scheduled_doses (
     meal_relation VARCHAR(30)
         CONSTRAINT ck_scheduled_doses_meal_relation
         CHECK (meal_relation IS NULL OR meal_relation IN ('BEFORE_MEAL','AFTER_MEAL','WITH_MEAL')),
+    -- Groups sibling doses into one consolidated push notification /
+    -- synchronized snooze. NULL for ungrouped doses and rows generated
+    -- before migration 0013_dose_notify_group.
+    notification_group_id UUID,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
         CHECK (status IN ('PENDING','TAKEN','SKIPPED','MISSED')),
     snooze_count INTEGER NOT NULL DEFAULT 0 CHECK (snooze_count >= 0),
@@ -467,13 +471,29 @@ CREATE TABLE agent_runs (
         CHECK (trigger_type IN ('PRESCRIPTION_APPROVED','ROUTINE_UPDATED','MANUAL')),
     model_version VARCHAR(100),
     graph_version VARCHAR(50) NOT NULL,
+    -- NEEDS_REVIEW added by migration 0012_agent_review: lets a deterministic
+    -- planning conflict finish without forcing a hard FAILED.
     status VARCHAR(20) NOT NULL
-        CONSTRAINT ck_agent_runs_status CHECK (status IN ('RUNNING','COMPLETED','FAILED')),
+        CONSTRAINT ck_agent_runs_status CHECK (status IN ('RUNNING','COMPLETED','FAILED','NEEDS_REVIEW')),
     latency_ms INTEGER
         CONSTRAINT ck_agent_runs_latency CHECK (latency_ms IS NULL OR latency_ms >= 0),
     error_code VARCHAR(100),
+    -- Lý do dừng ở dạng đọc được, thêm bởi migration 0017_agent_run_error_message.
+    -- error_code chỉ giữ tên class exception nên không đủ để bác sĩ biết sửa gì.
+    error_message TEXT,
     generated_dose_count INTEGER
         CONSTRAINT ck_agent_runs_dose_count CHECK (generated_dose_count IS NULL OR generated_dose_count >= 0),
+    -- Structured Planning Agent audit fields. Added by migration
+    -- 0014_planning_audit.
+    prompt_version VARCHAR(50),
+    input_hash VARCHAR(64),
+    output_hash VARCHAR(64),
+    candidate_source VARCHAR(64),
+    -- Atomic worker claim for exactly-once pickup. Added by migration
+    -- 0015_agent_run_claim.
+    started_at TIMESTAMPTZ,
+    claim_token UUID,
+    claim_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -583,13 +603,16 @@ CREATE TABLE messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- This canonical bootstrap already contains every migration through 0013.
--- Stamping fresh databases lets a future `alembic upgrade head` start from
--- the next revision instead of replaying DDL that is already present.
+-- This canonical bootstrap already contains every migration through the
+-- merged head 0016_merge_heads (both the notification_grouping/user_devices
+-- branch and the agent_review/dose_notify_group/planning_audit/agent_run_claim
+-- branch). Stamping fresh databases lets a future `alembic upgrade head`
+-- start from the next revision instead of replaying DDL that is already
+-- present.
 CREATE TABLE IF NOT EXISTS alembic_version (
     version_num VARCHAR(32) NOT NULL PRIMARY KEY
 );
 DELETE FROM alembic_version;
-INSERT INTO alembic_version(version_num) VALUES ('0013_user_devices');
+INSERT INTO alembic_version(version_num) VALUES ('0016_merge_heads');
 
 
