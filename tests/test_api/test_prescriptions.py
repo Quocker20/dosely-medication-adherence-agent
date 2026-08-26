@@ -177,6 +177,18 @@ def _item_payload(medication_id: uuid.UUID, **overrides) -> dict:
     return payload
 
 
+def _rx_payload(phone: str, **overrides) -> dict:
+    payload = {
+        "phone": phone,
+        "name": "Nguyễn Văn A",
+        "dob": "1985-05-15",
+        "sex": "MALE",
+        "emergency_note": "Tiền sử dị ứng penicillin",
+    }
+    payload.update(overrides)
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # POST /prescriptions
 # ---------------------------------------------------------------------------
@@ -184,7 +196,9 @@ def _item_payload(medication_id: uuid.UUID, **overrides) -> dict:
 
 @pytest.mark.asyncio
 async def test_create_requires_authentication(client):
-    response = await client.post("/api/v1/prescriptions", json={"phone": PATIENT_PHONE})
+    response = await client.post(
+        "/api/v1/prescriptions", json=_rx_payload(PATIENT_PHONE)
+    )
     assert response.status_code == 401
 
 
@@ -194,7 +208,7 @@ async def test_create_rejects_patient_role(client):
     await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
     headers = await _login(client, PATIENT_PHONE)
     response = await client.post(
-        "/api/v1/prescriptions", json={"phone": PATIENT_PHONE}, headers=headers
+        "/api/v1/prescriptions", json=_rx_payload(PATIENT_PHONE), headers=headers
     )
     assert response.status_code == 403
 
@@ -208,11 +222,11 @@ async def test_create_starts_as_draft_for_existing_patient(client):
 
     response = await client.post(
         "/api/v1/prescriptions",
-        json={
-            "phone": PATIENT_PHONE,
-            "diagnosis_note": "I10 - Tăng huyết áp",
-            "items": [_item_payload(med_id)],
-        },
+        json=_rx_payload(
+            PATIENT_PHONE,
+            diagnosis_note="I10 - Tăng huyết áp",
+            items=[_item_payload(med_id)],
+        ),
         headers=headers,
     )
 
@@ -239,7 +253,7 @@ async def test_create_provisions_account_for_unknown_phone(client):
 
     response = await client.post(
         "/api/v1/prescriptions",
-        json={"phone": NEW_PATIENT_PHONE, "items": [_item_payload(med_id)]},
+        json=_rx_payload(NEW_PATIENT_PHONE, items=[_item_payload(med_id)]),
         headers=headers,
     )
 
@@ -257,6 +271,79 @@ async def test_create_provisions_account_for_unknown_phone(client):
 
 
 @pytest.mark.asyncio
+async def test_create_provisions_account_with_demographics(client):
+    """Verifies that patient_profiles record is created with the exact demographics
+    passed in POST /prescriptions when the phone is not previously registered."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json=_rx_payload(
+            NEW_PATIENT_PHONE,
+            name="Trần Thị B",
+            dob="1978-11-20",
+            sex="FEMALE",
+            emergency_note="Liên hệ con trai 0901234567",
+            items=[_item_payload(med_id)],
+        ),
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    patient_id = uuid.UUID(data["prescription"]["patient_id"])
+
+    async with AsyncSessionLocal() as db:
+        profile = (
+            await db.execute(
+                select(PatientProfile).where(PatientProfile.user_id == patient_id)
+            )
+        ).scalar_one()
+        assert profile.name == "Trần Thị B"
+        assert profile.dob == date(1978, 11, 20)
+        assert profile.sex == "FEMALE"
+        assert profile.emergency_note == "Liên hệ con trai 0901234567"
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_invalid_dob(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    # Future date of birth
+    future_dob = (date.today() + timedelta(days=1)).isoformat()
+    resp_future = await client.post(
+        "/api/v1/prescriptions",
+        json=_rx_payload(NEW_PATIENT_PHONE, dob=future_dob),
+        headers=headers,
+    )
+    assert resp_future.status_code == 422
+
+    # Year <= 1900
+    resp_old = await client.post(
+        "/api/v1/prescriptions",
+        json=_rx_payload(NEW_PATIENT_PHONE, dob="1899-12-31"),
+        headers=headers,
+    )
+    assert resp_old.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_invalid_sex(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.post(
+        "/api/v1/prescriptions",
+        json=_rx_payload(NEW_PATIENT_PHONE, sex="UNKNOWN_GENDER"),
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_create_rejects_unknown_medication(client):
     await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
     await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
@@ -264,7 +351,7 @@ async def test_create_rejects_unknown_medication(client):
 
     response = await client.post(
         "/api/v1/prescriptions",
-        json={"phone": PATIENT_PHONE, "items": [_item_payload(uuid.uuid4())]},
+        json=_rx_payload(PATIENT_PHONE, items=[_item_payload(uuid.uuid4())]),
         headers=headers,
     )
     assert response.status_code == 404
@@ -278,7 +365,7 @@ async def test_create_rejects_unknown_medication(client):
 async def _draft_with_item(client, headers, med_id) -> dict:
     response = await client.post(
         "/api/v1/prescriptions",
-        json={"phone": PATIENT_PHONE, "items": [_item_payload(med_id)]},
+        json=_rx_payload(PATIENT_PHONE, items=[_item_payload(med_id)]),
         headers=headers,
     )
     assert response.status_code == 201
@@ -438,6 +525,9 @@ async def test_current_medications_returns_only_approved_date_active_items(clien
         "/api/v1/prescriptions",
         json={
             "phone": PATIENT_PHONE,
+            "name": "Bệnh nhân A",
+            "dob": "1980-01-01",
+            "sex": "FEMALE",
             "items": [
                 _item_payload(
                     med_id,
@@ -535,7 +625,7 @@ async def test_add_item_to_draft_succeeds(client):
     headers = await _login(client, DOCTOR_PHONE)
 
     created = await client.post(
-        "/api/v1/prescriptions", json={"phone": PATIENT_PHONE}, headers=headers
+        "/api/v1/prescriptions", json=_rx_payload(PATIENT_PHONE), headers=headers
     )
     assert created.status_code == 201
     rx_id = created.json()["data"]["prescription"]["id"]
@@ -584,3 +674,54 @@ async def test_delete_item_from_draft(client):
 
     detail = await client.get(f"/api/v1/prescriptions/{draft['id']}", headers=headers)
     assert detail.json()["data"]["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /doctors/patients/by-phone
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_patient_by_phone_succeeds(client):
+    """Doctor can fetch patient details by phone globally even before writing a prescription."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.get(
+        "/api/v1/doctors/patients/by-phone",
+        params={"phone": PATIENT_PHONE},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["phone"] == PATIENT_PHONE
+    assert data["name"] == "Bệnh nhân A"
+    assert data["user_id"] == str(patient_id)
+
+
+@pytest.mark.asyncio
+async def test_get_patient_by_phone_not_found(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.get(
+        "/api/v1/doctors/patients/by-phone",
+        params={"phone": NEW_PATIENT_PHONE},
+        headers=headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_patient_by_phone_forbidden_for_patient(client):
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    headers = await _login(client, PATIENT_PHONE)
+
+    response = await client.get(
+        "/api/v1/doctors/patients/by-phone",
+        params={"phone": PATIENT_PHONE},
+        headers=headers,
+    )
+    assert response.status_code == 403
+

@@ -39,6 +39,9 @@ class AgentRunStatusResponse(BaseModel):
     status: str
     latency_ms: Optional[int] = None
     error_code: Optional[str] = None
+    # Lý do dừng ở dạng đọc được (error_code chỉ là tên class exception) — portal
+    # dựa vào đây để bác sĩ biết phải sửa thuốc nào khi status=NEEDS_REVIEW.
+    error_message: Optional[str] = None
     generated_dose_count: Optional[int] = None
     created_at: datetime
 

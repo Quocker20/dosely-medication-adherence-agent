@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -97,6 +97,9 @@ class AgentRun(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # error_code chỉ là tên class exception; message chi tiết (thuốc nào, cữ nào,
+    # giãn cách thực tế bao nhiêu) nằm ở đây để portal hiện cho bác sĩ tự sửa.
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_dose_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

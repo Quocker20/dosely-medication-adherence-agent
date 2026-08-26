@@ -220,6 +220,15 @@ class PatientService:
         profile, user = result
         return self._to_detail(profile, user)
 
+    async def get_patient_by_phone(self, phone: str) -> PatientDetailResponse:
+        """Fetch patient detail globally by validated phone."""
+        cleaned_phone = validate_phone_number(phone)
+        result = await self._patient_repo.get_patient_by_phone(cleaned_phone)
+        if result is None:
+            raise NotFoundException(message="Patient not found")
+        profile, user = result
+        return self._to_detail(profile, user)
+
     @staticmethod
     def _to_routine_response(routine: PatientRoutine) -> PatientRoutineResponse:
         return PatientRoutineResponse(

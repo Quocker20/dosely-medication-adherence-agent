@@ -56,9 +56,18 @@ export interface PrescriptionDetail {
 /**
  * POST /prescriptions nhận bệnh nhân qua số điện thoại (find-or-create),
  * không phải patient_id.
+ *
+ * name/dob/sex là BẮT BUỘC ở backend (CreatePrescriptionRequest trong
+ * src/modules/prescriptions/schemas.py) — kể cả khi bệnh nhân đã tồn tại, để
+ * hồ sơ luôn đủ dữ liệu nhân khẩu. dob dạng YYYY-MM-DD, phải sau 1900-01-01 và
+ * không được ở tương lai.
  */
 export interface CreatePrescriptionRequest {
   phone: string;
+  name: string;
+  dob: string;
+  sex: "MALE" | "FEMALE" | "OTHER";
+  emergency_note: string | null;
   diagnosis_note: string | null;
   items: PrescriptionItemIn[];
 }
