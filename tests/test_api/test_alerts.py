@@ -842,3 +842,126 @@ async def test_unknown_alert_returns_404(client):
         f"/api/v1/alerts/{uuid.uuid4()}/acknowledge", headers=doctor_headers
     )
     assert response.status_code == 404
+
+
+async def _create_doses_at(
+    patient_id: uuid.UUID,
+    doctor_id: uuid.UUID,
+    doses: list[tuple[str, timedelta]],
+) -> None:
+    """One approved prescription plus a dose per (status, offset-from-now).
+
+    No Medication row: prescription_items.medication_id lost its FK in
+    migration 0007 and scheduled_doses.medication_id never had one, so seeding
+    a catalogue entry here would only collide with _create_dose on the
+    (source_name, source_record_key) unique index.
+    """
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            rx = Prescription(
+                patient_id=patient_id, doctor_id=doctor_id, status="APPROVED"
+            )
+            db.add(rx)
+            await db.flush()
+
+            item = PrescriptionItem(
+                prescription_id=rx.id,
+                display_name="Amlodipin 5mg",
+                dose_unit="VIEN",
+                morning_dose=1,
+                start_date=date.today(),
+            )
+            db.add(item)
+            await db.flush()
+
+            now = datetime.now(timezone.utc)
+            for status, offset in doses:
+                at = now + offset
+                db.add(
+                    ScheduledDose(
+                        prescription_item_id=item.id,
+                        patient_id=patient_id,
+                        original_scheduled_at=at,
+                        current_scheduled_at=at,
+                        status=status,
+                        taken_at=at if status == "TAKEN" else None,
+                    )
+                )
+
+
+async def _summary_today(client, patient_id: uuid.UUID, headers: dict) -> dict:
+    today = date.today()
+    response = await client.get(
+        f"/api/v1/patients/{patient_id}/adherence",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    return response.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_summary_excludes_doses_not_yet_due_today(client):
+    """Today's later doses must not sit in the denominator — otherwise the
+    rate sags through the day and recovers at midnight for a patient who has
+    done nothing wrong."""
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    await _create_doses_at(
+        patient_id,
+        doctor_id,
+        [
+            ("TAKEN", timedelta(hours=-5)),
+            ("PENDING", timedelta(hours=3)),
+            ("PENDING", timedelta(hours=6)),
+        ],
+    )
+    headers = await _login(client, PATIENT_PHONE)
+
+    summary = await _summary_today(client, patient_id, headers)
+    assert summary["total_doses"] == 1
+    assert summary["taken_doses"] == 1
+    assert summary["adherence_rate"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_summary_counts_overdue_pending_as_missed(client):
+    """Past the grace window the dose is missed in substance; waiting for
+    MissedDoseScanService to write the status would leave the four returned
+    figures failing to sum to total_doses."""
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    await _create_doses_at(
+        patient_id,
+        doctor_id,
+        [("TAKEN", timedelta(hours=-5)), ("PENDING", timedelta(hours=-4))],
+    )
+    headers = await _login(client, PATIENT_PHONE)
+
+    summary = await _summary_today(client, patient_id, headers)
+    assert summary["total_doses"] == 2
+    assert summary["taken_doses"] == 1
+    assert summary["missed_doses"] == 1
+    assert summary["adherence_rate"] == 50.0
+    assert (
+        summary["taken_doses"] + summary["skipped_doses"] + summary["missed_doses"]
+        == summary["total_doses"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_summary_ignores_pending_dose_still_within_grace(client):
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    await _create_doses_at(
+        patient_id,
+        doctor_id,
+        [("TAKEN", timedelta(hours=-5)), ("PENDING", timedelta(minutes=-10))],
+    )
+    headers = await _login(client, PATIENT_PHONE)
+
+    summary = await _summary_today(client, patient_id, headers)
+    assert summary["total_doses"] == 1
+    assert summary["taken_doses"] == 1
+    assert summary["missed_doses"] == 0
+    assert summary["adherence_rate"] == 100.0

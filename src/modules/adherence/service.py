@@ -349,6 +349,13 @@ class AdherenceLogService:
         patient's own timezone, converted to a single UTC range so the
         aggregate query only reads current_scheduled_at once.
 
+        adherence_rate is taken/total over *due* doses only — a dose still
+        PENDING inside its grace window is excluded from both sides (see
+        AdherenceLogRepository.get_dose_status_counts). Counting the whole
+        calendar range instead would drag a patient's rate down through the
+        day for doses they have not yet had the chance to take, and recover
+        it at midnight.
+
         Cached per-actor (build_cache_key), including the zero-filled
         out-of-scope result — it's a deterministic function of this caller's
         own scope, so replaying it to the same caller for the TTL window is
@@ -398,7 +405,11 @@ class AdherenceLogService:
             ).astimezone(dt_timezone.utc)
 
             total, taken, skipped, missed = await self._repo.get_dose_status_counts(
-                patient_id, actor_id, range_start, range_end
+                patient_id,
+                actor_id,
+                range_start,
+                range_end,
+                settings.missed_dose_overdue_minutes,
             )
             rate = round((taken / total) * 100.0, 2) if total > 0 else 0.0
 
