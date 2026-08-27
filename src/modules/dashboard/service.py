@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from src.common.exceptions import NotFoundException
 from src.common.schemas import PageResponse
+from src.core.cache import build_cache_key, cached_model
 from src.core.config import get_settings
 from src.core.redis import subscribe_dashboard_events
 from src.modules.adherence.schemas import AlertDetailResponse
@@ -69,75 +70,122 @@ class DashboardService:
         """Roster page, most-alerting patients first. A doctor with no
         prescriptions gets an empty page rather than a 403 — same list-style
         filtering as PatientService.list_patients, which avoids leaking whether
-        any patients exist at all."""
-        rows, total_count = await self._repo.list_dashboard_patients(
-            range_start=self._window_start(),
-            doctor_id=self._scope_doctor_id(actor_payload),
-            page=page,
-            size=size,
-            alert_status=alert_status,
-            adherence_band=adherence_band,
-            search=search,
+        any patients exist at all.
+
+        Cached per-actor (see build_cache_key): the roster is scoped to
+        `_scope_doctor_id`, so the cache key must carry the same identity or
+        one doctor's page could be served to another. Short TTL — /ws/dashboard
+        already pushes alert.*/adherence.updated deltas, so staleness is
+        bounded by the TTL, not by when the portal happens to poll."""
+        cache_key = build_cache_key(
+            "dash:patients:list",
+            actor=actor_payload,
+            params={
+                "page": page,
+                "size": size,
+                "alert_status": alert_status,
+                "adherence_band": adherence_band,
+                "search": search,
+            },
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
-        last = page >= total_pages if total_pages > 0 else True
-
-        content = [
-            DashboardPatientListResponse(
-                patient_id=patient_id,
-                patient_name=name,
-                adherence_rate=_adherence_rate(taken, total),
-                open_alerts_count=open_alerts,
-                last_survey_date=last_survey,
+        async def _load() -> PageResponse[DashboardPatientListResponse]:
+            rows, total_count = await self._repo.list_dashboard_patients(
+                range_start=self._window_start(),
+                doctor_id=self._scope_doctor_id(actor_payload),
+                page=page,
+                size=size,
+                alert_status=alert_status,
+                adherence_band=adherence_band,
+                search=search,
             )
-            for patient_id, name, total, taken, open_alerts, last_survey in rows
-        ]
 
-        return PageResponse(
-            content=content,
-            page_no=page,
-            page_size=size,
-            total_elements=total_count,
-            total_pages=total_pages,
-            last=last,
+            total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+            last = page >= total_pages if total_pages > 0 else True
+
+            content = [
+                DashboardPatientListResponse(
+                    patient_id=patient_id,
+                    patient_name=name,
+                    adherence_rate=_adherence_rate(taken, total),
+                    open_alerts_count=open_alerts,
+                    last_survey_date=last_survey,
+                )
+                for patient_id, name, total, taken, open_alerts, last_survey in rows
+            ]
+
+            return PageResponse(
+                content=content,
+                page_no=page,
+                page_size=size,
+                total_elements=total_count,
+                total_pages=total_pages,
+                last=last,
+            )
+
+        settings = get_settings()
+        return await cached_model(
+            cache_key,
+            settings.cache_ttl_dashboard_seconds,
+            PageResponse[DashboardPatientListResponse],
+            _load,
         )
 
     async def get_patient_detail(
         self, patient_id: uuid.UUID, actor_payload: dict
     ) -> DashboardPatientDetailResponse:
         """Single-patient panel. Out of scope and non-existent both raise 404,
-        so the endpoint cannot be used to enumerate patient UUIDs."""
+        so the endpoint cannot be used to enumerate patient UUIDs.
+
+        Cached per-actor, same rationale as list_patients. The 404 branch
+        runs inside `_load` and is never cached (see cached_model) — an
+        out-of-scope doctor's denial must not outlive one TTL window into a
+        cached allow, or vice versa, if their prescribing relationship to
+        this patient changes."""
         settings = get_settings()
-        identity = await self._repo.get_patient_identity(
-            patient_id, doctor_id=self._scope_doctor_id(actor_payload)
-        )
-        if identity is None:
-            raise NotFoundException(message="Patient not found")
-
-        user_id, name, phone = identity
-        range_start = self._window_start()
-
-        active_count = await self._repo.count_active_prescriptions(patient_id)
-        total, taken, skipped, missed = await self._repo.get_dose_status_counts(
-            patient_id, range_start
-        )
-        alerts = await self._repo.list_recent_alerts(
-            patient_id, limit=settings.dashboard_recent_alerts_limit
+        cache_key = build_cache_key(
+            "dash:patients:detail",
+            actor=actor_payload,
+            params={"patient_id": str(patient_id)},
         )
 
-        return DashboardPatientDetailResponse(
-            patient=DashboardPatientSummary(user_id=user_id, name=name, phone=phone),
-            active_prescriptions_count=active_count,
-            adherence_summary=DashboardAdherenceSummary(
-                adherence_rate=_adherence_rate(taken, total),
-                total_doses=total,
-                taken_doses=taken,
-                skipped_doses=skipped,
-                missed_doses=missed,
-                window_days=settings.dashboard_adherence_window_days,
-            ),
-            recent_alerts=[AlertDetailResponse.model_validate(a) for a in alerts],
+        async def _load() -> DashboardPatientDetailResponse:
+            identity = await self._repo.get_patient_identity(
+                patient_id, doctor_id=self._scope_doctor_id(actor_payload)
+            )
+            if identity is None:
+                raise NotFoundException(message="Patient not found")
+
+            user_id, name, phone = identity
+            range_start = self._window_start()
+
+            active_count = await self._repo.count_active_prescriptions(patient_id)
+            total, taken, skipped, missed = await self._repo.get_dose_status_counts(
+                patient_id, range_start
+            )
+            alerts = await self._repo.list_recent_alerts(
+                patient_id, limit=settings.dashboard_recent_alerts_limit
+            )
+
+            return DashboardPatientDetailResponse(
+                patient=DashboardPatientSummary(user_id=user_id, name=name, phone=phone),
+                active_prescriptions_count=active_count,
+                adherence_summary=DashboardAdherenceSummary(
+                    adherence_rate=_adherence_rate(taken, total),
+                    total_doses=total,
+                    taken_doses=taken,
+                    skipped_doses=skipped,
+                    missed_doses=missed,
+                    window_days=settings.dashboard_adherence_window_days,
+                ),
+                recent_alerts=[AlertDetailResponse.model_validate(a) for a in alerts],
+            )
+
+        return await cached_model(
+            cache_key,
+            settings.cache_ttl_dashboard_seconds,
+            DashboardPatientDetailResponse,
+            _load,
         )
 
 
