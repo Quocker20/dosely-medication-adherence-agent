@@ -88,6 +88,22 @@ async def get_schedule(
     )
 
 
+@schedules_router.get("/patients/me/schedules/next")
+async def get_my_next_dose(
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+) -> JSONResponse:
+    """Return the authenticated patient's next dose; no caller-supplied patient id."""
+    patient_id = uuid.UUID(current_user["sub"])
+    result = await service.get_next_dose_for_patient(
+        patient_id=patient_id, actor_payload=current_user
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Next dose state fetched successfully",
+    )
+
+
 @schedules_router.post(
     "/patients/{patient_id}/schedules/reschedule", status_code=status.HTTP_202_ACCEPTED
 )

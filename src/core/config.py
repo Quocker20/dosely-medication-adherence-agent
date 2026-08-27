@@ -36,6 +36,24 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_url: str
 
+    # Read-through response cache (src/core/cache.py). Keyed under
+    # cache_key_prefix so it never collides with DASHBOARD_EVENTS_CHANNEL or
+    # any future Redis use on the same instance.
+    cache_enabled: bool = True
+    cache_key_prefix: str = "remindrx:cache"
+    # Medication catalog: no PHI, admin-seeded, changes rarely.
+    cache_ttl_medications_seconds: int = Field(default=3600, ge=0, le=86400)
+    # Doctor dashboard aggregates: WS /ws/dashboard pushes deltas, so a short
+    # TTL is enough to absorb roster/detail read load without the portal
+    # looking stale between events.
+    cache_ttl_dashboard_seconds: int = Field(default=45, ge=0, le=3600)
+    # Adherence summary for a range that still includes today (counts can
+    # still change).
+    cache_ttl_adherence_current_seconds: int = Field(default=60, ge=0, le=3600)
+    # Adherence summary for a range that ended before today — the underlying
+    # logs are append-only and the range is closed, so this is immutable.
+    cache_ttl_adherence_historical_seconds: int = Field(default=86400, ge=0, le=604800)
+
     # Celery Task Queue
     celery_broker_url: str
     celery_result_backend: str
