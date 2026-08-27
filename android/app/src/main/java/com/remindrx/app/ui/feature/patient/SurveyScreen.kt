@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ private val symptomOptions = listOf(
     SymptomOption("NAUSEA", "Buồn nôn"),
     SymptomOption("HEADACHE", "Đau đầu"),
     SymptomOption("FATIGUE", "Mệt mỏi"),
+    SymptomOption("OTHER", "Khác"),
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -51,12 +53,13 @@ fun SurveyScreen(
     isSubmitted: Boolean = false,
     error: String? = null,
     onInputChanged: () -> Unit = {},
-    onSubmit: (mood: Int, symptomCode: String, severity: String) -> Unit,
+    onSubmit: (mood: Int, symptomCode: String, severity: String, customDescription: String?) -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
     var mood by remember { mutableIntStateOf(3) }
     var selectedSymptom by remember { mutableStateOf(symptomOptions.first()) }
     var severity by remember { mutableStateOf(Severity.MILD) }
+    var customDescription by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -87,7 +90,7 @@ fun SurveyScreen(
         }
 
         Text("Có tác dụng phụ nào không?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 22.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = if (selectedSymptom.code == "OTHER") 10.dp else 22.dp)) {
             symptomOptions.forEach { symptom ->
                 SymptomChip(symptom.label, picked = selectedSymptom == symptom) {
                     selectedSymptom = symptom
@@ -95,6 +98,16 @@ fun SurveyScreen(
                     onInputChanged()
                 }
             }
+        }
+
+        if (selectedSymptom.code == "OTHER") {
+            OutlinedTextField(
+                value = customDescription,
+                onValueChange = { customDescription = it; onInputChanged() },
+                placeholder = { Text("Mô tả triệu chứng bạn gặp phải") },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
+                singleLine = true,
+            )
         }
 
         if (selectedSymptom.code != "NONE") {
@@ -131,6 +144,8 @@ fun SurveyScreen(
             )
         }
 
+        val otherMissing = selectedSymptom.code == "OTHER" && customDescription.isBlank()
+
         PrimaryButton(
             text = when {
                 isSubmitting -> "Đang gửi…"
@@ -139,10 +154,10 @@ fun SurveyScreen(
             },
             onClick = {
                 val submittedSeverity = if (selectedSymptom.code == "NONE") Severity.MILD else severity
-                onSubmit(mood, selectedSymptom.code, submittedSeverity.name)
+                onSubmit(mood, selectedSymptom.code, submittedSeverity.name, customDescription.trim().takeIf { it.isNotEmpty() })
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isSubmitting && !isSubmitted,
+            enabled = !isSubmitting && !isSubmitted && !otherMissing,
         )
     }
 }
@@ -208,5 +223,5 @@ private fun SeverityOption(level: Severity, picked: Boolean, modifier: Modifier 
 @com.remindrx.app.ui.preview.RemindRxScreenPreview
 @Composable
 private fun SurveyScreenPreview() = com.remindrx.app.ui.preview.RemindRxPreview {
-    SurveyScreen(onSubmit = { _, _, _ -> })
+    SurveyScreen(onSubmit = { _, _, _, _ -> })
 }

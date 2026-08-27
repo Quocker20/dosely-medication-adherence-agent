@@ -433,8 +433,9 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `symptoms` (List[Dict[str, Any]], default=[]): Danh sách các triệu chứng ghi nhận (Mỗi triệu chứng gồm `symptom_code`, `severity`: `MILD`/`MODERATE`/`SEVERE`, `description`).
 
 ### 7.5 HealthSurveyDetailResponse
-* **Mục đích**: Phản hồi kết quả ghi nhận khảo sát từ bảng `health_surveys`.
+* **Mục đích**: Phản hồi kết quả ghi nhận khảo sát từ bảng `health_surveys`, dùng cho `POST /patients/{patient_id}/health-surveys`.
 * **Module**: `src.modules.adherence.schemas`
+* **Ràng buộc UNIQUE**: `health_surveys` có `UNIQUE(patient_id, survey_date)` (constraint `uq_health_surveys_patient_date`, migration `0018_health_survey_query_indexes`) — một bệnh nhân chỉ nộp được một khảo sát mỗi ngày. Nộp lần hai cùng ngày trả về **409 Conflict**, không còn tạo dòng mới hay ghi đè âm thầm.
 * **Cấu trúc thuộc tính**:
   * `id` (UUID): Mã bài khảo sát.
   * `patient_id` (UUID): Mã bệnh nhân.
@@ -442,7 +443,47 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `status` (str): Trạng thái gửi (`SUBMITTED`).
   * `submitted_at` (datetime): Thời điểm nộp khảo sát.
 
-### 7.6 TriggerSosRequest
+### 7.6 HealthSurveyListItemResponse
+* **Mục đích**: Phản hồi từng item trong danh sách khảo sát phân trang, dùng cho cả `GET /health-surveys` (Bác sĩ/Admin, toàn hệ thống) lẫn `GET /patients/{patient_id}/health-surveys` (theo từng bệnh nhân). Chỉ chứa tóm tắt — không có `answers_json` hay danh sách triệu chứng đầy đủ (xem 7.8).
+* **Module**: `src.modules.adherence.schemas`
+* **Phạm vi truy cập**: `GET /health-surveys` — Bác sĩ chỉ thấy bệnh nhân mình đã kê ít nhất một đơn thuốc (cùng cách tính với dashboard roster, `_has_prescribed_filter`), Admin thấy toàn hệ thống; ngoài phạm vi trả về trang rỗng, không 403. `GET /patients/{id}/health-surveys` dùng lại quy tắc truy cập adherence (chính chủ / bác sĩ đã kê đơn / người thân liên kết ACTIVE); ngoài phạm vi trả về trang rỗng, không 404.
+* **Cấu trúc thuộc tính**:
+  * `id` (UUID): Mã bài khảo sát.
+  * `patient_id` (UUID): Mã bệnh nhân.
+  * `patient_name` (str): Tên bệnh nhân.
+  * `survey_date` (date): Ngày khảo sát.
+  * `status` (str): Trạng thái gửi.
+  * `submitted_at` (Optional[datetime]): Thời điểm nộp.
+  * `symptom_count` (int): Tổng số triệu chứng ghi nhận trong khảo sát.
+  * `max_severity` (Optional[str]): Mức độ nghiêm trọng cao nhất trong các triệu chứng (`SEVERE` > `MODERATE` > `MILD`), `null` nếu không có triệu chứng nào.
+
+### 7.7 SymptomReportDetailResponse
+* **Mục đích**: Phản hồi một triệu chứng đơn lẻ, nhúng trong `HealthSurveyFullDetailResponse.symptoms`.
+* **Module**: `src.modules.adherence.schemas`
+* **Cấu trúc thuộc tính**:
+  * `id` (UUID): Mã bản ghi triệu chứng.
+  * `survey_id` (Optional[UUID]): Mã khảo sát chứa triệu chứng này.
+  * `symptom_code` (str): Mã triệu chứng.
+  * `severity` (str): Mức độ nghiêm trọng (`MILD`/`MODERATE`/`SEVERE`).
+  * `description` (Optional[str]): Mô tả chi tiết.
+  * `reported_at` (datetime): Thời điểm ghi nhận.
+  * `source` (str): Nguồn ghi nhận (`HEALTH_SURVEY`).
+
+### 7.8 HealthSurveyFullDetailResponse
+* **Mục đích**: Phản hồi chi tiết đầy đủ một khảo sát, dùng cho `GET /health-surveys/{survey_id}` — bao gồm `answers_json` và toàn bộ danh sách triệu chứng, khác với bản tóm tắt ở 7.6.
+* **Module**: `src.modules.adherence.schemas`
+* **Phạm vi truy cập**: PATIENT/DOCTOR/CAREGIVER, dùng lại quy tắc truy cập adherence (chính chủ / bác sĩ đã kê đơn / người thân liên kết ACTIVE). Ngoài phạm vi và không tồn tại đều trả **404** như nhau — endpoint không được dùng để dò UUID khảo sát có thật hay không.
+* **Cấu trúc thuộc tính**:
+  * `id` (UUID): Mã bài khảo sát.
+  * `patient_id` (UUID): Mã bệnh nhân.
+  * `patient_name` (str): Tên bệnh nhân.
+  * `survey_date` (date): Ngày khảo sát.
+  * `status` (str): Trạng thái gửi.
+  * `submitted_at` (Optional[datetime]): Thời điểm nộp.
+  * `answers_json` (Dict[str, Any]): Khối JSON câu trả lời chỉ số.
+  * `symptoms` (List[SymptomReportDetailResponse]): Danh sách triệu chứng đầy đủ, nạp bằng `selectinload` (model `HealthSurvey.symptom_reports` có `lazy="raise"`, không tự động lazy-load).
+
+### 7.9 TriggerSosRequest
 * **Mục đích**: Tiếp nhận tín hiệu cấp cứu khẩn cấp cho bệnh nhân. Endpoint này phục vụ **hai nguồn**: bệnh nhân bấm nút SOS một chạm, và AI agent phát hiện triệu chứng nặng trong hội thoại (`trigger_red_alert`). Cả hai đều chạy dưới token của chính bệnh nhân nên RBAC không đổi.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
@@ -452,13 +493,13 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `severity` (Literal["CRITICAL","HIGH","MEDIUM"], default="CRITICAL"): Mức độ nghiêm trọng, ghi vào cột `alerts.severity`. Giá trị khớp `ck_alerts_severity`.
 * **Ghi chú tương thích**: hai trường trên đều có default đúng bằng hành vi cũ (`SOS_BUTTON`/`CRITICAL`), nên client đang chạy không cần sửa gì.
 
-### 7.7 ResolveAlertRequest
+### 7.10 ResolveAlertRequest
 * **Mục đích**: Bác sĩ gửi phương án xử lý để Đóng cảnh báo (`RESOLVED`).
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
   * `resolution_note` (str, Field min_length=1): Ghi chú kết quả xử lý y khoa.
 
-### 7.8 AlertDetailResponse
+### 7.11 AlertDetailResponse
 * **Mục đích**: Phản hồi chi tiết cảnh báo an toàn Red Alert từ bảng `alerts`. Dùng cho cả API xem chi tiết lẫn item trong phân trang `PageResponse[AlertDetailResponse]`.
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
