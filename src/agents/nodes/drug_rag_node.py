@@ -8,6 +8,7 @@ from functools import lru_cache
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.state import AgentState
+from src.agents.nodes.explain_my_medications_node import _without_citations
 from src.rag_retrieval import SafeDrugRAG
 
 _UNAVAILABLE_REPLY = (
@@ -44,7 +45,9 @@ async def drug_rag_node(state: AgentState) -> dict:
             "grounding_errors": ["rag_unavailable"],
         }
     return {
-        "messages": [AIMessage(content=result.answer)],
+        # Citations remain part of the internal grounding validation above,
+        # but are hidden in the patient-facing presentation.
+        "messages": [AIMessage(content=_without_citations(result.answer))],
         "grounding_valid": result.grounding_valid,
         "grounding_errors": result.grounding_errors,
     }
