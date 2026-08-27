@@ -10,6 +10,14 @@ def test_my_medications_intent_has_deterministic_database_route():
     assert _route_after_classify_intent({"intent": "ask_my_medications"}) == "current_medications"
 
 
+def test_explain_and_next_dose_have_deterministic_routes():
+    assert (
+        _route_after_classify_intent({"intent": "explain_my_medications"})
+        == "explain_my_medications"
+    )
+    assert _route_after_classify_intent({"intent": "ask_next_dose"}) == "next_dose"
+
+
 @pytest.mark.asyncio
 async def test_current_medications_node_formats_database_result(monkeypatch):
     monkeypatch.setattr(

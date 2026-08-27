@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,6 +58,14 @@ class ActiveScheduleResponse(BaseModel):
     patient_id: uuid.UUID
     date: date
     doses: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class NextDoseResponse(BaseModel):
+    """Deterministic next-dose result for the authenticated patient."""
+
+    status: Literal["UPCOMING", "NO_SCHEDULE", "NO_UPCOMING"]
+    local_date: date
+    dose: Optional[Dict[str, Any]] = None
 
 
 class ChatRequest(BaseModel):

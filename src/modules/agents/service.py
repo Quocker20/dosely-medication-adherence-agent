@@ -39,6 +39,7 @@ from src.modules.agents.schemas import (
     AgentRunStatusResponse,
     ChatResponse,
     GenerateScheduleRequest,
+    NextDoseResponse,
     RescheduleRequest,
     VoiceChatResponse,
 )
@@ -249,6 +250,57 @@ class SchedulingService:
             for dose, display_name in rows
         ]
         return ActiveScheduleResponse(patient_id=patient_id, date=target_date, doses=doses)
+
+    async def get_next_dose_for_patient(
+        self, patient_id: uuid.UUID, actor_payload: dict
+    ) -> NextDoseResponse:
+        """Return a structured next-dose state using the patient's timezone.
+
+        Identity is supplied by the authenticated route, never by chat text.
+        NO_SCHEDULE means no dose rows exist today; NO_UPCOMING means rows
+        exist but none remain actionable in the future today.
+        """
+        actor_id = uuid.UUID(actor_payload["sub"])
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(
+            patient_id, actor_id
+        )
+        if patient_timezone is None:
+            local_date = datetime.now(UTC).date()
+            return NextDoseResponse(status="NO_SCHEDULE", local_date=local_date)
+
+        tz = ZoneInfo(patient_timezone)
+        now = datetime.now(UTC)
+        local_date = now.astimezone(tz).date()
+        range_start = datetime.combine(local_date, time.min, tzinfo=tz).astimezone(UTC)
+        range_end = datetime.combine(
+            local_date + timedelta(days=1), time.min, tzinfo=tz
+        ).astimezone(UTC)
+        rows = await self._dose_repo.get_schedule_in_range(
+            patient_id, range_start, range_end, actor_id=actor_id
+        )
+        if not rows:
+            return NextDoseResponse(status="NO_SCHEDULE", local_date=local_date)
+
+        resolved_statuses = {"TAKEN", "SKIPPED", "MISSED"}
+        for dose, display_name in rows:
+            if (
+                dose.current_scheduled_at >= now
+                and dose.status.upper() not in resolved_statuses
+            ):
+                return NextDoseResponse(
+                    status="UPCOMING",
+                    local_date=local_date,
+                    dose={
+                        "scheduled_dose_id": dose.id,
+                        "medication_name": display_name,
+                        "current_scheduled_at": dose.current_scheduled_at,
+                        "dose_value": dose.dose_value,
+                        "dose_unit": dose.dose_unit,
+                        "meal_relation": dose.meal_relation,
+                        "status": dose.status,
+                    },
+                )
+        return NextDoseResponse(status="NO_UPCOMING", local_date=local_date)
 
     async def get_run_status(self, agent_run_id: uuid.UUID, actor_payload: dict) -> AgentRunStatusResponse:
         """PATIENT/DOCTOR/ADMIN, mirrors PrescriptionService.get_prescription's
