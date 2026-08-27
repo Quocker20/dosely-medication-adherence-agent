@@ -92,6 +92,7 @@ class DashboardService:
         async def _load() -> PageResponse[DashboardPatientListResponse]:
             rows, total_count = await self._repo.list_dashboard_patients(
                 range_start=self._window_start(),
+                overdue_minutes=get_settings().missed_dose_overdue_minutes,
                 doctor_id=self._scope_doctor_id(actor_payload),
                 page=page,
                 size=size,
@@ -161,7 +162,7 @@ class DashboardService:
 
             active_count = await self._repo.count_active_prescriptions(patient_id)
             total, taken, skipped, missed = await self._repo.get_dose_status_counts(
-                patient_id, range_start
+                patient_id, range_start, settings.missed_dose_overdue_minutes
             )
             alerts = await self._repo.list_recent_alerts(
                 patient_id, limit=settings.dashboard_recent_alerts_limit
