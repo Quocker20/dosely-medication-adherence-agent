@@ -26,6 +26,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.core.cache import invalidate_prefix
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
@@ -460,6 +461,9 @@ class SchedulingService:
                 "is_reschedule": is_reschedule,
             },
         )
+        # New/replaced doses change the denominator behind the cached
+        # dashboard adherence_rate for this patient.
+        await invalidate_prefix("dash:patients")
 
     @staticmethod
     def _terminal_audit(draft_state: dict | None, empty_hash: str, terminal_source: str) -> dict:
