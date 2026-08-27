@@ -64,6 +64,8 @@ enum class SymptomCode(val wireValue: String, val displayLabel: String) {
     NAUSEA("NAUSEA", "Buồn nôn"),
     HEADACHE("HEADACHE", "Đau đầu"),
     FATIGUE("FATIGUE", "Mệt mỏi"),
+    /** symptom_code không bị DB constraint giới hạn — dùng cho triệu chứng bệnh nhân tự mô tả. */
+    OTHER("OTHER", "Khác"),
     ;
 
     companion object {

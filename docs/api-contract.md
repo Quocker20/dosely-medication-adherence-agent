@@ -96,10 +96,15 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /patients/{patient_id}/adherence | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to) | 200 OK / AdherenceSummaryResponse |
 | GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponse[AdherenceLogDetailResponse] |
 | POST | /patients/{patient_id}/health-surveys | Required (PATIENT) | Path Param (patient_id: UUID) + SubmitHealthSurveyRequest | 201 Created / HealthSurveyDetailResponse |
+| GET | /patients/{patient_id}/health-surveys | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponse[HealthSurveyListItemResponse] |
+| GET | /health-surveys | Required (DOCTOR/ADMIN) | Query Params (from, to, patientId, severity, page, size) | 200 OK / PageResponse[HealthSurveyListItemResponse] |
+| GET | /health-surveys/{survey_id} | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (survey_id: UUID) | 200 OK / HealthSurveyFullDetailResponse |
 | POST | /patients/{patient_id}/sos | Required (PATIENT) | Path Param (patient_id: UUID) + TriggerSosRequest (Header: Idempotency-Key) | 201 Created / AlertDetailResponse |
 | GET | /alerts | Required (DOCTOR/ADMIN) | Query Params (page, size, status, patientId) | 200 OK / PageResponse[AlertDetailResponse] |
 | POST | /alerts/{alert_id}/acknowledge | Required (DOCTOR) | Path Param (alert_id: UUID) | 200 OK / AlertDetailResponse |
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
+
+**Health survey notes.** `POST /patients/{id}/health-surveys` now returns **409 Conflict** on a second submission for the same `(patient_id, survey_date)` — `uq_health_surveys_patient_date` (migration `0018_health_survey_query_indexes`) enforces one survey per patient per day at the DB layer; a prior 201-on-every-retry behavior is gone. `GET /health-surveys` (list, no path param) is DOCTOR/ADMIN only: a DOCTOR sees only patients they've written at least one prescription for (same derivation as the dashboard roster — evaporates with the last prescription), an ADMIN sees the whole platform; out-of-scope narrows the result to an empty page, not 403. `GET /patients/{id}/health-surveys` and `GET /health-surveys/{survey_id}` reuse the adherence access rule (self / doctor-prescribed / active-caregiver); out-of-scope on the list returns an empty page, on the detail returns 404 (same as a nonexistent id — the endpoint must not be usable to probe which survey UUIDs are real). The list responses omit `answers_json` and the symptom list (summary only, `symptom_count`/`max_severity`); only the single-survey detail endpoint returns the full payload.
 
 ### SLICE 8: DASHBOARD REALTIME (Doctor Portal)
 Backend-only slice — no agent involvement (the doctor dashboard reads adherence/alert data the same way any other client would). Implemented in `src/modules/dashboard/`.

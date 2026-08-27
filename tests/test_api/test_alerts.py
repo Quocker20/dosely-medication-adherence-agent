@@ -24,12 +24,20 @@ from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
 DOCTOR_PHONE = "+84900900001"
+OTHER_DOCTOR_PHONE = "+84900900002"
+ADMIN_PHONE = "+84900900003"
 PATIENT_PHONE = "+84900900010"
 OTHER_PATIENT_PHONE = "+84900900011"
 PIN = "123456"
 MED_SOURCE_KEY = "TEST-SLICE7-MED"
 
-_TEST_PHONES = [DOCTOR_PHONE, PATIENT_PHONE, OTHER_PATIENT_PHONE]
+_TEST_PHONES = [
+    DOCTOR_PHONE,
+    OTHER_DOCTOR_PHONE,
+    ADMIN_PHONE,
+    PATIENT_PHONE,
+    OTHER_PATIENT_PHONE,
+]
 
 
 async def _purge() -> None:
@@ -91,14 +99,25 @@ async def _clean_slate():
     await engine.dispose()
 
 
-async def _create_doctor() -> uuid.UUID:
+async def _create_doctor(
+    phone: str = DOCTOR_PHONE, name: str = "Dr Slice7", license_no: str = "LIC-SLICE7"
+) -> uuid.UUID:
     async with AsyncSessionLocal() as db:
         async with db.begin():
             user = await AuthRepository(db).create_user(
-                phone=DOCTOR_PHONE, hashed_password=hash_password(PIN), role="DOCTOR"
+                phone=phone, hashed_password=hash_password(PIN), role="DOCTOR"
             )
             await DoctorRepository(db).create_doctor_profile(
-                user_id=user.id, name="Dr Slice7", license_no="LIC-SLICE7"
+                user_id=user.id, name=name, license_no=license_no
+            )
+        return user.id
+
+
+async def _create_admin(phone: str = ADMIN_PHONE) -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            user = await AuthRepository(db).create_user(
+                phone=phone, hashed_password=hash_password(PIN), role="ADMIN"
             )
         return user.id
 
@@ -416,6 +435,219 @@ async def test_survey_for_another_patient_is_rejected(client):
         headers=headers,
     )
     assert response.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_second_survey_same_day_is_conflict(client):
+    """uq_health_surveys_patient_date (migration 0018) closes the
+    check-then-insert race — a second submission for the same
+    (patient_id, survey_date) must not silently create a duplicate row."""
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    body = {
+        "survey_date": date.today().isoformat(),
+        "answers_json": {"huyet_ap": "120/80"},
+        "symptoms": [],
+    }
+
+    first = await client.post(
+        f"/api/v1/patients/{patient_id}/health-surveys", json=body, headers=headers
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        f"/api/v1/patients/{patient_id}/health-surveys", json=body, headers=headers
+    )
+    assert second.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# GET /patients/{id}/health-surveys, GET /health-surveys, GET /health-surveys/{id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_patient_can_list_own_health_surveys(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    await client.post(
+        f"/api/v1/patients/{patient_id}/health-surveys",
+        json={
+            "survey_date": date.today().isoformat(),
+            "answers_json": {"huyet_ap": "130/85"},
+            "symptoms": [
+                {"symptom_code": "DIZZY", "severity": "MILD", "description": "hơi chóng mặt"},
+                {"symptom_code": "COUGH", "severity": "MODERATE", "description": "ho nhiều"},
+            ],
+        },
+        headers=headers,
+    )
+
+    today = date.today()
+    response = await client.get(
+        f"/api/v1/patients/{patient_id}/health-surveys",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    page = response.json()["data"]
+    assert page["total_elements"] == 1
+    item = page["content"][0]
+    assert item["patient_id"] == str(patient_id)
+    assert item["symptom_count"] == 2
+    assert item["max_severity"] == "MODERATE"
+
+
+@pytest.mark.asyncio
+async def test_list_patient_health_surveys_out_of_scope_returns_empty_page(client):
+    victim_id = await _create_patient()
+    await _create_patient(OTHER_PATIENT_PHONE, "Bệnh nhân B")
+    headers = await _login(client, OTHER_PATIENT_PHONE)
+
+    today = date.today()
+    response = await client.get(
+        f"/api/v1/patients/{victim_id}/health-surveys",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["total_elements"] == 0
+
+
+@pytest.mark.asyncio
+async def test_doctor_sees_health_surveys_of_prescribed_patients_only(client):
+    """A doctor's reach is derived from having prescribed for the patient —
+    the same rule the dashboard roster uses — so a survey submitted by a
+    patient the doctor never prescribed for must not appear."""
+    doctor_id = await _create_doctor()
+    other_doctor_id = await _create_doctor(
+        OTHER_DOCTOR_PHONE, "Dr Other", "LIC-SLICE7-OTHER"
+    )
+    my_patient_id = await _create_patient()
+    other_patient_id = await _create_patient(OTHER_PATIENT_PHONE, "Bệnh nhân B")
+
+    # Establishes the prescribed-for relationship for each doctor/patient pair.
+    await _create_dose(my_patient_id, doctor_id)
+    await _create_dose(other_patient_id, other_doctor_id)
+
+    patient_headers = await _login(client, PATIENT_PHONE)
+    await client.post(
+        f"/api/v1/patients/{my_patient_id}/health-surveys",
+        json={"survey_date": date.today().isoformat(), "answers_json": {}, "symptoms": []},
+        headers=patient_headers,
+    )
+    other_patient_headers = await _login(client, OTHER_PATIENT_PHONE)
+    await client.post(
+        f"/api/v1/patients/{other_patient_id}/health-surveys",
+        json={"survey_date": date.today().isoformat(), "answers_json": {}, "symptoms": []},
+        headers=other_patient_headers,
+    )
+
+    today = date.today()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    response = await client.get(
+        "/api/v1/health-surveys",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=doctor_headers,
+    )
+    assert response.status_code == 200
+    page = response.json()["data"]
+    assert page["total_elements"] == 1
+    assert page["content"][0]["patient_id"] == str(my_patient_id)
+
+
+@pytest.mark.asyncio
+async def test_admin_sees_all_health_surveys(client):
+    doctor_id = await _create_doctor()
+    await _create_admin()
+    patient_id = await _create_patient()
+    await _create_dose(patient_id, doctor_id)
+
+    patient_headers = await _login(client, PATIENT_PHONE)
+    await client.post(
+        f"/api/v1/patients/{patient_id}/health-surveys",
+        json={"survey_date": date.today().isoformat(), "answers_json": {}, "symptoms": []},
+        headers=patient_headers,
+    )
+
+    today = date.today()
+    admin_headers = await _login(client, ADMIN_PHONE)
+    response = await client.get(
+        "/api/v1/health-surveys",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["total_elements"] == 1
+
+
+@pytest.mark.asyncio
+async def test_health_surveys_list_requires_doctor_or_admin(client):
+    await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    today = date.today()
+    response = await client.get(
+        "/api/v1/health-surveys",
+        params={"from": today.isoformat(), "to": today.isoformat()},
+        headers=headers,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_health_survey_detail_returns_full_payload(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    submit = await client.post(
+        f"/api/v1/patients/{patient_id}/health-surveys",
+        json={
+            "survey_date": date.today().isoformat(),
+            "answers_json": {"huyet_ap": "130/85"},
+            "symptoms": [
+                {"symptom_code": "DIZZY", "severity": "SEVERE", "description": "chóng mặt nặng"}
+            ],
+        },
+        headers=headers,
+    )
+    survey_id = submit.json()["data"]["id"]
+
+    response = await client.get(
+        f"/api/v1/health-surveys/{survey_id}", headers=headers
+    )
+    assert response.status_code == 200
+    detail = response.json()["data"]
+    assert detail["answers_json"] == {"huyet_ap": "130/85"}
+    assert len(detail["symptoms"]) == 1
+    assert detail["symptoms"][0]["symptom_code"] == "DIZZY"
+
+
+@pytest.mark.asyncio
+async def test_health_survey_detail_out_of_scope_is_404(client):
+    victim_id = await _create_patient()
+    await _create_patient(OTHER_PATIENT_PHONE, "Bệnh nhân B")
+    victim_headers = await _login(client, PATIENT_PHONE)
+    submit = await client.post(
+        f"/api/v1/patients/{victim_id}/health-surveys",
+        json={"survey_date": date.today().isoformat(), "answers_json": {}, "symptoms": []},
+        headers=victim_headers,
+    )
+    survey_id = submit.json()["data"]["id"]
+
+    intruder_headers = await _login(client, OTHER_PATIENT_PHONE)
+    response = await client.get(
+        f"/api/v1/health-surveys/{survey_id}", headers=intruder_headers
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unknown_health_survey_returns_404(client):
+    await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    response = await client.get(
+        f"/api/v1/health-surveys/{uuid.uuid4()}", headers=headers
+    )
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
