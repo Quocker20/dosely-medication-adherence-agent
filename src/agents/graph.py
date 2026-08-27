@@ -7,6 +7,8 @@ from src.agents.nodes.chat_node import agent_node, should_continue
 from src.agents.nodes.classify_intent_node import classify_intent_node
 from src.agents.nodes.current_medications_node import current_medications_node
 from src.agents.nodes.drug_rag_node import drug_rag_node
+from src.agents.nodes.explain_my_medications_node import explain_my_medications_node
+from src.agents.nodes.next_dose_node import next_dose_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.safety_guard_node import safety_guard_node
 from src.agents.state import AgentState
@@ -24,6 +26,10 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "drug_rag"
     if state.get("intent") == "ask_my_medications":
         return "current_medications"
+    if state.get("intent") == "explain_my_medications":
+        return "explain_my_medications"
+    if state.get("intent") == "ask_next_dose":
+        return "next_dose"
     return "agent"
 
 
@@ -35,6 +41,8 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("rescheduling", rescheduling_node)
     graph.add_node("drug_rag", drug_rag_node)
     graph.add_node("current_medications", current_medications_node)
+    graph.add_node("explain_my_medications", explain_my_medications_node)
+    graph.add_node("next_dose", next_dose_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(CHAT_TOOLS, handle_tool_errors=True))
 
@@ -53,12 +61,16 @@ def build_graph() -> CompiledStateGraph:
             "rescheduling": "rescheduling",
             "drug_rag": "drug_rag",
             "current_medications": "current_medications",
+            "explain_my_medications": "explain_my_medications",
+            "next_dose": "next_dose",
             "agent": "agent",
         },
     )
     graph.add_edge("rescheduling", END)
     graph.add_edge("drug_rag", END)
     graph.add_edge("current_medications", END)
+    graph.add_edge("explain_my_medications", END)
+    graph.add_edge("next_dose", END)
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.
