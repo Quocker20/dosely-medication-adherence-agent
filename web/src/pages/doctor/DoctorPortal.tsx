@@ -68,23 +68,27 @@ export default function DoctorPortal({ session }: { session: Session }) {
 
   const [rxPhone, setRxPhone] = useState("");
   const [alertBusyId, setAlertBusyId] = useState<string | null>(null);
-  const [doctorName, setDoctorName] = useState<string | null>(null);
+  // setDoctorName tạm không dùng — nguồn duy nhất (api.myDoctorProfile) đang comment, xem TODO dưới.
+  const [doctorName] = useState<string | null>(null);
   const { toasts, notify: toast } = useToasts(2600);
 
   // Tên bác sĩ không nằm trong token — phải hỏi riêng. Hỏng thì bỏ qua, sidebar
   // tự rơi về nhãn chung; không đáng chặn cả portal vì mỗi cái tên.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .myDoctorProfile()
-      .then((profile) => {
-        if (!cancelled) setDoctorName(profile.name);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // TODO: api.myDoctorProfile() chưa có backend (GET /doctors/me) lẫn client
+  // function — gọi thẳng throw TypeError, crash trắng trang toàn portal (không
+  // Error Boundary). Comment tạm tới khi BE xong, nối lại sau.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   api
+  //     .myDoctorProfile()
+  //     .then((profile) => {
+  //       if (!cancelled) setDoctorName(profile.name);
+  //     })
+  //     .catch(() => {});
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, []);
 
   const refresh = useCallback(async () => {
     const [patientPageResult, alertPage] = await Promise.all([

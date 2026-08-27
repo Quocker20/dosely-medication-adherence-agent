@@ -44,7 +44,7 @@ export const alertsApi = {
 
   submitHealthSurvey: (
     patientId: string,
-    payload: { survey_date: string; answers_json: Record<string, unknown>; symptoms: Array<{ symptom_code: string; severity: string }> },
+    payload: { survey_date: string; answers_json: Record<string, unknown>; symptoms: Array<{ symptom_code: string; severity: string; description?: string }> },
   ) => request<null>(`/patients/${patientId}/health-surveys`, { method: "POST", body: payload }),
 
   triggerSos: (patientId: string, message?: string) =>
