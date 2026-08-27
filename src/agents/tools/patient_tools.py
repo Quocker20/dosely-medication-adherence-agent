@@ -2,6 +2,7 @@
 
 See cong_viec.md §2.1. Endpoints follow api-contract.md Slice 4/5/6/7.
 """
+
 from __future__ import annotations
 
 import json
@@ -44,20 +45,29 @@ async def get_prescriptions(patient_id: str) -> str:
 
 @tool
 async def get_patient_profile(patient_id: str) -> str:
-    """Lấy khung giờ sinh hoạt (routine) của bệnh nhân.
+    """Lấy hồ sơ và khung giờ sinh hoạt của bệnh nhân đang đăng nhập.
 
     Args:
-        patient_id: Mã UUID của bệnh nhân
+        patient_id: Mã UUID của bệnh nhân trong phiên chat hiện tại.
 
     Returns:
-        Routine (wake_time, breakfast_time, lunch_time, dinner_time,
-        sleep_time) dạng JSON string, hoặc thông báo lỗi
+        JSON gồm profile (name, dob, sex, timezone, emergency_note) và routine
+        (wake_time, breakfast_time, lunch_time, dinner_time, sleep_time), hoặc
+        thông báo lỗi.
     """
     try:
-        routine = await get(f"/patients/{patient_id}/routine")
+        profile = await get("/patients/me/profile")
     except BackendAPIError as e:
-        return f"Không lấy được routine: {e.detail}"
-    return str(routine)
+        return f"Không lấy được hồ sơ bệnh nhân: {e.detail}"
+    if not isinstance(profile, dict):
+        return "Không lấy được hồ sơ bệnh nhân: phản hồi không hợp lệ"
+    profile_data = profile.get("profile", {})
+    if not isinstance(profile_data, dict):
+        return "Không lấy được hồ sơ bệnh nhân: phản hồi không hợp lệ"
+    actual_patient_id = str(profile_data.get("user_id", ""))
+    if actual_patient_id and actual_patient_id != patient_id:
+        return "Không lấy được hồ sơ bệnh nhân: patient_id không khớp với phiên hiện tại"
+    return json.dumps(profile, ensure_ascii=False, default=str)
 
 
 @tool
