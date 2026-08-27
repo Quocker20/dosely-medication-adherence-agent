@@ -16,3 +16,4 @@ export * from "./schedules";
 export * from "./alerts";
 export * from "./dashboard";
 export * from "./admin";
+export * from "./healthSurveys";
