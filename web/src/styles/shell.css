@@ -1202,6 +1202,106 @@ tr.sev-red .who .avatar {
   border: 1px solid var(--warn-line);
 }
 
+/* ---------- health surveys ---------- */
+.survey-kpi-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.survey-date-value {
+  font-size: 21px;
+}
+.survey-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.82fr);
+  gap: 16px;
+  align-items: start;
+}
+.survey-list-card,
+.survey-detail-card {
+  min-width: 0;
+}
+.survey-controls {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.2fr) repeat(3, minmax(132px, 0.7fr));
+  gap: 11px;
+  align-items: end;
+}
+.survey-mode {
+  align-self: end;
+}
+.survey-patient-search,
+.survey-patient-select {
+  min-width: 0;
+}
+.survey-patient-search {
+  grid-column: span 2;
+}
+.survey-patient-select {
+  grid-column: span 2;
+}
+.survey-table {
+  min-width: 900px;
+}
+.survey-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.survey-answer-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.survey-answer-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.52fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.survey-answer-row:last-child {
+  border-bottom: 0;
+}
+.survey-answer-row span {
+  color: var(--text-2);
+  text-transform: capitalize;
+}
+.survey-answer-row b {
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.survey-symptom-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.survey-symptom-title b {
+  font-size: 13px;
+  font-weight: 650;
+}
+.survey-symptom-row .log-what p {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1180px) {
+  .survey-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .survey-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* Kết quả tra cứu bệnh nhân theo số điện thoại ở form kê đơn. */
 .lookup-found {
   color: var(--ok);
@@ -1453,6 +1553,17 @@ pre {
     padding: 10px 2px 0;
     border-top: 1px solid var(--line);
     border-left: 0;
+  }
+  .survey-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .survey-patient-search,
+  .survey-patient-select {
+    grid-column: auto;
+  }
+  .survey-answer-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
   }
 }
 
