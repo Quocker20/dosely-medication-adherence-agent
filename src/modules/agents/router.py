@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
+from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import reset_actor_token, set_actor_token
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
@@ -15,9 +16,7 @@ from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 
-def get_scheduling_service(
-    db: Annotated[AsyncSession, Depends(get_db)]
-) -> SchedulingService:
+def get_scheduling_service(db: Annotated[AsyncSession, Depends(get_db)]) -> SchedulingService:
     """Dependency factory providing SchedulingService instance."""
     return SchedulingService(
         db=db,
@@ -46,7 +45,9 @@ chat_router = APIRouter(tags=["Schedules & AI Agents"])
 
 
 @schedules_router.post(
-    "/patients/{patient_id}/schedules/generate", status_code=status.HTTP_202_ACCEPTED
+    "/patients/{patient_id}/schedules/generate",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_by_user("schedule", 10, 60))],
 )
 async def generate_schedule(
     patient_id: uuid.UUID,
@@ -57,9 +58,7 @@ async def generate_schedule(
     """Trigger the Planning Agent for a patient (Doctor only, scoped to a
     doctor who has prescribed for this patient). Deterministic dose
     expansion runs async on a Celery worker; poll GET /agent-runs/{id}."""
-    result = await service.request_generation(
-        patient_id=patient_id, request=request_body, actor_payload=current_user
-    )
+    result = await service.request_generation(patient_id=patient_id, request=request_body, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Schedule generation started",
@@ -89,7 +88,9 @@ async def get_schedule(
 
 
 @schedules_router.post(
-    "/patients/{patient_id}/schedules/reschedule", status_code=status.HTTP_202_ACCEPTED
+    "/patients/{patient_id}/schedules/reschedule",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_by_user("schedule", 10, 60))],
 )
 async def reschedule_schedule(
     patient_id: uuid.UUID,
@@ -100,9 +101,7 @@ async def reschedule_schedule(
     """Trigger the Rescheduling Agent (Patient only, self-service). Wipes
     future PENDING doses and regenerates from the current routine; past and
     already-actioned doses are untouched."""
-    result = await service.request_reschedule(
-        patient_id=patient_id, request=request_body, actor_payload=current_user
-    )
+    result = await service.request_reschedule(patient_id=patient_id, request=request_body, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Reschedule started",
@@ -117,9 +116,7 @@ async def get_agent_run_status(
     service: SchedulingServiceDep,
 ) -> JSONResponse:
     """Poll an agent run's status/result (Patient/Doctor/Admin)."""
-    result = await service.get_run_status(
-        agent_run_id=agent_run_id, actor_payload=current_user
-    )
+    result = await service.get_run_status(agent_run_id=agent_run_id, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Agent run status fetched successfully",
@@ -139,7 +136,10 @@ async def get_agent_run_status(
 # bound would hand it to whatever runs next on this task.
 
 
-@chat_router.post("/chat")
+@chat_router.post(
+    "/chat",
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+)
 async def chat(
     request_body: ChatRequest,
     current_user: PatientUserDep,
@@ -149,9 +149,7 @@ async def chat(
     """Chat với AI agent bằng chữ (Patient only, self)."""
     handle = set_actor_token(token)
     try:
-        result = await service.handle_text_chat(
-            message=request_body.message, patient_id=current_user["sub"]
-        )
+        result = await service.handle_text_chat(message=request_body.message, patient_id=current_user["sub"])
     finally:
         reset_actor_token(handle)
     return success_response(
@@ -160,7 +158,10 @@ async def chat(
     )
 
 
-@chat_router.post("/chat/voice")
+@chat_router.post(
+    "/chat/voice",
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+)
 async def chat_voice(
     current_user: PatientUserDep,
     service: ChatServiceDep,
