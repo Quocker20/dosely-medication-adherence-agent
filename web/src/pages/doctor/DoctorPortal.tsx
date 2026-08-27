@@ -19,13 +19,15 @@ import PatientDrawer from "./components/PatientDrawer";
 import PatientTable from "./components/PatientTable";
 import PrescriptionView from "./components/PrescriptionView";
 import Sidebar from "./components/Sidebar";
+import SurveyView from "./components/SurveyView";
 
-export type ViewName = "dashboard" | "patients" | "alerts" | "rx";
+export type ViewName = "dashboard" | "patients" | "alerts" | "surveys" | "rx";
 
 const TITLES: Record<ViewName, [string, string]> = {
   dashboard: ["Dashboard", "Tổng quan tuân thủ điều trị theo thời gian thực"],
   patients: ["Danh sách bệnh nhân", "Tìm kiếm và theo dõi bệnh nhân đang điều trị"],
   alerts: ["Cảnh báo khẩn", "Closed-loop Red Alert · chỉ bác sĩ được đóng cảnh báo"],
+  surveys: ["Khảo sát sức khỏe", "Theo dõi survey theo bệnh nhân hoặc tổng hợp"],
   rx: ["Kê đơn thuốc điện tử", "Đơn phải được bác sĩ duyệt trước khi sinh lịch nhắc"],
 };
 
@@ -66,7 +68,27 @@ export default function DoctorPortal({ session }: { session: Session }) {
 
   const [rxPhone, setRxPhone] = useState("");
   const [alertBusyId, setAlertBusyId] = useState<string | null>(null);
+  // setDoctorName tạm không dùng — nguồn duy nhất (api.myDoctorProfile) đang comment, xem TODO dưới.
+  const [doctorName] = useState<string | null>(null);
   const { toasts, notify: toast } = useToasts(2600);
+
+  // Tên bác sĩ không nằm trong token — phải hỏi riêng. Hỏng thì bỏ qua, sidebar
+  // tự rơi về nhãn chung; không đáng chặn cả portal vì mỗi cái tên.
+  // TODO: api.myDoctorProfile() chưa có backend (GET /doctors/me) lẫn client
+  // function — gọi thẳng throw TypeError, crash trắng trang toàn portal (không
+  // Error Boundary). Comment tạm tới khi BE xong, nối lại sau.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   api
+  //     .myDoctorProfile()
+  //     .then((profile) => {
+  //       if (!cancelled) setDoctorName(profile.name);
+  //     })
+  //     .catch(() => {});
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, []);
 
   const refresh = useCallback(async () => {
     const [patientPageResult, alertPage] = await Promise.all([
@@ -240,6 +262,7 @@ export default function DoctorPortal({ session }: { session: Session }) {
           patientsTotal={totalPatients}
           theme={theme}
           user={session.user}
+          doctorName={doctorName}
           onView={setView}
           onTheme={cycleTheme}
           onLogout={logout}
@@ -426,6 +449,10 @@ export default function DoctorPortal({ session }: { session: Session }) {
               onResolve={resolveAlert}
               onOpenPatient={openPatient}
             />
+          )}
+
+          {view === "surveys" && (
+            <SurveyView patients={patients} onOpenPatient={openPatient} onToast={toast} />
           )}
 
           {view === "rx" && (

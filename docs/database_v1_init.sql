@@ -320,7 +320,13 @@ CREATE TABLE health_surveys (
     status VARCHAR(20) NOT NULL,
     answers_json JSONB NOT NULL,
     submitted_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- One survey per patient per day. Closes the double-submit race in
+    -- HealthSurveyService.submit_health_survey at the DB layer (a
+    -- check-then-insert in the service can't do this atomically). Added by
+    -- migration 0018_health_survey_query_indexes, after deduping any
+    -- pre-existing duplicate rows.
+    CONSTRAINT uq_health_surveys_patient_date UNIQUE (patient_id, survey_date)
 );
 
 -- Dashboard's last_survey_date (DashboardPatientListResponse) needs
@@ -328,6 +334,11 @@ CREATE TABLE health_surveys (
 -- patient_profiles. Added by migration 0009_slice7_adherence.
 CREATE INDEX idx_health_surveys_patient_date
     ON health_surveys(patient_id, survey_date DESC);
+-- GET /health-surveys (DOCTOR/ADMIN, platform-wide) filters survey_date
+-- range and orders newest-first; the (patient_id, ...) index above doesn't
+-- help an unscoped list. Added by migration 0018_health_survey_query_indexes.
+CREATE INDEX idx_health_surveys_date_id
+    ON health_surveys(survey_date DESC, id DESC);
 
 -- 12. symptom_reports
 CREATE TABLE symptom_reports (
@@ -350,6 +361,10 @@ CREATE INDEX idx_symptom_reports_patient_reported
 -- Backs ON DELETE SET NULL from health_surveys (fetching a survey's
 -- symptom_reports). Added by migration 0009_slice7_adherence.
 CREATE INDEX idx_symptom_reports_survey_id ON symptom_reports(survey_id);
+-- GET /health-surveys?severity= semi-joins this table by severity; without
+-- this it's a seq scan. Added by migration 0018_health_survey_query_indexes.
+CREATE INDEX idx_symptom_reports_severity_survey
+    ON symptom_reports(severity, survey_id);
 
 -- 13. alerts
 CREATE TABLE alerts (

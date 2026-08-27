@@ -29,9 +29,12 @@ from src.modules.adherence.schemas import (
     BatchRecordDoseActionRequest,
     BatchRecordDoseActionResponse,
     HealthSurveyDetailResponse,
+    HealthSurveyFullDetailResponse,
+    HealthSurveyListItemResponse,
     RecordDoseActionRequest,
     ResolveAlertRequest,
     SubmitHealthSurveyRequest,
+    SymptomReportDetailResponse,
     TriggerSosRequest,
 )
 from src.modules.admin.repository import AuditLogRepository
@@ -44,6 +47,34 @@ _MAX_SNOOZE_COUNT = 3
 _DEFAULT_MIN_GAP_MINUTES = 240
 _SEVERE_SYMPTOM_ALERT_TYPE = "RED_ALERT"
 _SEVERE_SYMPTOM_ALERT_SEVERITY = "HIGH"
+
+
+def _page_from_survey_rows(
+    rows, total_count: int, page: int, size: int
+) -> PageResponse[HealthSurveyListItemResponse]:
+    """Shared row->response mapping for list_surveys / list_patient_surveys —
+    both repository methods return the same
+    (patient_id, patient_name, survey_date, id, status, submitted_at,
+    symptom_count, max_severity) row shape."""
+    total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+    last = page >= total_pages if total_pages > 0 else True
+    content = [
+        HealthSurveyListItemResponse(
+            id=row[3],
+            patient_id=row[0],
+            patient_name=row[1],
+            survey_date=row[2],
+            status=row[4],
+            submitted_at=row[5],
+            symptom_count=row[6],
+            max_severity=row[7],
+        )
+        for row in rows
+    ]
+    return PageResponse(
+        content=content, page_no=page, page_size=size,
+        total_elements=total_count, total_pages=total_pages, last=last,
+    )
 
 
 class AdherenceLogService:
@@ -425,25 +456,116 @@ class HealthSurveyService:
 
         severe_codes = [s.symptom_code for s in request.symptoms if s.severity == "SEVERE"]
 
-        async with self._db.begin():
-            survey = await self._survey_repo.create_survey(
-                patient_id, request.survey_date, request.answers_json
-            )
-            symptom_dicts = [s.model_dump() for s in request.symptoms]
-            await self._survey_repo.bulk_create_symptom_reports(
-                patient_id, survey.id, symptom_dicts
-            )
-            if severe_codes:
-                await self._alert_repo.create_alert(
-                    patient_id=patient_id,
-                    triggered_by_type="SEVERE_SYMPTOM",
-                    triggered_by_id=survey.id,
-                    alert_type=_SEVERE_SYMPTOM_ALERT_TYPE,
-                    severity=_SEVERE_SYMPTOM_ALERT_SEVERITY,
-                    message=f"Severe symptom(s) reported: {', '.join(severe_codes)}",
+        try:
+            async with self._db.begin():
+                survey = await self._survey_repo.create_survey(
+                    patient_id, request.survey_date, request.answers_json
                 )
+                symptom_dicts = [s.model_dump() for s in request.symptoms]
+                await self._survey_repo.bulk_create_symptom_reports(
+                    patient_id, survey.id, symptom_dicts
+                )
+                if severe_codes:
+                    await self._alert_repo.create_alert(
+                        patient_id=patient_id,
+                        triggered_by_type="SEVERE_SYMPTOM",
+                        triggered_by_id=survey.id,
+                        alert_type=_SEVERE_SYMPTOM_ALERT_TYPE,
+                        severity=_SEVERE_SYMPTOM_ALERT_SEVERITY,
+                        message=f"Severe symptom(s) reported: {', '.join(severe_codes)}",
+                    )
+        except IntegrityError as exc:
+            # uq_health_surveys_patient_date (migration 0018): a second
+            # submission for the same patient_id + survey_date is a real
+            # conflict, not a retry to replay silently — the answers/symptoms
+            # in the two requests can differ, so swallowing it would drop data.
+            existing = await self._survey_repo.get_by_patient_date(
+                patient_id, request.survey_date
+            )
+            if existing is not None:
+                raise ConflictException(
+                    message=f"Health survey for {request.survey_date} already submitted"
+                ) from exc
+            raise
 
         return HealthSurveyDetailResponse.model_validate(survey)
+
+    async def list_surveys(
+        self,
+        actor_payload: dict,
+        from_date: date,
+        to_date: date,
+        patient_id: Optional[uuid.UUID] = None,
+        severity: Optional[str] = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> PageResponse[HealthSurveyListItemResponse]:
+        """GET /health-surveys — DOCTOR/ADMIN platform-wide. DOCTOR is scoped
+        to patients they've written at least one prescription for (mirrors
+        DashboardService._scope_doctor_id); ADMIN is unscoped."""
+        doctor_id = (
+            None if actor_payload.get("role") == "ADMIN" else uuid.UUID(actor_payload["sub"])
+        )
+        rows, total_count = await self._survey_repo.list_surveys_platform(
+            from_date=from_date,
+            to_date=to_date,
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            severity=severity,
+            page=page,
+            size=size,
+        )
+        return _page_from_survey_rows(rows, total_count, page, size)
+
+    async def list_patient_surveys(
+        self,
+        patient_id: uuid.UUID,
+        actor_payload: dict,
+        from_date: date,
+        to_date: date,
+        page: int = 1,
+        size: int = 10,
+    ) -> PageResponse[HealthSurveyListItemResponse]:
+        """GET /patients/{patient_id}/health-surveys — PATIENT/DOCTOR/CAREGIVER,
+        same access derivation as adherence data. Out-of-scope returns an
+        empty page, not 404 (avoids leaking which patient UUIDs exist)."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        rows, total_count = await self._survey_repo.list_surveys_for_patient(
+            patient_id=patient_id,
+            actor_id=actor_id,
+            from_date=from_date,
+            to_date=to_date,
+            page=page,
+            size=size,
+        )
+        return _page_from_survey_rows(rows, total_count, page, size)
+
+    async def get_survey_detail(
+        self, survey_id: uuid.UUID, actor_payload: dict
+    ) -> HealthSurveyFullDetailResponse:
+        """GET /health-surveys/{survey_id} — PATIENT/DOCTOR/CAREGIVER, same
+        access derivation as the list endpoints. Not found and out-of-scope
+        both surface as 404 so the endpoint can't be used to probe UUIDs."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        survey = await self._survey_repo.get_survey_detail_scoped(survey_id, actor_id)
+        if survey is None:
+            raise NotFoundException(message="Health survey not found")
+
+        patient_row = await self._patient_repo.get_patient_with_user(survey.patient_id)
+        patient_name = patient_row[0].name if patient_row is not None else ""
+
+        return HealthSurveyFullDetailResponse(
+            id=survey.id,
+            patient_id=survey.patient_id,
+            patient_name=patient_name,
+            survey_date=survey.survey_date,
+            status=survey.status,
+            submitted_at=survey.submitted_at,
+            answers_json=survey.answers_json,
+            symptoms=[
+                SymptomReportDetailResponse.model_validate(s) for s in survey.symptom_reports
+            ],
+        )
 
 
 class AlertService:

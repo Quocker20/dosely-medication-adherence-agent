@@ -3,8 +3,9 @@ import uuid
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Exists, func, or_, select, update
+from sqlalchemy import Exists, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from src.modules.adherence.models import (
@@ -430,6 +431,192 @@ class HealthSurveyRepository:
         self._db.add_all(rows)
         await self._db.flush()
         return rows
+
+    async def get_by_patient_date(
+        self, patient_id: uuid.UUID, survey_date
+    ) -> Optional[HealthSurvey]:
+        """Look up the existing row after a uq_health_surveys_patient_date
+        IntegrityError, so the service can turn a double-submit into a 409
+        naming the conflicting survey rather than a bare 500."""
+        stmt = select(HealthSurvey).where(
+            HealthSurvey.patient_id == patient_id,
+            HealthSurvey.survey_date == survey_date,
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _symptom_count_subquery(survey_id_col: ColumnElement):
+        return (
+            select(func.count(SymptomReport.id))
+            .where(SymptomReport.survey_id == survey_id_col)
+            .correlate_except(SymptomReport)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _max_severity_subquery(survey_id_col: ColumnElement):
+        """Highest-severity symptom on the survey (SEVERE > MODERATE > MILD),
+        as a correlated scalar subquery rather than a join+group so it can't
+        multiply survey rows."""
+        severity_rank = case(
+            (SymptomReport.severity == "SEVERE", 3),
+            (SymptomReport.severity == "MODERATE", 2),
+            (SymptomReport.severity == "MILD", 1),
+            else_=0,
+        )
+        return (
+            select(SymptomReport.severity)
+            .where(SymptomReport.survey_id == survey_id_col)
+            .order_by(severity_rank.desc())
+            .limit(1)
+            .correlate_except(SymptomReport)
+            .scalar_subquery()
+        )
+
+    async def list_surveys_platform(
+        self,
+        from_date,
+        to_date,
+        doctor_id: Optional[uuid.UUID] = None,
+        patient_id: Optional[uuid.UUID] = None,
+        severity: Optional[str] = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> Tuple[List[Tuple[Any, ...]], int]:
+        """DOCTOR/ADMIN platform-wide survey list. doctor_id=None means
+        unscoped (ADMIN); otherwise restricted to patients this doctor has
+        written at least one prescription for, mirroring
+        DashboardRepository.list_dashboard_patients.
+
+        Returns (patient_id, patient_name, survey_date, id, status,
+        submitted_at, symptom_count, max_severity) rows — same shape
+        list_surveys_for_patient returns, so the service maps both with one
+        function. Rides idx_health_surveys_date_id for the range+order and
+        idx_symptom_reports_severity_survey when severity is filtered.
+        """
+        filters = [
+            HealthSurvey.survey_date >= from_date,
+            HealthSurvey.survey_date <= to_date,
+        ]
+        if doctor_id is not None:
+            filters.append(
+                select(Prescription.id)
+                .where(
+                    Prescription.doctor_id == doctor_id,
+                    Prescription.patient_id == HealthSurvey.patient_id,
+                )
+                .exists()
+            )
+        if patient_id is not None:
+            filters.append(HealthSurvey.patient_id == patient_id)
+        if severity is not None:
+            filters.append(
+                select(SymptomReport.id)
+                .where(
+                    SymptomReport.survey_id == HealthSurvey.id,
+                    SymptomReport.severity == severity,
+                )
+                .exists()
+            )
+
+        count_stmt = select(func.count(HealthSurvey.id)).where(*filters)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        symptom_count = self._symptom_count_subquery(HealthSurvey.id)
+        max_severity = self._max_severity_subquery(HealthSurvey.id)
+
+        offset = (page - 1) * size
+        stmt = (
+            select(
+                HealthSurvey.patient_id,
+                PatientProfile.name,
+                HealthSurvey.survey_date,
+                HealthSurvey.id,
+                HealthSurvey.status,
+                HealthSurvey.submitted_at,
+                symptom_count,
+                max_severity,
+            )
+            .join(PatientProfile, HealthSurvey.patient_id == PatientProfile.user_id)
+            .where(*filters)
+            .order_by(HealthSurvey.survey_date.desc(), HealthSurvey.id.desc())
+            .offset(offset)
+            .limit(size)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.all()), total_count
+
+    async def list_surveys_for_patient(
+        self,
+        patient_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        from_date,
+        to_date,
+        page: int = 1,
+        size: int = 10,
+    ) -> Tuple[List[Tuple[Any, ...]], int]:
+        """PATIENT/DOCTOR/CAREGIVER per-patient survey list, access-scoped
+        the same way as adherence data (self / doctor-prescribed /
+        active-caregiver). Out-of-scope returns an empty page, mirroring
+        AdherenceLogRepository.list_by_patient. Rides
+        idx_health_surveys_patient_date."""
+        filters = [
+            HealthSurvey.patient_id == patient_id,
+            HealthSurvey.survey_date >= from_date,
+            HealthSurvey.survey_date <= to_date,
+            _access_filter(actor_id, HealthSurvey.patient_id),
+        ]
+
+        count_stmt = select(func.count(HealthSurvey.id)).where(*filters)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        symptom_count = self._symptom_count_subquery(HealthSurvey.id)
+        max_severity = self._max_severity_subquery(HealthSurvey.id)
+
+        offset = (page - 1) * size
+        stmt = (
+            select(
+                HealthSurvey.patient_id,
+                PatientProfile.name,
+                HealthSurvey.survey_date,
+                HealthSurvey.id,
+                HealthSurvey.status,
+                HealthSurvey.submitted_at,
+                symptom_count,
+                max_severity,
+            )
+            .join(PatientProfile, HealthSurvey.patient_id == PatientProfile.user_id)
+            .where(*filters)
+            .order_by(HealthSurvey.survey_date.desc(), HealthSurvey.id.desc())
+            .offset(offset)
+            .limit(size)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.all()), total_count
+
+    async def get_survey_detail_scoped(
+        self, survey_id: uuid.UUID, actor_id: uuid.UUID
+    ) -> Optional[HealthSurvey]:
+        """Fetch one survey with its symptom_reports eager-loaded (avoids
+        the lazy="raise" trap), scoped the same way as the list endpoints.
+        None means not found OR no access — caller turns both into 404."""
+        stmt = (
+            select(HealthSurvey)
+            .options(selectinload(HealthSurvey.symptom_reports))
+            .where(
+                HealthSurvey.id == survey_id,
+                _access_filter(actor_id, HealthSurvey.patient_id),
+            )
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
 
 
 class AlertRepository:
