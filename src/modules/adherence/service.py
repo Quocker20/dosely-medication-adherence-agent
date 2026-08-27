@@ -16,6 +16,8 @@ from src.common.exceptions import (
     ValidationException,
 )
 from src.common.schemas import PageResponse
+from src.core.cache import build_cache_key, cached_model, invalidate_prefix
+from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import (
     AdherenceLogRepository,
@@ -216,6 +218,11 @@ class AdherenceLogService:
         # happened. publish_dashboard_event is fail-open, so a Redis outage
         # costs the portal its liveness and not the clinical write.
         await publish_dashboard_event("adherence.updated", response.model_dump(mode="json"))
+        # This dose action can move a roster row's adherence_rate/last_survey
+        # figures, and this patient's own adherence-summary cache — neither
+        # must still show pre-action numbers for the rest of their TTL.
+        await invalidate_prefix("dash:patients")
+        await invalidate_prefix("adh:summary")
         return response
 
     async def batch_record_dose_action(
@@ -322,6 +329,9 @@ class AdherenceLogService:
 
         for l_resp in log_responses:
             await publish_dashboard_event("adherence.updated", l_resp.model_dump(mode="json"))
+        # Once per batch, not per dose — same cache namespaces as record_dose_action.
+        await invalidate_prefix("dash:patients")
+        await invalidate_prefix("adh:summary")
 
         return response
 
@@ -337,43 +347,73 @@ class AdherenceLogService:
         SchedulingService.get_schedule), not a 404 — avoids leaking which
         patient UUIDs exist. from/to are local calendar dates in the
         patient's own timezone, converted to a single UTC range so the
-        aggregate query only reads current_scheduled_at once."""
-        actor_id = uuid.UUID(actor_payload["sub"])
+        aggregate query only reads current_scheduled_at once.
 
-        patient_timezone = await self._repo.get_patient_timezone_scoped(patient_id, actor_id)
-        if patient_timezone is None:
+        Cached per-actor (build_cache_key), including the zero-filled
+        out-of-scope result — it's a deterministic function of this caller's
+        own scope, so replaying it to the same caller for the TTL window is
+        safe. TTL depends on whether `to_date` has already closed: a range
+        ending before today is immutable (adherence_logs is append-only), a
+        range touching today can still change within the day."""
+        settings = get_settings()
+        ttl = (
+            settings.cache_ttl_adherence_historical_seconds
+            if to_date < date.today()
+            else settings.cache_ttl_adherence_current_seconds
+        )
+        cache_key = build_cache_key(
+            "adh:summary",
+            actor=actor_payload,
+            params={
+                "patient_id": str(patient_id),
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat(),
+            },
+        )
+
+        async def _load() -> AdherenceSummaryResponse:
+            actor_id = uuid.UUID(actor_payload["sub"])
+
+            patient_timezone = await self._repo.get_patient_timezone_scoped(
+                patient_id, actor_id
+            )
+            if patient_timezone is None:
+                return AdherenceSummaryResponse(
+                    patient_id=patient_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    adherence_rate=0.0,
+                    total_doses=0,
+                    taken_doses=0,
+                    skipped_doses=0,
+                    missed_doses=0,
+                )
+
+            tz = ZoneInfo(patient_timezone)
+            range_start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(
+                dt_timezone.utc
+            )
+            range_end = datetime.combine(
+                to_date + timedelta(days=1), time.min, tzinfo=tz
+            ).astimezone(dt_timezone.utc)
+
+            total, taken, skipped, missed = await self._repo.get_dose_status_counts(
+                patient_id, actor_id, range_start, range_end
+            )
+            rate = round((taken / total) * 100.0, 2) if total > 0 else 0.0
+
             return AdherenceSummaryResponse(
                 patient_id=patient_id,
                 from_date=from_date,
                 to_date=to_date,
-                adherence_rate=0.0,
-                total_doses=0,
-                taken_doses=0,
-                skipped_doses=0,
-                missed_doses=0,
+                adherence_rate=rate,
+                total_doses=total,
+                taken_doses=taken,
+                skipped_doses=skipped,
+                missed_doses=missed,
             )
 
-        tz = ZoneInfo(patient_timezone)
-        range_start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(dt_timezone.utc)
-        range_end = datetime.combine(
-            to_date + timedelta(days=1), time.min, tzinfo=tz
-        ).astimezone(dt_timezone.utc)
-
-        total, taken, skipped, missed = await self._repo.get_dose_status_counts(
-            patient_id, actor_id, range_start, range_end
-        )
-        rate = round((taken / total) * 100.0, 2) if total > 0 else 0.0
-
-        return AdherenceSummaryResponse(
-            patient_id=patient_id,
-            from_date=from_date,
-            to_date=to_date,
-            adherence_rate=rate,
-            total_doses=total,
-            taken_doses=taken,
-            skipped_doses=skipped,
-            missed_doses=missed,
-        )
+        return await cached_model(cache_key, ttl, AdherenceSummaryResponse, _load)
 
     async def list_adherence_logs(
         self,
@@ -630,6 +670,8 @@ class AlertService:
         # and publish failures must not turn a persisted safety alert into a
         # 500 the caller would retry (publish_dashboard_event is fail-open).
         await publish_dashboard_event("alert.opened", response.model_dump(mode="json"))
+        # A new alert changes open_alerts_count on the roster/detail cache.
+        await invalidate_prefix("dash:patients")
         return response
 
     async def acknowledge_alert(
@@ -656,6 +698,9 @@ class AlertService:
 
         response = AlertDetailResponse.model_validate(alert)
         await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
+        # ACKNOWLEDGED still counts toward open_alerts_count (see schema
+        # notes), but the alert list itself changed under recent_alerts.
+        await invalidate_prefix("dash:patients")
         return response
 
     async def resolve_alert(
@@ -688,6 +733,8 @@ class AlertService:
 
         response = AlertDetailResponse.model_validate(alert)
         await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
+        # RESOLVED drops out of open_alerts_count — must not linger cached.
+        await invalidate_prefix("dash:patients")
         return response
 
     async def _raise_not_found_or_conflict(

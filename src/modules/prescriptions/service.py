@@ -16,6 +16,7 @@ from src.common.exceptions import (
     ValidationException,
 )
 from src.common.schemas import PageResponse
+from src.core.cache import build_cache_key, cached_model
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.security import hash_password, validate_phone_number
@@ -58,31 +59,58 @@ class MedicationService:
     async def list_medications(
         self, page: int = 1, size: int = 10, search: Optional[str] = None
     ) -> PageResponse[MedicationDetailResponse]:
-        """Fetch paginated medication catalog."""
-        items, total_count = await self._medication_repo.list_medications(
-            page=page, size=size, search=search, active_only=True
+        """Fetch paginated medication catalog.
+
+        Cached without an actor scope: the catalog carries no PHI and is
+        identical for every authenticated role, so a shared cache entry per
+        (page, size, search) is safe — unlike every other cached read in this
+        codebase, which must key on the caller (see build_cache_key)."""
+        cache_key = build_cache_key(
+            "med:list", params={"page": page, "size": size, "search": search}
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
-        last = page >= total_pages if total_pages > 0 else True
+        async def _load() -> PageResponse[MedicationDetailResponse]:
+            items, total_count = await self._medication_repo.list_medications(
+                page=page, size=size, search=search, active_only=True
+            )
 
-        content = [MedicationDetailResponse.model_validate(m) for m in items]
+            total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+            last = page >= total_pages if total_pages > 0 else True
 
-        return PageResponse(
-            content=content,
-            page_no=page,
-            page_size=size,
-            total_elements=total_count,
-            total_pages=total_pages,
-            last=last,
+            content = [MedicationDetailResponse.model_validate(m) for m in items]
+
+            return PageResponse(
+                content=content,
+                page_no=page,
+                page_size=size,
+                total_elements=total_count,
+                total_pages=total_pages,
+                last=last,
+            )
+
+        settings = get_settings()
+        return await cached_model(
+            cache_key,
+            settings.cache_ttl_medications_seconds,
+            PageResponse[MedicationDetailResponse],
+            _load,
         )
 
     async def get_medication(self, medication_id: uuid.UUID) -> MedicationDetailResponse:
-        """Fetch single medication detail by ID."""
-        medication = await self._medication_repo.get_medication_by_id(medication_id)
-        if medication is None:
-            raise NotFoundException(message="Medication not found")
-        return MedicationDetailResponse.model_validate(medication)
+        """Fetch single medication detail by ID. Same no-actor-key cache
+        rationale as list_medications."""
+        cache_key = build_cache_key("med:detail", params={"id": str(medication_id)})
+
+        async def _load() -> MedicationDetailResponse:
+            medication = await self._medication_repo.get_medication_by_id(medication_id)
+            if medication is None:
+                raise NotFoundException(message="Medication not found")
+            return MedicationDetailResponse.model_validate(medication)
+
+        settings = get_settings()
+        return await cached_model(
+            cache_key, settings.cache_ttl_medications_seconds, MedicationDetailResponse, _load
+        )
 
 
 class PrescriptionService:
