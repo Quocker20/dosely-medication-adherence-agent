@@ -4,11 +4,18 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from src.core.config import get_settings
 from src.main import app
+
 try:
     from src.services.store import store
 except ImportError:
     store = None
+
+
+@pytest.fixture(autouse=True)
+def disable_rate_limit(monkeypatch):
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", False)
 
 
 @pytest.fixture(autouse=True)

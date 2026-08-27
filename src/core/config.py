@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
     planning_grouping_enabled: bool = False
+    rate_limit_enabled: bool = True
     # Duyệt đơn xong thì Planning Agent tự sinh lịch (docs mục 8: approve phát
     # event PrescriptionApproved). Tắt cờ này thì bác sĩ phải gọi tay
     # POST /patients/{id}/schedules/generate như trước.
