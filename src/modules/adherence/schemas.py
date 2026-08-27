@@ -89,6 +89,49 @@ class HealthSurveyDetailResponse(BaseModel):
     submitted_at: Optional[datetime] = None
 
 
+class SymptomReportDetailResponse(BaseModel):
+    """Response schema for a single symptom entry, embedded in
+    HealthSurveyFullDetailResponse.symptoms (GET .../health-surveys/{id})."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    survey_id: Optional[uuid.UUID] = None
+    symptom_code: str
+    severity: str
+    description: Optional[str] = None
+    reported_at: datetime
+    source: str
+
+
+class HealthSurveyListItemResponse(BaseModel):
+    """Response schema for one row of GET /health-surveys and
+    GET /patients/{patient_id}/health-surveys — summary only, no answers_json
+    or symptom list (see HealthSurveyFullDetailResponse for that)."""
+
+    id: uuid.UUID
+    patient_id: uuid.UUID
+    patient_name: str
+    survey_date: date
+    status: str
+    submitted_at: Optional[datetime] = None
+    symptom_count: int
+    max_severity: Optional[str] = None
+
+
+class HealthSurveyFullDetailResponse(BaseModel):
+    """Response schema for GET /health-surveys/{survey_id}."""
+
+    id: uuid.UUID
+    patient_id: uuid.UUID
+    patient_name: str
+    survey_date: date
+    status: str
+    submitted_at: Optional[datetime] = None
+    answers_json: Dict[str, Any]
+    symptoms: List[SymptomReportDetailResponse]
+
+
 class TriggerSosRequest(BaseModel):
     """Request schema for POST /patients/{patient_id}/sos.
 

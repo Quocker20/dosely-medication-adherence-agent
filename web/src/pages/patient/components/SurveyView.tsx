@@ -3,12 +3,26 @@ import { useState } from "react";
 import { ApiError, api } from "../../../api";
 import Icon from "./Icon";
 
-const symptoms = ["Không có", "Chóng mặt", "Buồn nôn", "Đau đầu", "Mệt mỏi"];
-const symptomCodes: Record<string, string> = { "Không có": "NONE", "Chóng mặt": "DIZZINESS", "Buồn nôn": "NAUSEA", "Đau đầu": "HEADACHE", "Mệt mỏi": "FATIGUE" };
+const symptoms = ["Không có", "Chóng mặt", "Buồn nôn", "Đau đầu", "Mệt mỏi", "Khác"];
+const symptomCodes: Record<string, string> = { "Không có": "NONE", "Chóng mặt": "DIZZINESS", "Buồn nôn": "NAUSEA", "Đau đầu": "HEADACHE", "Mệt mỏi": "FATIGUE", "Khác": "OTHER" };
 
 export default function SurveyView({ patientId, today, onDone }: { patientId: string; today: string; onDone: (message: string) => void }) {
-  const [mood, setMood] = useState(3), [symptom, setSymptom] = useState("Không có"), [severity, setSeverity] = useState("MILD"), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
-  async function submit() { setBusy(true); setError(null); try { await api.submitHealthSurvey(patientId, { survey_date: today, answers_json: { mood }, symptoms: symptom === "Không có" ? [] : [{ symptom_code: symptomCodes[symptom], severity }] }); onDone("Đã gửi khảo sát cho bác sĩ điều trị"); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Không gửi được khảo sát"); } finally { setBusy(false); } }
+  const [mood, setMood] = useState(3), [symptom, setSymptom] = useState("Không có"), [severity, setSeverity] = useState("MILD"), [customSymptom, setCustomSymptom] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const isOther = symptom === "Khác";
+  const otherMissing = isOther && customSymptom.trim().length === 0;
+  async function submit() {
+    if (otherMissing) { setError("Mô tả triệu chứng trước khi gửi"); return; }
+    setBusy(true); setError(null);
+    try {
+      await api.submitHealthSurvey(patientId, {
+        survey_date: today,
+        answers_json: { mood },
+        symptoms: symptom === "Không có" ? [] : [{ symptom_code: symptomCodes[symptom], severity, ...(isOther ? { description: customSymptom.trim() } : {}) }],
+      });
+      onDone("Đã gửi khảo sát cho bác sĩ điều trị");
+    } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Không gửi được khảo sát"); }
+    finally { setBusy(false); }
+  }
   const moodIcons = ["😞", "🙁", "😐", "🙂", "😊"];
-  return <section className="web-card patient-form"><div className="form-hero"><span><Icon name="heart" size={25}/></span><div><h1>Khảo sát sức khỏe hôm nay</h1><p>Chỉ mất khoảng 1 phút. Thông tin giúp bác sĩ theo dõi bạn tốt hơn.</p></div></div><div className="form-section"><span className="form-step">01</span><h2>Hôm nay bạn cảm thấy thế nào?</h2><div className="mood-row">{[1,2,3,4,5].map((value) => <button key={value} className={mood === value ? "picked" : ""} onClick={() => setMood(value)}><span>{moodIcons[value - 1]}</span><b>{value}</b></button>)}</div><div className="mood-label"><span>Rất tệ</span><span>Rất tốt</span></div></div><div className="form-section"><span className="form-step">02</span><h2>Bạn có gặp tác dụng phụ nào không?</h2><div className="symptoms">{symptoms.map((item) => <button key={item} className={symptom === item ? "picked" : ""} onClick={() => setSymptom(item)}>{item}</button>)}</div>{symptom !== "Không có" && <><h3>Mức độ triệu chứng</h3><div className="severity-row">{[["MILD","Nhẹ"],["MODERATE","Vừa"],["SEVERE","Nặng"]].map(([value,label]) => <button key={value} className={`${severity === value ? "picked" : ""} ${value === "SEVERE" ? "severe" : ""}`} onClick={() => setSeverity(value)}>{label}</button>)}</div>{severity === "SEVERE" && <div className="survey-warning"><Icon name="alert" size={18}/> Mức “Nặng” sẽ cảnh báo ngay cho bác sĩ điều trị.</div>}</>}</div>{error && <div className="patient-error"><span>{error}</span></div>}<div className="form-submit-row"><p><Icon name="shield" size={16}/> Dữ liệu được bảo mật</p><button className="survey-submit" disabled={busy} onClick={() => void submit()}>{busy ? "Đang gửi…" : "Gửi cập nhật sức khỏe"}</button></div></section>;
+  return <section className="web-card patient-form"><div className="form-hero"><span><Icon name="heart" size={25}/></span><div><h1>Khảo sát sức khỏe hôm nay</h1><p>Chỉ mất khoảng 1 phút. Thông tin giúp bác sĩ theo dõi bạn tốt hơn.</p></div></div><div className="form-section"><span className="form-step">01</span><h2>Hôm nay bạn cảm thấy thế nào?</h2><div className="mood-row">{[1,2,3,4,5].map((value) => <button key={value} className={mood === value ? "picked" : ""} onClick={() => setMood(value)}><span>{moodIcons[value - 1]}</span><b>{value}</b></button>)}</div><div className="mood-label"><span>Rất tệ</span><span>Rất tốt</span></div></div><div className="form-section"><span className="form-step">02</span><h2>Bạn có gặp tác dụng phụ nào không?</h2><div className="symptoms">{symptoms.map((item) => <button key={item} className={symptom === item ? "picked" : ""} onClick={() => setSymptom(item)}>{item}</button>)}</div>{isOther && <input className="survey-other-input" placeholder="Mô tả triệu chứng bạn gặp phải" value={customSymptom} onChange={(event) => setCustomSymptom(event.target.value)} maxLength={200} />}{symptom !== "Không có" && <><h3>Mức độ triệu chứng</h3><div className="severity-row">{[["MILD","Nhẹ"],["MODERATE","Vừa"],["SEVERE","Nặng"]].map(([value,label]) => <button key={value} className={`${severity === value ? "picked" : ""} ${value === "SEVERE" ? "severe" : ""}`} onClick={() => setSeverity(value)}>{label}</button>)}</div>{severity === "SEVERE" && <div className="survey-warning"><Icon name="alert" size={18}/> Mức “Nặng” sẽ cảnh báo ngay cho bác sĩ điều trị.</div>}</>}</div>{error && <div className="patient-error"><span>{error}</span></div>}<div className="form-submit-row"><p><Icon name="shield" size={16}/> Dữ liệu được bảo mật</p><button className="survey-submit" disabled={busy || otherMissing} onClick={() => void submit()}>{busy ? "Đang gửi…" : "Gửi cập nhật sức khỏe"}</button></div></section>;
 }

@@ -8,6 +8,8 @@ interface Props {
   patientsTotal: number;
   theme: ThemeMode;
   user: UserResponse | null;
+  /** Tên thật từ doctor_profiles (GET /doctors/me) — null khi chưa tải xong. */
+  doctorName: string | null;
   onView: (view: ViewName) => void;
   onTheme: () => void;
   onLogout: () => void;
@@ -19,6 +21,7 @@ export default function Sidebar({
   patientsTotal,
   theme,
   user,
+  doctorName,
   onView,
   onTheme,
   onLogout,
@@ -61,6 +64,13 @@ export default function Sidebar({
             Cảnh báo
             {openAlerts > 0 && <span className="count">{openAlerts}</span>}
           </button>
+          <button className="nav-item" aria-current={view === "surveys"} onClick={() => onView("surveys")}>
+            <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M3 2.5h7.5L13 5v8.5H3z" strokeLinejoin="round" />
+              <path d="M10.5 2.5V5H13M5.3 7.3h4.8M5.3 10h5.4M5.3 12.7h3.2" strokeLinecap="round" />
+            </svg>
+            Khảo sát
+          </button>
         </div>
 
         <div className="nav-group">
@@ -99,8 +109,12 @@ export default function Sidebar({
         <div className="doctor rail-profile">
           <div className="avatar">{user?.role === "ADMIN" ? "AD" : "BS"}</div>
           <div className="rail-profile-copy">
-            <div className="doctor-name">Bác sĩ phụ trách</div>
-            <div className="doctor-role">{user?.phone ?? "—"} · {patientsTotal} bệnh nhân</div>
+            {/* Tên thật lấy từ doctor_profiles; chưa tải xong thì để nhãn chung
+                thay vì hiện số điện thoại. */}
+            <div className="doctor-name" title={doctorName ?? undefined}>
+              {doctorName ?? "Bác sĩ phụ trách"}
+            </div>
+            <div className="doctor-role">{patientsTotal} bệnh nhân</div>
           </div>
           <button className="rail-logout" aria-label="Đăng xuất" title="Đăng xuất" onClick={onLogout}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
