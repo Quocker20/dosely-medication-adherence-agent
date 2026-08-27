@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, require_roles
+from src.common.http import get_client_ip
 from src.core.response import success_response
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.admin.schemas import (
@@ -14,14 +15,6 @@ from src.modules.admin.schemas import (
 )
 from src.modules.admin.service import AdminService
 from src.modules.auth.repository import AuthRepository
-
-
-def _get_client_ip(request: Request) -> str:
-    """Extract client IP address from request headers or host."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
 
 
 def get_admin_service(db: Annotated[AsyncSession, Depends(get_db)]) -> AdminService:
@@ -51,7 +44,7 @@ async def create_doctor(
     service: AdminServiceDep,
 ) -> JSONResponse:
     """Create a new Doctor account and profile (Admin only)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.create_doctor(
         request=request_body,
         actor_payload=current_user,
@@ -103,7 +96,7 @@ async def update_doctor(
     service: AdminServiceDep,
 ) -> JSONResponse:
     """Update doctor profile details or account status (Admin only)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.update_doctor(
         doctor_id=doctor_id,
         request=request_body,
@@ -124,7 +117,7 @@ async def deactivate_doctor(
     service: AdminServiceDep,
 ) -> JSONResponse:
     """Deactivate doctor account (Admin only)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.deactivate_doctor(
         doctor_id=doctor_id,
         actor_payload=current_user,

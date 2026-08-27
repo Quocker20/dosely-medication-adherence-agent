@@ -3,7 +3,6 @@ import math
 import secrets
 import string
 import uuid
-from typing import List, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,8 +43,8 @@ class PatientService:
         patient_repository: PatientRepository,
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
-        auth_repository: Optional[AuthRepository] = None,
-        caregiver_repository: Optional[CaregiverRepository] = None,
+        auth_repository: AuthRepository | None = None,
+        caregiver_repository: CaregiverRepository | None = None,
     ) -> None:
         self._db = db
         self._patient_repo = patient_repository
@@ -100,7 +99,7 @@ class PatientService:
         self,
         request: CreatePatientByDoctorRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CreatePatientResponse:
         """Doctor creates a new Patient account and profile.
 
@@ -173,7 +172,7 @@ class PatientService:
         actor_payload: dict,
         page: int = 1,
         size: int = 10,
-        search: Optional[str] = None,
+        search: str | None = None,
     ) -> PageResponse[PatientDetailResponse]:
         """Fetch paginated patient list, restricted to patients the requesting
         doctor has written at least one prescription for, unless ADMIN."""
@@ -198,9 +197,7 @@ class PatientService:
             last=last,
         )
 
-    async def get_patient(
-        self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> PatientDetailResponse:
+    async def get_patient(self, patient_id: uuid.UUID, actor_payload: dict) -> PatientDetailResponse:
         """Fetch patient detail, restricted to patients the requesting doctor has
         written at least one prescription for, unless ADMIN.
 
@@ -211,9 +208,7 @@ class PatientService:
         role = actor_payload.get("role")
         doctor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
 
-        result = await self._patient_repo.get_patient_with_user(
-            patient_id, requesting_doctor_id=doctor_id
-        )
+        result = await self._patient_repo.get_patient_with_user(patient_id, requesting_doctor_id=doctor_id)
         if result is None:
             raise NotFoundException(message="Patient not found")
 
@@ -244,7 +239,7 @@ class PatientService:
 
     @staticmethod
     def _to_caregiver_link_response(
-        link: CaregiverLink, temp_password: Optional[str] = None
+        link: CaregiverLink, temp_password: str | None = None
     ) -> CaregiverLinkDetailResponse:
         return CaregiverLinkDetailResponse(
             id=link.id,
@@ -303,9 +298,26 @@ class PatientService:
             routine=self._to_routine_response(routine),
         )
 
-    async def get_routine(
-        self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> PatientRoutineResponse:
+    async def get_self_profile(self, actor_payload: dict) -> PatientProfileDetailResponse:
+        """PATIENT self-read endpoint for clients and chat tools that need
+        demographic context such as dob/sex without using doctor-only routes."""
+        patient_id = uuid.UUID(actor_payload["sub"])
+
+        result = await self._patient_repo.get_patient_with_user(patient_id)
+        if result is None:
+            raise NotFoundException(message="Patient not found")
+        profile, user = result
+
+        routine = await self._patient_repo.get_routine(patient_id, actor_id=patient_id)
+        if routine is None:
+            raise NotFoundException(message="Routine not found")
+
+        return PatientProfileDetailResponse(
+            profile=self._to_detail(profile, user),
+            routine=self._to_routine_response(routine),
+        )
+
+    async def get_routine(self, patient_id: uuid.UUID, actor_payload: dict) -> PatientRoutineResponse:
         """Fetch a patient's routine. Access is role-agnostic: self-ownership,
         doctor-prescribed, and active-caregiver are independent facts checked
         together — the same user account can qualify through more than one
@@ -341,9 +353,7 @@ class PatientService:
         updates = request.model_dump(exclude_unset=True)
 
         async with self._db.begin():
-            routine = await self._patient_repo.upsert_routine(
-                patient_id=patient_id, updates=updates
-            )
+            routine = await self._patient_repo.upsert_routine(patient_id=patient_id, updates=updates)
 
         # After the commit, and only when something actually changed: the
         # already-generated future doses still sit on the old meal times.
@@ -414,7 +424,7 @@ class PatientService:
         patient_id: uuid.UUID,
         request: CreateCaregiverLinkRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CaregiverLinkDetailResponse:
         """PATIENT self-only (contract lists DOCTOR too, but caregiver
         management is explicitly kept out of doctor scope for this platform —
@@ -458,7 +468,7 @@ class PatientService:
 
     async def list_caregiver_links(
         self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> List[CaregiverLinkDetailResponse]:
+    ) -> list[CaregiverLinkDetailResponse]:
         """PATIENT (self) or ADMIN only — DOCTOR excluded, same as create."""
         role = actor_payload.get("role")
         if role == "PATIENT":
@@ -474,7 +484,7 @@ class PatientService:
         patient_id: uuid.UUID,
         caregiver_link_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> None:
         """PATIENT (self) or ADMIN only. Hard delete. patient_id ownership is
         re-verified via get_link before delete, blocking an IDOR where
