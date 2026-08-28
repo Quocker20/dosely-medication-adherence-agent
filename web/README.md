@@ -52,6 +52,90 @@ src/
     └── Sparkline.tsx
 ```
 
+## Deploy lên production (Vercel)
+
+Domain chính thức duy nhất: **https://p-216.vercel.app** (project `p-216`, scope
+`pro-vjp`). Không tạo thêm domain khác — mỗi lần `vercel --prod` tự alias vào
+đúng domain này vì nó đã được đăng ký chính thức cho project (`vercel domains
+add`), không cần set alias tay.
+
+### Deploy
+
+```bash
+cd web
+npx vercel --prod
+```
+
+Cần đã `npx vercel login` và project đã link (`web/.vercel/` tồn tại — nếu máy
+mới chưa link, chạy `npx vercel link --yes --project p-216 --scope pro-vjp`
+trước).
+
+Sau khi deploy xong, verify:
+
+```bash
+curl -s https://p-216.vercel.app/api/health   # phải trả JSON từ backend (404 vì route thật là /health, không phải /api/health — vậy là bình thường)
+curl -sI https://p-216.vercel.app/doctor/     # phải 200 (SPA fallback, không phải file thật)
+```
+
+### `vercel.json` — vì sao có 3 rule
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://<tunnel-hoac-domain-backend>/api/:path*" },
+    { "source": "/downloads/:path*", "destination": "https://<tunnel-hoac-domain-backend>/downloads/:path*" },
+    { "source": "/((?!api/|downloads/).*)", "destination": "/index.html" }
+  ]
+}
+```
+
+- 2 rule đầu: proxy API/downloads sang backend FastAPI (VPS `remindrx.duckdns.org`,
+  hiện đi qua Cloudflare Tunnel — xem mục dưới).
+- Rule cuối: SPA fallback — app không dùng router thật (xem `src/app/App.tsx`),
+  path như `/doctor/`, `/admin/`, `/patient/` không phải file thật, cần fallback
+  về `index.html` để React tự xử lý, nếu không sẽ 404 khi mở link trực tiếp/refresh.
+
+### ⚠️ Backend hiện chưa có IPv4 public ổn định
+
+VPS (`192.168.0.101` nội bộ) không có IPv4 public riêng, domain
+`remindrx.duckdns.org` chỉ resolve ra IPv6 — **Vercel Rewrites không hỗ trợ
+destination IPv6-only** (`DNS_HOSTNAME_EMPTY`). Đường vòng qua NPM/FossVPS
+(`202.us2.0em.org`) đang bị lỗi platform (self-redirect 308) chưa sửa được.
+
+Giải pháp tạm: **Cloudflare Quick Tunnel** chạy trên VPS qua systemd
+(`/etc/systemd/system/cloudflared.service`, `Restart=always`, đã enable).
+Nhược điểm: mỗi lần service này restart (crash, VPS reboot...) sẽ sinh ra
+**URL random mới**, phải cập nhật lại `vercel.json` thủ công.
+
+**Khi web portal báo lỗi API (404/502 lạ, không phải `/health` 404 bình thường), làm theo runbook sau — trên VPS:**
+
+```bash
+# 1. Kiểm tra cloudflared còn sống không, lấy URL hiện tại
+systemctl status cloudflared
+journalctl -u cloudflared -n 50 --no-pager | grep trycloudflare
+```
+
+Rồi ở máy dev (thư mục `web/`):
+
+```bash
+# 2. Sửa URL tunnel mới vào cả 2 chỗ trong vercel.json (destination /api và /downloads)
+# 3. Deploy lại
+npx vercel --prod
+# 4. Verify
+curl -s https://p-216.vercel.app/api/health
+```
+
+Giải pháp lâu dài (khi có domain riêng): chuyển sang **Cloudflare Named
+Tunnel** gắn domain cố định — không còn bị đổi URL nữa. Chưa làm vì hiện chưa
+có domain riêng (domain của dự án hiện chỉ có DuckDNS free, không add được vào
+Cloudflare).
+
+### Rollback
+
+Vào https://vercel.com/pro-vjp/p-216 → tab Deployments → chọn bản cũ (status
+Ready) → bấm nút "Production" ở dòng đó để promote lại tức thì, không cần
+deploy lại.
+
 ## Ràng buộc UI phải giữ
 
 - Nút duyệt đơn gọi đúng chuỗi `POST /prescriptions` → `/approve` → `/schedules/generate`.
