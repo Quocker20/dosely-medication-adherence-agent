@@ -5,14 +5,15 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user_payload, get_db
+from src.core.rate_limit import rate_limit_by_ip
 from src.core.response import success_response
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import (
     ChangePasswordRequest,
+    DeviceTokenRequest,
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
-    DeviceTokenRequest,
 )
 from src.modules.auth.service import AuthService
 
@@ -29,7 +30,10 @@ CurrentUserDep = Annotated[dict, Depends(get_current_user_payload)]
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/login")
+@router.post(
+    "/login",
+    dependencies=[Depends(rate_limit_by_ip("login", 5, 60))],
+)
 async def login(
     request: LoginRequest,
     service: AuthServiceDep,
@@ -62,9 +66,7 @@ async def refresh_token(
 ) -> JSONResponse:
     """Exchange valid refresh token for a new token pair."""
     result = await service.refresh_token(request.refresh_token)
-    return success_response(
-        data=result.model_dump(mode="json"), message="Token refreshed successfully"
-    )
+    return success_response(data=result.model_dump(mode="json"), message="Token refreshed successfully")
 
 
 @router.post("/logout")

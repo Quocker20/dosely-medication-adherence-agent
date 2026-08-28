@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.core.config import get_settings
 from src.main import app
+
 try:
     from src.services.store import store
 except ImportError:
@@ -13,6 +14,8 @@ except ImportError:
 
 
 @pytest.fixture(autouse=True)
+def disable_rate_limit(monkeypatch):
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", False)
 def disable_response_cache():
     """Several test fixtures (test_dashboard.py's _add_alert/_add_survey,
     among others) seed rows directly through the DB session, bypassing the
