@@ -16,9 +16,8 @@ const roleRoutes = {
 
 const portalPrefixes: Set<string> = new Set(Object.values(roleRoutes).map(({ prefix }) => prefix));
 
-function pathSegments(pathname: string): [string | undefined, string | undefined] {
-  const [prefix, tab] = pathname.split("/").filter(Boolean);
-  return [prefix, tab];
+function pathSegments(pathname: string): string[] {
+  return pathname.split("/").filter(Boolean);
 }
 
 /** Router cấp cao nhất cho home, login và ba portal. */
@@ -26,7 +25,7 @@ export default function App() {
   const [session, setLocalSession] = useState<Session | null>(getSession);
   const [pathname, setPathname] = useState(getPathname);
   const previousSession = useRef<Session | null>(session);
-  const [prefix, requestedTab] = pathSegments(pathname);
+  const [prefix, requestedTab, requestedId] = pathSegments(pathname);
   const roleRoute = session ? roleRoutes[session.user.role as keyof typeof roleRoutes] : undefined;
   const isProtectedPortalRoute = prefix !== undefined && portalPrefixes.has(prefix);
 
@@ -80,11 +79,19 @@ export default function App() {
     const view = ["dashboard", "patients", "alerts", "surveys", "rx"].includes(requestedTab ?? "")
       ? requestedTab as "dashboard" | "patients" | "alerts" | "surveys" | "rx"
       : "dashboard";
-    return <DoctorPortal session={session} view={view} onViewChange={(tab) => navigate(`/doctor/${tab}`)} />;
+    const patientDetailId = requestedTab === "patients" && requestedId ? requestedId : null;
+    return <DoctorPortal
+      session={session}
+      view={view}
+      patientDetailId={patientDetailId}
+      onViewChange={(tab) => navigate(`/doctor/${tab}`)}
+      onOpenPatient={(patientId) => navigate(`/doctor/patients/${patientId}`)}
+      onClosePatient={() => navigate("/doctor/patients")}
+    />;
   }
   if (session.user.role === "PATIENT") {
-    const tab = ["dashboard", "schedule", "assistant", "survey", "sos"].includes(requestedTab ?? "")
-      ? requestedTab as "dashboard" | "schedule" | "assistant" | "survey" | "sos"
+    const tab = ["dashboard", "schedule", "assistant", "survey", "sos", "routine"].includes(requestedTab ?? "")
+      ? requestedTab as "dashboard" | "schedule" | "assistant" | "survey" | "sos" | "routine"
       : "dashboard";
     return <PatientPortal session={session} tab={tab} onTabChange={(nextTab) => navigate(`/patient/${nextTab}`)} />;
   }

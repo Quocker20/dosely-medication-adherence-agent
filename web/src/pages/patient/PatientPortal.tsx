@@ -10,14 +10,16 @@ import Icon, { type IconName } from "./components/Icon";
 import OnboardingView from "./components/OnboardingView";
 import ScheduleView from "./components/ScheduleView";
 import SosView from "./components/SosView";
+import RoutineView from "./components/RoutineView";
 import SurveyView from "./components/SurveyView";
 import { isoDate } from "./components/utils";
 
-type Tab = "dashboard" | "schedule" | "assistant" | "survey" | "sos";
+type Tab = "dashboard" | "schedule" | "assistant" | "survey" | "sos" | "routine";
 
 const navItems: Array<{ id: Tab; label: string; description: string; icon: IconName }> = [
   { id: "dashboard", label: "Tổng quan", description: "Sức khỏe hôm nay", icon: "home" },
   { id: "schedule", label: "Lịch uống thuốc", description: "Các cữ trong ngày", icon: "calendar" },
+  { id: "routine", label: "Lịch sinh hoạt", description: "Đồng bộ với ứng dụng", icon: "clock" },
   { id: "assistant", label: "Trợ lý AI", description: "Hỏi về thuốc & lịch", icon: "assistant" },
   { id: "survey", label: "Khảo sát sức khỏe", description: "Cập nhật cho bác sĩ", icon: "heart" },
   { id: "sos", label: "Hỗ trợ khẩn cấp", description: "Gửi cảnh báo SOS", icon: "alert" },
@@ -93,6 +95,7 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
         {tab === "assistant" && <ChatView patientId={patientId}/>}
         {tab === "survey" && <SurveyView patientId={patientId} today={today} onDone={(message) => { notify(message); onTabChange("dashboard"); }}/>}
         {tab === "sos" && <SosView patientId={patientId} onDone={(message) => { if (message) notify(message); onTabChange("dashboard"); }}/>}
+        {tab === "routine" && <RoutineView patientId={patientId} accessToken={session.accessToken} onScheduleChanged={() => refresh().catch(() => {})} onNotice={notify} />}
       </main>
     </div>
     {/* Chỉ hiện toast mới nhất — giữ đúng hành vi "một toast tại một thời điểm" như trước khi gộp hook. */}
