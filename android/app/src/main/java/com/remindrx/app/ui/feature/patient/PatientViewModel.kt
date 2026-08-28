@@ -267,7 +267,7 @@ class PatientViewModel @Inject constructor(
         _state.update { it.copy(routineSaveCompleted = false) }
     }
 
-    fun submitSurvey(mood: Int, symptomCode: String, severity: String) {
+    fun submitSurvey(mood: Int, symptomCode: String, severity: String, customDescription: String? = null) {
         if (_state.value.isSubmittingSurvey) return
         val parsedSeverity = runCatching { SurveySeverity.valueOf(severity) }.getOrNull()
         if (parsedSeverity == null) {
@@ -282,7 +282,12 @@ class PatientViewModel @Inject constructor(
                 _state.update { it.copy(surveyError = "Triệu chứng không hợp lệ.") }
                 return
             }
-            listOf(SurveySymptom(code = code, severity = parsedSeverity))
+            if (code == SymptomCode.OTHER && customDescription.isNullOrBlank()) {
+                _state.update { it.copy(surveyError = "Mô tả triệu chứng trước khi gửi.") }
+                return
+            }
+            val description = if (code == SymptomCode.OTHER) customDescription!!.trim() else code.displayLabel
+            listOf(SurveySymptom(code = code, severity = parsedSeverity, description = description))
         }
 
         launchInSession { revision ->

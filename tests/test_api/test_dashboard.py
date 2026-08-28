@@ -140,7 +140,7 @@ async def _add_survey(patient_id: uuid.UUID, day) -> None:
             )
 
 
-_TEST_PHONES = [DOCTOR_PHONE, OTHER_DOCTOR_PHONE, ADMIN_PHONE, PATIENT_PHONE]
+_TEST_PHONES = [DOCTOR_PHONE, OTHER_DOCTOR_PHONE, ADMIN_PHONE, PATIENT_PHONE, "0900000019"]
 
 
 async def _purge_test_users() -> None:
