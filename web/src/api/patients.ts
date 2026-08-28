@@ -22,4 +22,6 @@ export const patientsApi = {
    */
   patientByPhone: (phone: string) =>
     request<PatientDetail>("/doctors/patients/by-phone", { query: { phone } }),
+
+  patient: (patientId: string) => request<PatientDetail>(`/doctors/patients/${patientId}`),
 };
