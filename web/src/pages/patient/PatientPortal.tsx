@@ -66,7 +66,7 @@ export default function PatientPortal({ session }: { session: Session }) {
       <div className="patient-web-shell" style={{ display: "block", overflowY: "auto" }}>
         <div className="patient-workspace" style={{ height: "auto" }}>
           <main className="patient-content" style={{ paddingTop: 40 }}>
-            <OnboardingView onDone={() => setSession({ ...session, needOnboarding: false })} />
+            <OnboardingView patientId={patientId} onDone={() => setSession({ ...session, needOnboarding: false })} />
           </main>
         </div>
       </div>
