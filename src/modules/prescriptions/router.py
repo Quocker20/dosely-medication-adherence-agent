@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user_payload, get_db, require_roles
+from src.common.http import get_client_ip
 from src.core.response import success_response
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.agents.repository import ScheduledDoseRepository
@@ -24,24 +25,12 @@ from src.modules.prescriptions.schemas import (
 from src.modules.prescriptions.service import MedicationService, PrescriptionService
 
 
-def _get_client_ip(request: Request) -> str:
-    """Extract client IP address from request headers or host."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
-
-
-def get_medication_service(
-    db: Annotated[AsyncSession, Depends(get_db)]
-) -> MedicationService:
+def get_medication_service(db: Annotated[AsyncSession, Depends(get_db)]) -> MedicationService:
     """Dependency factory providing MedicationService instance."""
     return MedicationService(db=db, medication_repository=MedicationRepository(db))
 
 
-def get_prescription_service(
-    db: Annotated[AsyncSession, Depends(get_db)]
-) -> PrescriptionService:
+def get_prescription_service(db: Annotated[AsyncSession, Depends(get_db)]) -> PrescriptionService:
     """Dependency factory providing PrescriptionService instance."""
     return PrescriptionService(
         db=db,
@@ -104,9 +93,7 @@ async def get_my_current_medications(
     as_of: Optional[date] = Query(None, description="Local date; defaults to today"),
 ) -> JSONResponse:
     """Return only the authenticated patient's approved, date-active medicines."""
-    result = await service.get_current_medications(
-        patient_id=uuid.UUID(current_user["sub"]), as_of=as_of
-    )
+    result = await service.get_current_medications(patient_id=uuid.UUID(current_user["sub"]), as_of=as_of)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Current medications fetched successfully",
@@ -129,10 +116,8 @@ async def create_prescription(
     (POST /patients/{patient_id}/prescriptions) — replaced per updated
     product requirement.
     """
-    ip_address = _get_client_ip(raw_request)
-    result = await service.create_prescription(
-        request=request_body, actor_payload=current_user, ip_address=ip_address
-    )
+    ip_address = get_client_ip(raw_request)
+    result = await service.create_prescription(request=request_body, actor_payload=current_user, ip_address=ip_address)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Prescription created successfully",
@@ -145,9 +130,7 @@ async def list_prescriptions(
     patient_id: uuid.UUID,
     current_user: AuthenticatedUserDep,
     service: PrescriptionServiceDep,
-    status_filter: Optional[str] = Query(
-        None, alias="status", pattern=r"^(DRAFT|APPROVED|CANCELLED)$"
-    ),
+    status_filter: Optional[str] = Query(None, alias="status", pattern=r"^(DRAFT|APPROVED|CANCELLED)$"),
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> JSONResponse:
@@ -175,9 +158,7 @@ async def get_prescription_detail(
 ) -> JSONResponse:
     """Fetch prescription detail. Access is role-agnostic, same derivation as
     list_prescriptions. Out-of-scope prescriptions return 404."""
-    result = await service.get_prescription(
-        prescription_id=prescription_id, actor_payload=current_user
-    )
+    result = await service.get_prescription(prescription_id=prescription_id, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Prescription details fetched successfully",
@@ -211,7 +192,7 @@ async def approve_prescription(
 ) -> JSONResponse:
     """Approve a DRAFT prescription, locking it (HITL gate; Doctor only,
     scoped to the doctor who created it)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.approve_prescription(
         prescription_id=prescription_id, actor_payload=current_user, ip_address=ip_address
     )
@@ -231,7 +212,7 @@ async def cancel_prescription(
 ) -> JSONResponse:
     """Cancel a DRAFT or APPROVED prescription (Doctor only, scoped to the
     doctor who created it)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.cancel_prescription(
         prescription_id=prescription_id,
         request=request_body,
@@ -244,9 +225,7 @@ async def cancel_prescription(
     )
 
 
-@prescriptions_router.post(
-    "/prescriptions/{prescription_id}/items", status_code=status.HTTP_201_CREATED
-)
+@prescriptions_router.post("/prescriptions/{prescription_id}/items", status_code=status.HTTP_201_CREATED)
 async def add_prescription_item(
     prescription_id: uuid.UUID,
     request_body: CreatePrescriptionItemRequest,
@@ -257,7 +236,7 @@ async def add_prescription_item(
     """Add a medication line item to a DRAFT prescription (Doctor only,
     scoped to the doctor who created it). 422 if the prescription is no
     longer DRAFT."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.add_item(
         prescription_id=prescription_id,
         request=request_body,
@@ -283,7 +262,7 @@ async def update_prescription_item(
     """Update a medication line item on a DRAFT prescription (Doctor only,
     scoped to the doctor who created it). 422 if the prescription is no
     longer DRAFT."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.update_item(
         prescription_id=prescription_id,
         item_id=item_id,
@@ -308,7 +287,7 @@ async def delete_prescription_item(
     """Remove a medication line item from a DRAFT prescription (Doctor only,
     scoped to the doctor who created it). 422 if the prescription is no
     longer DRAFT. Hard delete."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     await service.delete_item(
         prescription_id=prescription_id,
         item_id=item_id,
@@ -316,8 +295,6 @@ async def delete_prescription_item(
         ip_address=ip_address,
     )
     return success_response(
-        data=MessageResponse(message="Prescription item removed successfully").model_dump(
-            mode="json"
-        ),
+        data=MessageResponse(message="Prescription item removed successfully").model_dump(mode="json"),
         message="Prescription item removed successfully",
     )
