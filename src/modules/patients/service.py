@@ -260,6 +260,8 @@ class PatientService:
 
         upsert_routine makes the routine half idempotent against a double-submit
         (e.g. a double-tapped submit button) without a pre-check race window.
+        Also clears need_onboarding: this is one of the two ways a patient can
+        complete onboarding (see update_routine for the other).
         """
         patient_id = uuid.UUID(actor_payload["sub"])
 
@@ -282,6 +284,7 @@ class PatientService:
                     "sleep_time": request.routine.sleep_time,
                 },
             )
+            await self._auth_repo.clear_need_onboarding(patient_id)
 
         result = await self._patient_repo.get_patient_with_user(patient_id)
         if result is None:
@@ -341,7 +344,9 @@ class PatientService:
         Doctor-created patient profiles do not initially have a routine row.
         The mobile onboarding flow intentionally collects routine data only,
         so PUT is an idempotent upsert instead of requiring the legacy
-        /patients/me/profile endpoint to run first.
+        /patients/me/profile endpoint to run first. This is the primary way a
+        patient completes onboarding (see onboard_patient for the other) --
+        a non-empty PUT means they reviewed/edited the doctor-seeded defaults.
         """
         actor_id = uuid.UUID(actor_payload["sub"])
         if actor_id != patient_id:
@@ -354,6 +359,8 @@ class PatientService:
 
         async with self._db.begin():
             routine = await self._patient_repo.upsert_routine(patient_id=patient_id, updates=updates)
+            if updates:
+                await self._auth_repo.clear_need_onboarding(patient_id)
 
         # After the commit, and only when something actually changed: the
         # already-generated future doses still sit on the old meal times.

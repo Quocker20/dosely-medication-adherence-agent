@@ -71,6 +71,7 @@ private class FakeAuthRepository(initialSession: AuthSession?) : AuthRepository 
     override suspend fun refreshSession(): AuthSession = error("Not used")
 
     override suspend fun registerDeviceToken(fcmToken: String, deviceName: String?) {
+        // No-op: FCM sync is best-effort and irrelevant to these auth-flow tests.
     }
 }
 
@@ -78,6 +79,7 @@ private fun authSession(): AuthSession = AuthSession(
     accessToken = "access-token",
     refreshToken = "refresh-token",
     patientId = "patient-1",
-    isFirstLogin = false,
+    mustChangePassword = false,
+    needOnboarding = false,
     phone = "+84901234567",
 )
