@@ -1,8 +1,16 @@
 // Slice 2: Patient profile
 import { request } from "./client";
-import type { PatientDetail } from "../types";
+import type { DoctorDetail, PatientDetail } from "../types";
 
 export const patientsApi = {
+  /**
+   * Hồ sơ của chính bác sĩ đang đăng nhập.
+   *
+   * Cần endpoint riêng vì UserResponse trong token/login chỉ có id/phone/role/
+   * status — tên bác sĩ nằm ở bảng doctor_profiles.
+   */
+  myDoctorProfile: () => request<DoctorDetail>("/doctors/me"),
+
   /**
    * Tra hồ sơ bệnh nhân theo số điện thoại (Doctor only).
    *

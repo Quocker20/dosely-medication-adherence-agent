@@ -1,13 +1,15 @@
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user_payload, get_db, require_roles
+from src.common.http import get_client_ip
 from src.core.response import success_response
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
+from src.modules.admin.service import AdminService
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import MessageResponse
 from src.modules.patients.repository import CaregiverRepository, PatientRepository
@@ -18,14 +20,6 @@ from src.modules.patients.schemas import (
     UpdateRoutineRequest,
 )
 from src.modules.patients.service import PatientService
-
-
-def _get_client_ip(request: Request) -> str:
-    """Extract client IP address from request headers or host."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
 
 
 def get_patient_service(db: Annotated[AsyncSession, Depends(get_db)]) -> PatientService:
@@ -40,7 +34,22 @@ def get_patient_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Patient
     )
 
 
+def get_admin_service(db: Annotated[AsyncSession, Depends(get_db)]) -> AdminService:
+    """AdminService dùng lại ở đây chỉ để đọc hồ sơ doctor (GET /doctors/me).
+
+    Hồ sơ doctor thuộc module admin, nhưng endpoint self-service phải nằm dưới
+    prefix /doctors — bác sĩ không có quyền vào /admin/*.
+    """
+    return AdminService(
+        db=db,
+        doctor_repository=DoctorRepository(db),
+        audit_repository=AuditLogRepository(db),
+        auth_repository=AuthRepository(db),
+    )
+
+
 PatientServiceDep = Annotated[PatientService, Depends(get_patient_service)]
+AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]
 DoctorUserDep = Annotated[dict, Depends(require_roles("DOCTOR"))]
 DoctorOrAdminUserDep = Annotated[dict, Depends(require_roles("DOCTOR", "ADMIN"))]
 PatientOnlyUserDep = Annotated[dict, Depends(require_roles("PATIENT"))]
@@ -61,7 +70,7 @@ async def create_patient(
     service: PatientServiceDep,
 ) -> JSONResponse:
     """Create a new Patient account and profile under the requesting Doctor (Doctor only)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.create_patient(
         request=request_body,
         actor_payload=current_user,
@@ -71,6 +80,23 @@ async def create_patient(
         data=result.model_dump(mode="json"),
         message="Patient account created successfully",
         code=status.HTTP_201_CREATED,
+    )
+
+
+@router.get("/me")
+async def get_my_doctor_profile(
+    current_user: DoctorUserDep,
+    service: AdminServiceDep,
+) -> JSONResponse:
+    """Hồ sơ của chính bác sĩ đang đăng nhập.
+
+    Lấy user id từ token chứ không nhận từ client — endpoint này không được
+    dùng để đọc hồ sơ của bác sĩ khác (việc đó thuộc GET /admin/doctors/{id}).
+    """
+    result = await service.get_doctor(doctor_id=uuid.UUID(current_user["sub"]))
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Doctor profile fetched successfully",
     )
 
 
@@ -94,13 +120,11 @@ async def list_patients(
     service: PatientServiceDep,
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, min_length=2, description="Search by name or phone"),
+    search: str | None = Query(None, min_length=2, description="Search by name or phone"),
 ) -> JSONResponse:
     """Query paginated patient list, restricted to patients the requesting doctor
     has written at least one prescription for (Doctor only)."""
-    result = await service.list_patients(
-        actor_payload=current_user, page=page, size=size, search=search
-    )
+    result = await service.list_patients(actor_payload=current_user, page=page, size=size, search=search)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Patient list fetched successfully",
@@ -126,9 +150,7 @@ async def get_patient_detail(
     )
 
 
-self_router = APIRouter(
-    prefix="/patients", tags=["Patient Profile, Routine & Caregiver Links"]
-)
+self_router = APIRouter(prefix="/patients", tags=["Patient Profile, Routine & Caregiver Links"])
 
 
 @self_router.post("/me/profile")
@@ -143,6 +165,23 @@ async def onboard_patient(
     return success_response(
         data=result.model_dump(mode="json"),
         message="Onboarding completed successfully",
+    )
+
+
+@self_router.get("/me/profile")
+async def get_self_profile(
+    current_user: PatientOnlyUserDep,
+    service: PatientServiceDep,
+) -> JSONResponse:
+    """Fetch the authenticated patient's profile and routine.
+
+    Chat Agent tools use this self-scoped route to read dob/sex for respectful
+    Vietnamese address selection without touching doctor-only patient routes.
+    """
+    result = await service.get_self_profile(actor_payload=current_user)
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Patient profile fetched successfully",
     )
 
 
@@ -170,9 +209,7 @@ async def update_routine(
     service: PatientServiceDep,
 ) -> JSONResponse:
     """Create or update a patient's daily routine (Patient only, self)."""
-    result = await service.update_routine(
-        patient_id=patient_id, request=request_body, actor_payload=current_user
-    )
+    result = await service.update_routine(patient_id=patient_id, request=request_body, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Routine updated successfully",
@@ -193,7 +230,7 @@ async def create_caregiver_link(
     Deviation from api-contract.md: DOCTOR is excluded from this endpoint —
     caregiver management is kept out of doctor scope on this platform.
     """
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.create_caregiver_link(
         patient_id=patient_id,
         request=request_body,
@@ -217,9 +254,7 @@ async def list_caregiver_links(
 
     Deviation from api-contract.md: DOCTOR is excluded, same as create.
     """
-    result = await service.list_caregiver_links(
-        patient_id=patient_id, actor_payload=current_user
-    )
+    result = await service.list_caregiver_links(patient_id=patient_id, actor_payload=current_user)
     return success_response(
         data=[item.model_dump(mode="json") for item in result],
         message="Caregiver links fetched successfully",
@@ -235,7 +270,7 @@ async def delete_caregiver_link(
     service: PatientServiceDep,
 ) -> JSONResponse:
     """Remove a caregiver link (Patient self-only, or Admin). Hard delete."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     await service.delete_caregiver_link(
         patient_id=patient_id,
         caregiver_link_id=caregiver_link_id,
@@ -243,8 +278,6 @@ async def delete_caregiver_link(
         ip_address=ip_address,
     )
     return success_response(
-        data=MessageResponse(message="Caregiver link removed successfully").model_dump(
-            mode="json"
-        ),
+        data=MessageResponse(message="Caregiver link removed successfully").model_dump(mode="json"),
         message="Caregiver link removed successfully",
     )
