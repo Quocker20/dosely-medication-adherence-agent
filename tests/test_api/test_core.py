@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from src.common.exceptions import ValidationException
 from src.core.config import get_settings
 from src.core.response import error_response, success_response
 from src.core.security import (
@@ -9,8 +10,7 @@ from src.core.security import (
     decode_token,
     validate_phone_number,
 )
-from src.common.exceptions import ValidationException
-from src.main import app
+from src.main import WEB_DIST, app
 
 
 def test_settings_load():
@@ -28,7 +28,7 @@ def test_phone_validation():
     assert validate_phone_number("0912345678") == "+84912345678"
     assert validate_phone_number("+84912345678") == "+84912345678"
     assert validate_phone_number("84912345678") == "+84912345678"
-    
+
     with pytest.raises(ValidationException):
         validate_phone_number("12345")
 
@@ -54,9 +54,31 @@ def test_health_endpoint():
     assert response.json()["status"] == "ok"
 
 
+@pytest.mark.skipif(not WEB_DIST.is_dir(), reason="SPA build is not available")
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/admin",
+        "/admin/",
+        "/admin/overview",
+        "/doctor",
+        "/doctor/",
+        "/doctor/patients",
+        "/patient/",
+        "/patient/schedule",
+        "/login",
+    ],
+)
+def test_portal_deep_links_return_spa_shell(path: str):
+    response = TestClient(app).get(path)
+
+    assert response.status_code == 200
+    assert '<div id="root"></div>' in response.text
+
+
 def test_response_envelope():
     succ = success_response(data={"key": "val"}, message="Operation succeeded")
     assert succ.status_code == 200
-    
+
     err = error_response(message="Bad request", code=400, errors={"field": "invalid"})
     assert err.status_code == 400
