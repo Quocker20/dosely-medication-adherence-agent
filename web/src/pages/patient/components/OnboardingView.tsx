@@ -12,12 +12,16 @@ const routineFields: Array<{ key: "wake_time" | "breakfast_time" | "lunch_time" 
 ];
 
 /**
- * Onboarding lần đầu cho bệnh nhân — gate ở PatientPortal theo session.needOnboarding
- * (POST /auth/login|refresh), không suy ra từ nội dung routine đã có (đó chính là
- * bug đã sửa ở backend: bác sĩ seed routine đầy đủ thì suy luận theo routine luôn sai).
+ * Onboarding lần đầu cho bệnh nhân — chỉ thu thập giờ sinh hoạt (khớp
+ * src/modules/patients/service.py update_routine: "mobile onboarding flow
+ * intentionally collects routine data only"). Hồ sơ (tên, ngày sinh...) là dữ
+ * liệu do đội ngũ y tế nhập, không phải việc của patient tự chỉnh ở đây.
+ *
+ * Gate ở PatientPortal theo session.needOnboarding (POST /auth/login|refresh),
+ * không suy ra từ nội dung routine đã có — đó chính là bug đã sửa ở backend:
+ * bác sĩ seed routine đầy đủ thì suy luận theo routine luôn sai.
  */
-export default function OnboardingView({ onDone }: { onDone: () => void }) {
-  const [name, setName] = useState("");
+export default function OnboardingView({ patientId, onDone }: { patientId: string; onDone: () => void }) {
   const [times, setTimes] = useState<Record<string, string>>(
     Object.fromEntries(routineFields.map((field) => [field.key, field.fallback])),
   );
@@ -25,17 +29,13 @@ export default function OnboardingView({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
-    if (name.trim().length === 0) {
-      setError("Vui lòng nhập họ tên");
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
-      await api.onboardProfile({ name: name.trim(), routine: times });
+      await api.updateRoutine(patientId, times);
       onDone();
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "Không lưu được thông tin, vui lòng thử lại");
+      setError(cause instanceof ApiError ? cause.message : "Không lưu được thói quen, vui lòng thử lại");
     } finally {
       setBusy(false);
     }
@@ -46,25 +46,13 @@ export default function OnboardingView({ onDone }: { onDone: () => void }) {
       <div className="form-hero">
         <span><Icon name="clock" size={25} /></span>
         <div>
-          <h1>Hoàn tất hồ sơ của bạn</h1>
-          <p>Cho chúng tôi biết tên và giờ sinh hoạt để lên lịch uống thuốc chính xác.</p>
+          <h1>Thiết lập thói quen sinh hoạt</h1>
+          <p>Chọn giờ sinh hoạt hằng ngày để lên lịch uống thuốc chính xác.</p>
         </div>
       </div>
 
       <div className="form-section">
         <span className="form-step">01</span>
-        <h2>Họ và tên</h2>
-        <input
-          className="survey-other-input"
-          placeholder="Nguyễn Văn A"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          maxLength={255}
-        />
-      </div>
-
-      <div className="form-section">
-        <span className="form-step">02</span>
         <h2>Giờ sinh hoạt hằng ngày</h2>
         {routineFields.map((field) => (
           <div key={field.key} style={{ marginBottom: 12 }}>
@@ -88,7 +76,7 @@ export default function OnboardingView({ onDone }: { onDone: () => void }) {
       <div className="form-submit-row">
         <p><Icon name="shield" size={16} /> Dữ liệu được bảo mật</p>
         <button className="survey-submit" disabled={busy} onClick={() => void submit()}>
-          {busy ? "Đang lưu…" : "Bắt đầu sử dụng"}
+          {busy ? "Đang lưu…" : "Lưu & bắt đầu sử dụng"}
         </button>
       </div>
     </section>

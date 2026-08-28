@@ -1,13 +1,8 @@
 // Slice 2: Patient profile
 import { request } from "./client";
-import type { DoctorDetail, PatientDetail, PatientOnboardingRequest, PatientProfileDetailResponse } from "../types";
+import type { DoctorDetail, PatientDetail } from "../types";
 
 export const patientsApi = {
-  /** POST /patients/me/profile — bệnh nhân hoàn tất onboarding lần đầu. */
-  onboardProfile: (body: PatientOnboardingRequest) =>
-    request<PatientProfileDetailResponse>("/patients/me/profile", { method: "POST", body }),
-
-
   /**
    * Hồ sơ của chính bác sĩ đang đăng nhập.
    *
