@@ -1,5 +1,9 @@
 package com.remindrx.app.ui.feature.patient
 
+import com.remindrx.app.core.PatientRealtimeEvent
+import com.remindrx.app.core.PatientRealtimeEventType
+import com.remindrx.app.core.PatientRealtimeEvents
+import com.remindrx.app.core.connectivity.AlwaysOnlineConnectivityObserver
 import com.remindrx.app.data.AdherenceLog
 import com.remindrx.app.data.AdherenceSummary
 import com.remindrx.app.data.Alert
@@ -14,10 +18,16 @@ import com.remindrx.app.data.RoutineItem
 import com.remindrx.app.data.RoutineUpdateResult
 import com.remindrx.app.data.ScheduleUpdateStatus
 import com.remindrx.app.data.SurveySymptom
+import com.remindrx.app.data.repository.NoOpOutboxSyncScheduler
 import com.remindrx.app.data.repository.PatientHome
 import com.remindrx.app.data.repository.PatientRepository
 import com.remindrx.app.testing.MainDispatcherRule
 import java.time.LocalDate
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -98,6 +108,100 @@ class PatientViewModelTest {
         )
     }
 
+    @Test
+    fun `queued offline sos uses explicit emergency message`() {
+        val repository = FakePatientRepository().apply {
+            sosResponse = Alert(
+                id = "sos-local-1",
+                patientId = "patient-1",
+                assignedDoctorId = null,
+                triggeredByType = "PATIENT",
+                alertType = "SOS",
+                severity = "CRITICAL",
+                status = "QUEUED_OFFLINE",
+                message = "SOS từ ứng dụng bệnh nhân",
+                createdAt = "2026-08-28T00:00:00Z",
+            )
+        }
+        val viewModel = PatientViewModel(repository)
+        viewModel.startSession("patient-1")
+
+        viewModel.createSos()
+
+        assertEquals(SosSubmissionStatus.QUEUED_OFFLINE, viewModel.state.value.sosStatus)
+        assertEquals(
+            "Đã lưu yêu cầu SOS trên máy, CHƯA gửi được do mất mạng. Nếu đang khẩn cấp, hãy gọi 115 ngay.",
+            viewModel.state.value.message,
+        )
+    }
+
+    @Test
+    fun `ROUTINE_UPDATED reloads only the routine, not the whole dashboard`() {
+        val routine = routineAt("06:10", "07:10", "11:45", "18:15", "22:30")
+        val repository = FakePatientRepository().apply {
+            routineResponse = routine
+            homeResponse = patientHome(routine)
+        }
+        val realtimeEvents = FakePatientRealtimeEvents()
+        val viewModel = PatientViewModel(
+            repository,
+            realtimeEvents,
+            AlwaysOnlineConnectivityObserver,
+            NoOpOutboxSyncScheduler(),
+        )
+        viewModel.startSession("patient-1")
+        assertEquals(1, repository.getRoutineCalls)
+        assertEquals(1, repository.loadHomeCalls)
+
+        val updatedRoutine = routineAt("06:45", "07:10", "11:45", "18:15", "22:30")
+        repository.routineResponse = updatedRoutine
+        realtimeEvents.emit(PatientRealtimeEventType.ROUTINE_UPDATED)
+
+        assertEquals(2, repository.getRoutineCalls)
+        assertEquals(1, repository.loadHomeCalls)
+        assertEquals(updatedRoutine, viewModel.state.value.routine)
+    }
+
+    @Test
+    fun `SCHEDULE_UPDATED reloads the dashboard, not just the routine`() {
+        val routine = routineAt("06:10", "07:10", "11:45", "18:15", "22:30")
+        val repository = FakePatientRepository().apply {
+            routineResponse = routine
+            homeResponse = patientHome(routine, adherenceRate = 50f)
+        }
+        val realtimeEvents = FakePatientRealtimeEvents()
+        val viewModel = PatientViewModel(
+            repository,
+            realtimeEvents,
+            AlwaysOnlineConnectivityObserver,
+            NoOpOutboxSyncScheduler(),
+        )
+        viewModel.startSession("patient-1")
+        assertEquals(1, repository.getRoutineCalls)
+        assertEquals(1, repository.loadHomeCalls)
+        assertEquals(50, viewModel.state.value.adherenceRate)
+
+        repository.homeResponse = patientHome(routine, adherenceRate = 92f)
+        realtimeEvents.emit(PatientRealtimeEventType.SCHEDULE_UPDATED)
+
+        assertEquals(1, repository.getRoutineCalls)
+        assertEquals(2, repository.loadHomeCalls)
+        assertEquals(92, viewModel.state.value.adherenceRate)
+    }
+
+    @Test
+    fun `realtime events before any session starts are ignored`() {
+        val repository = FakePatientRepository()
+        val realtimeEvents = FakePatientRealtimeEvents()
+        PatientViewModel(repository, realtimeEvents, AlwaysOnlineConnectivityObserver, NoOpOutboxSyncScheduler())
+
+        realtimeEvents.emit(PatientRealtimeEventType.ROUTINE_UPDATED)
+        realtimeEvents.emit(PatientRealtimeEventType.SCHEDULE_UPDATED)
+
+        assertEquals(0, repository.getRoutineCalls)
+        assertEquals(0, repository.loadHomeCalls)
+    }
+
     private fun verifyOnboardingRoutineIsKept(
         status: ScheduleUpdateStatus,
         backendError: String,
@@ -135,6 +239,16 @@ class PatientViewModelTest {
     )
 }
 
+/** UnconfinedTestDispatcher (see [MainDispatcherRule]) makes emit() deliver synchronously. */
+private class FakePatientRealtimeEvents : PatientRealtimeEvents {
+    private val flow = MutableSharedFlow<PatientRealtimeEvent>(extraBufferCapacity = 8)
+    override val events: SharedFlow<PatientRealtimeEvent> = flow.asSharedFlow()
+
+    fun emit(type: PatientRealtimeEventType) {
+        check(flow.tryEmit(PatientRealtimeEvent(type))) { "event buffer full" }
+    }
+}
+
 private class FakePatientRepository : PatientRepository {
     var getRoutineCalls = 0
     var loadHomeCalls = 0
@@ -145,6 +259,8 @@ private class FakePatientRepository : PatientRepository {
     var routineUpdateStatus: ScheduleUpdateStatus = ScheduleUpdateStatus.UPDATED
     var routineUpdateError: String? = null
     var homeResponse: PatientHome = patientHome(routineResponse)
+    var pendingSyncCountFlow = MutableStateFlow(0)
+    var sosResponse: Alert? = null
 
     override suspend fun getRoutine(): List<RoutineItem> {
         getRoutineCalls += 1
@@ -157,6 +273,8 @@ private class FakePatientRepository : PatientRepository {
         val saved = lastSubmittedRoutine
         return if (saved == null) homeResponse else patientHome(saved)
     }
+
+    override fun observePendingSyncCount(): Flow<Int> = pendingSyncCountFlow
 
     override suspend fun onboard(
         name: String,
@@ -190,7 +308,7 @@ private class FakePatientRepository : PatientRepository {
     ): HealthSurvey = error("Not used")
 
     override suspend fun createSos(message: String?, shareLocation: Boolean): Alert =
-        error("Not used")
+        sosResponse ?: error("Not used")
 
     override suspend fun getMedicationDetail(medicationId: String): MedicationDetail =
         error("Not used")
