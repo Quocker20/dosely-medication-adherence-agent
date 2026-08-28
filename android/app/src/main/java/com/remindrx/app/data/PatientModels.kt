@@ -141,7 +141,7 @@ data class AgentRunPollResult(
     val timedOut: Boolean,
 )
 
-enum class ScheduleUpdateStatus { UPDATED, FAILED, TIMED_OUT }
+enum class ScheduleUpdateStatus { UPDATED, FAILED, TIMED_OUT, QUEUED_OFFLINE }
 
 data class RoutineUpdateResult(
     val routine: List<RoutineItem>,

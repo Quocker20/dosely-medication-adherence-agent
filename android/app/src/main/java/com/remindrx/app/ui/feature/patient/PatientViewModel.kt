@@ -2,6 +2,8 @@ package com.remindrx.app.ui.feature.patient
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.remindrx.app.core.connectivity.AlwaysOnlineConnectivityObserver
+import com.remindrx.app.core.connectivity.ConnectivityObserver
 import com.remindrx.app.data.AdherenceLog
 import com.remindrx.app.data.AdherenceSummary
 import com.remindrx.app.data.CaregiverLink
@@ -16,6 +18,11 @@ import com.remindrx.app.data.SurveySymptom
 import com.remindrx.app.data.SymptomCode
 import com.remindrx.app.data.repository.PatientHome
 import com.remindrx.app.data.repository.PatientRepository
+import com.remindrx.app.data.repository.NoOpOutboxSyncScheduler
+import com.remindrx.app.data.repository.OutboxSyncScheduler
+import com.remindrx.app.core.PatientRealtimeEventType
+import com.remindrx.app.core.PatientRealtimeEvents
+import com.remindrx.app.core.NoopPatientRealtimeEvents
 import com.remindrx.app.ui.toVietnameseUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.DayOfWeek
@@ -28,6 +35,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -42,6 +50,8 @@ private fun defaultRoutine(): List<RoutineItem> = listOf(
 
 private fun currentWeekStart(today: LocalDate = LocalDate.now()): LocalDate =
     today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+
+enum class SosSubmissionStatus { IDLE, SENDING, SENT, QUEUED_OFFLINE, FAILED }
 
 data class PatientUiState(
     val isCheckingRoutine: Boolean = false,
@@ -62,8 +72,7 @@ data class PatientUiState(
     val isSubmittingSurvey: Boolean = false,
     val isSurveySubmitted: Boolean = false,
     val surveyError: String? = null,
-    val isSendingSos: Boolean = false,
-    val isSosSent: Boolean = false,
+    val sosStatus: SosSubmissionStatus = SosSubmissionStatus.IDLE,
     val sosError: String? = null,
     val medicationDetail: MedicationDetail? = null,
     val medicationDetailId: String? = null,
@@ -83,17 +92,41 @@ data class PatientUiState(
     val isLoadingHistory: Boolean = false,
     val isLoadingMoreHistory: Boolean = false,
     val historyError: String? = null,
+    val pendingSyncCount: Int = 0,
 )
 
 @HiltViewModel
 class PatientViewModel @Inject constructor(
     private val repository: PatientRepository,
+    private val realtimeSync: PatientRealtimeEvents,
+    private val connectivityObserver: ConnectivityObserver,
+    private val outboxSyncScheduler: OutboxSyncScheduler,
 ) : ViewModel() {
+    constructor(repository: PatientRepository) : this(
+        repository,
+        NoopPatientRealtimeEvents,
+        AlwaysOnlineConnectivityObserver,
+        NoOpOutboxSyncScheduler(),
+    )
     private val _state = MutableStateFlow(PatientUiState())
     val state: StateFlow<PatientUiState> = _state.asStateFlow()
+    val isOnline: StateFlow<Boolean> = connectivityObserver.isOnline
     private var activePatientId: String? = null
     private var sessionRevision: Long = 0
     private val sessionJobs = Collections.synchronizedSet(mutableSetOf<Job>())
+    private var pendingSyncJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            realtimeSync.events.collect { event ->
+                when (event.type) {
+                    PatientRealtimeEventType.ROUTINE_UPDATED -> reloadRoutineFromServer()
+                    PatientRealtimeEventType.SCHEDULE_UPDATED -> refresh()
+                }
+            }
+        }
+        monitorConnectivityRestored()
+    }
 
     /** Called by the authenticated navigation shell; never fetch before login. */
     fun startSession(patientId: String) {
@@ -101,6 +134,7 @@ class PatientViewModel @Inject constructor(
         invalidateSession()
         activePatientId = patientId
         _state.value = PatientUiState(isCheckingRoutine = true)
+        startPendingSyncCountCollection()
         checkRoutineOnboarding()
     }
 
@@ -178,6 +212,22 @@ class PatientViewModel @Inject constructor(
         }
     }
 
+    /** Reload after a minimal realtime event; never merge client-held times. */
+    private fun reloadRoutineFromServer() {
+        if (activePatientId == null) return
+        launchInSession { revision ->
+            runCatching { repository.getRoutine() }
+                .onSuccess { routine ->
+                    val editableRoutine = defaultRoutine().map { default ->
+                        routine.firstOrNull { it.key == default.key }
+                            ?.takeIf { it.time.isValidTime() }
+                            ?: default
+                    }
+                    updateForSession(revision) { it.copy(routine = editableRoutine) }
+                }
+        }
+    }
+
     fun recordDoseAction(doseId: String, action: String, note: String = "") {
         if (doseId in _state.value.busyDoseIds) return
         val doseAction = runCatching { DoseAction.valueOf(action) }.getOrNull()
@@ -234,6 +284,8 @@ class PatientViewModel @Inject constructor(
                         ScheduleUpdateStatus.UPDATED -> "Đã lưu thói quen và cập nhật lịch uống thuốc"
                         ScheduleUpdateStatus.TIMED_OUT -> "Đã lưu thói quen; lịch thuốc vẫn đang được cập nhật"
                         ScheduleUpdateStatus.FAILED -> "Đã lưu thói quen nhưng chưa cập nhật được lịch thuốc"
+                        ScheduleUpdateStatus.QUEUED_OFFLINE ->
+                            "Đã lưu thói quen trên máy, chờ đồng bộ khi có mạng"
                     }
                     updateForSession(revision) {
                         it.copy(
@@ -295,12 +347,15 @@ class PatientViewModel @Inject constructor(
                 it.copy(isSubmittingSurvey = true, isSurveySubmitted = false, surveyError = null)
             }
             runCatching { repository.submitHealthSurvey(mood, symptoms) }
-                .onSuccess {
+                .onSuccess { survey ->
+                    val queuedOffline = survey.status == QUEUED_OFFLINE
                     updateForSession(revision) {
                         it.copy(
                             isSubmittingSurvey = false,
                             isSurveySubmitted = true,
-                            message = if (parsedSeverity == SurveySeverity.SEVERE && symptoms.isNotEmpty()) {
+                            message = if (queuedOffline) {
+                                "Đã lưu khảo sát trên máy, chờ đồng bộ khi có mạng"
+                            } else if (parsedSeverity == SurveySeverity.SEVERE && symptoms.isNotEmpty()) {
                                 "Đã gửi khảo sát và cảnh báo triệu chứng nghiêm trọng"
                             } else {
                                 "Đã gửi khảo sát sức khỏe"
@@ -324,25 +379,33 @@ class PatientViewModel @Inject constructor(
     }
 
     fun createSos() {
-        if (_state.value.isSendingSos) return
+        if (_state.value.sosStatus == SosSubmissionStatus.SENDING) return
         launchInSession { revision ->
             updateForSession(revision) {
-                it.copy(isSendingSos = true, isSosSent = false, sosError = null)
+                it.copy(sosStatus = SosSubmissionStatus.SENDING, sosError = null)
             }
             runCatching {
                 repository.createSos(message = "SOS từ ứng dụng bệnh nhân", shareLocation = false)
-            }.onSuccess {
+            }.onSuccess { alert ->
+                val queuedOffline = alert.status == QUEUED_OFFLINE
                 updateForSession(revision) {
                     it.copy(
-                        isSendingSos = false,
-                        isSosSent = true,
-                        message = "Cảnh báo SOS đã được hệ thống ghi nhận",
+                        sosStatus = if (queuedOffline) {
+                            SosSubmissionStatus.QUEUED_OFFLINE
+                        } else {
+                            SosSubmissionStatus.SENT
+                        },
+                        message = if (queuedOffline) {
+                            "Đã lưu yêu cầu SOS trên máy, CHƯA gửi được do mất mạng. Nếu đang khẩn cấp, hãy gọi 115 ngay."
+                        } else {
+                            "Cảnh báo SOS đã được hệ thống ghi nhận"
+                        },
                     )
                 }
             }.onFailure { error ->
                 updateForSession(revision) {
                     it.copy(
-                        isSendingSos = false,
+                        sosStatus = SosSubmissionStatus.FAILED,
                         sosError = error.toVietnameseUiMessage(
                             "Không gửi được SOS. Hãy gọi cấp cứu ngay nếu cần trợ giúp khẩn cấp.",
                         ),
@@ -353,7 +416,7 @@ class PatientViewModel @Inject constructor(
     }
 
     fun clearSosStatus() {
-        _state.update { it.copy(isSosSent = false, sosError = null) }
+        _state.update { it.copy(sosStatus = SosSubmissionStatus.IDLE, sosError = null) }
     }
 
     fun loadMedicationDetail(medicationId: String?) {
@@ -439,7 +502,11 @@ class PatientViewModel @Inject constructor(
                             caregivers = listOf(created) + it.caregivers.filterNot { link -> link.id == created.id },
                             isAddingCaregiver = false,
                             createdCaregiverTemporaryPin = created.temporaryPassword,
-                            message = "Đã thêm người chăm sóc",
+                            message = if (created.status == QUEUED_OFFLINE) {
+                                "Đã lưu người chăm sóc trên máy, chờ đồng bộ khi có mạng"
+                            } else {
+                                "Đã thêm người chăm sóc"
+                            },
                         )
                     }
                 }
@@ -600,10 +667,31 @@ class PatientViewModel @Inject constructor(
 
     private fun invalidateSession() {
         sessionRevision += 1
+        pendingSyncJob?.cancel()
+        pendingSyncJob = null
         val jobs = synchronized(sessionJobs) {
             sessionJobs.toList().also { sessionJobs.clear() }
         }
         jobs.forEach { it.cancel() }
+    }
+
+    private fun startPendingSyncCountCollection() {
+        val revision = sessionRevision
+        pendingSyncJob = viewModelScope.launch {
+            repository.observePendingSyncCount().collect { count ->
+                updateForSession(revision) { it.copy(pendingSyncCount = count) }
+            }
+        }
+    }
+
+    private fun monitorConnectivityRestored() {
+        viewModelScope.launch {
+            var wasOnline = connectivityObserver.isOnline.value
+            connectivityObserver.isOnline.collect { online ->
+                if (!wasOnline && online) outboxSyncScheduler.onConnectivityRestored()
+                wasOnline = online
+            }
+        }
     }
 
     private fun String.isValidTime(): Boolean {
@@ -612,5 +700,9 @@ class PatientViewModel @Inject constructor(
         val hour = parts[0].toInt()
         val minute = parts[1].toInt()
         return hour in 0..23 && minute in 0..59
+    }
+
+    private companion object {
+        const val QUEUED_OFFLINE = "QUEUED_OFFLINE"
     }
 }
