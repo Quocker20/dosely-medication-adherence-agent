@@ -516,3 +516,130 @@ def test_socket_delivers_every_published_event_type(event_type, data):
 
     assert frame["event_type"] == event_type
     assert frame["data"] == data
+
+
+async def _add_doses_at(
+    patient_id: uuid.UUID,
+    prescription_id: uuid.UUID,
+    doses: list[tuple[str, timedelta]],
+):
+    """Like _add_doses, but the caller places each dose relative to now.
+
+    The adherence denominator turns on whether a dose is due yet, so these
+    tests need to straddle the grace window and the future horizon rather than
+    dropping everything in the past.
+    """
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            item = PrescriptionItem(
+                prescription_id=prescription_id,
+                display_name="Amlodipin 5mg",
+                dose_unit="VIEN",
+                start_date=datetime.now(timezone.utc).date(),
+            )
+            db.add(item)
+            await db.flush()
+            now = datetime.now(timezone.utc)
+            for status, offset in doses:
+                at = now + offset
+                db.add(
+                    ScheduledDose(
+                        prescription_item_id=item.id,
+                        patient_id=patient_id,
+                        original_scheduled_at=at,
+                        current_scheduled_at=at,
+                        status=status,
+                        taken_at=at if status == "TAKEN" else None,
+                    )
+                )
+
+
+@pytest.mark.asyncio
+async def test_future_pending_doses_are_excluded_from_adherence(client):
+    """schedule_horizon_days of doses are generated ahead of now. Counting
+    them would put a fully adherent patient near 33% on a 7-day window."""
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    rx_id = await _create_prescription(patient_id, doctor_id, status="APPROVED")
+    await _add_doses_at(
+        patient_id,
+        rx_id,
+        [
+            ("TAKEN", timedelta(hours=-3)),
+            ("PENDING", timedelta(hours=2)),
+            ("PENDING", timedelta(days=1)),
+            ("PENDING", timedelta(days=10)),
+        ],
+    )
+
+    headers = await _login(client, DOCTOR_PHONE)
+    data = (
+        await client.get(f"/api/v1/dashboard/patients/{patient_id}", headers=headers)
+    ).json()["data"]
+
+    assert data["adherence_summary"]["total_doses"] == 1
+    assert data["adherence_summary"]["taken_doses"] == 1
+    assert data["adherence_summary"]["adherence_rate"] == 100.0
+
+    row = next(
+        r
+        for r in (
+            await client.get("/api/v1/dashboard/patients", headers=headers)
+        ).json()["data"]["content"]
+        if r["patient_id"] == str(patient_id)
+    )
+    assert row["adherence_rate"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_overdue_pending_dose_counts_as_missed(client):
+    """The missed-dose scan lags by up to its interval. A dose past the grace
+    window is already missed in substance, so it must not wait for the scan to
+    show up in the denominator."""
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    rx_id = await _create_prescription(patient_id, doctor_id, status="APPROVED")
+    await _add_doses_at(
+        patient_id,
+        rx_id,
+        [("TAKEN", timedelta(hours=-4)), ("PENDING", timedelta(hours=-3))],
+    )
+
+    headers = await _login(client, DOCTOR_PHONE)
+    summary = (
+        await client.get(f"/api/v1/dashboard/patients/{patient_id}", headers=headers)
+    ).json()["data"]["adherence_summary"]
+
+    assert summary["total_doses"] == 2
+    assert summary["taken_doses"] == 1
+    assert summary["missed_doses"] == 1
+    assert summary["adherence_rate"] == 50.0
+    # The four figures are shown side by side; they must add up.
+    assert (
+        summary["taken_doses"] + summary["skipped_doses"] + summary["missed_doses"]
+        == summary["total_doses"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_dose_inside_grace_window_is_not_counted(client):
+    """A dose due minutes ago has not been missed yet — counting it would dip
+    the rate every time a dose comes due."""
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    rx_id = await _create_prescription(patient_id, doctor_id, status="APPROVED")
+    await _add_doses_at(
+        patient_id,
+        rx_id,
+        [("TAKEN", timedelta(hours=-4)), ("PENDING", timedelta(minutes=-5))],
+    )
+
+    headers = await _login(client, DOCTOR_PHONE)
+    summary = (
+        await client.get(f"/api/v1/dashboard/patients/{patient_id}", headers=headers)
+    ).json()["data"]["adherence_summary"]
+
+    assert summary["total_doses"] == 1
+    assert summary["taken_doses"] == 1
+    assert summary["missed_doses"] == 0
+    assert summary["adherence_rate"] == 100.0
