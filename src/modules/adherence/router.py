@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, require_roles
+from src.common.http import get_client_ip
 from src.core.response import success_response
-from src.modules.admin.repository import AuditLogRepository
 from src.modules.adherence.repository import (
     AdherenceLogRepository,
     AlertRepository,
@@ -22,29 +22,16 @@ from src.modules.adherence.schemas import (
     TriggerSosRequest,
 )
 from src.modules.adherence.service import AdherenceLogService, AlertService, HealthSurveyService
+from src.modules.admin.repository import AuditLogRepository
 from src.modules.patients.repository import PatientRepository
 
 
-def _get_client_ip(request: Request) -> str:
-    """Extract client IP address from request headers or host. Mirrors
-    PrescriptionRouter._get_client_ip (duplicated per structure.md's
-    vertical-slice isolation)."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
-
-
-def get_adherence_log_service(
-    db: Annotated[AsyncSession, Depends(get_db)]
-) -> AdherenceLogService:
+def get_adherence_log_service(db: Annotated[AsyncSession, Depends(get_db)]) -> AdherenceLogService:
     """Dependency factory providing AdherenceLogService instance."""
     return AdherenceLogService(db=db, adherence_log_repository=AdherenceLogRepository(db))
 
 
-def get_health_survey_service(
-    db: Annotated[AsyncSession, Depends(get_db)]
-) -> HealthSurveyService:
+def get_health_survey_service(db: Annotated[AsyncSession, Depends(get_db)]) -> HealthSurveyService:
     """Dependency factory providing HealthSurveyService instance."""
     return HealthSurveyService(
         db=db,
@@ -78,18 +65,14 @@ DoctorOrAdminUserDep = Annotated[dict, Depends(require_roles("DOCTOR", "ADMIN"))
 AdherenceReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "CAREGIVER"))]
 
 dose_actions_router = APIRouter(tags=["Adherence Logging & Safety Alerts"])
-patients_adherence_router = APIRouter(
-    prefix="/patients", tags=["Adherence Logging & Safety Alerts"]
-)
+patients_adherence_router = APIRouter(prefix="/patients", tags=["Adherence Logging & Safety Alerts"])
 alerts_router = APIRouter(prefix="/alerts", tags=["Adherence Logging & Safety Alerts"])
 health_surveys_router = APIRouter(
     prefix="/health-surveys", tags=["Adherence Logging & Safety Alerts"]
 )
 
 
-@dose_actions_router.post(
-    "/scheduled-doses/{scheduled_dose_id}/actions", status_code=status.HTTP_201_CREATED
-)
+@dose_actions_router.post("/scheduled-doses/{scheduled_dose_id}/actions", status_code=status.HTTP_201_CREATED)
 async def record_dose_action(
     scheduled_dose_id: uuid.UUID,
     request_body: RecordDoseActionRequest,
@@ -114,9 +97,7 @@ async def record_dose_action(
     )
 
 
-@dose_actions_router.post(
-    "/scheduled-doses/batch-actions", status_code=status.HTTP_201_CREATED
-)
+@dose_actions_router.post("/scheduled-doses/batch-actions", status_code=status.HTTP_201_CREATED)
 async def batch_record_dose_action(
     request_body: BatchRecordDoseActionRequest,
     current_user: PatientUserDep,
@@ -184,9 +165,7 @@ async def list_adherence_logs(
     )
 
 
-@patients_adherence_router.post(
-    "/{patient_id}/health-surveys", status_code=status.HTTP_201_CREATED
-)
+@patients_adherence_router.post("/{patient_id}/health-surveys", status_code=status.HTTP_201_CREATED)
 async def submit_health_survey(
     patient_id: uuid.UUID,
     request_body: SubmitHealthSurveyRequest,
@@ -195,9 +174,7 @@ async def submit_health_survey(
 ) -> JSONResponse:
     """Submit a daily health survey (Patient only, self). A SEVERE symptom in
     the submission auto-raises a safety Alert in the same transaction."""
-    result = await service.submit_health_survey(
-        patient_id=patient_id, request=request_body, actor_payload=current_user
-    )
+    result = await service.submit_health_survey(patient_id=patient_id, request=request_body, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Health survey submitted successfully",
@@ -307,17 +284,13 @@ async def get_health_survey(
 async def list_alerts(
     current_user: DoctorOrAdminUserDep,
     service: AlertServiceDep,
-    status_filter: Optional[str] = Query(
-        None, alias="status", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"
-    ),
+    status_filter: Optional[str] = Query(None, alias="status", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"),
     patient_id: Optional[uuid.UUID] = Query(None, alias="patientId"),
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> JSONResponse:
     """Doctor dashboard alerts list (Doctor/Admin only), platform-wide."""
-    result = await service.list_alerts(
-        status=status_filter, patient_id=patient_id, page=page, size=size
-    )
+    result = await service.list_alerts(status=status_filter, patient_id=patient_id, page=page, size=size)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Alert list fetched successfully",
@@ -332,10 +305,8 @@ async def acknowledge_alert(
     service: AlertServiceDep,
 ) -> JSONResponse:
     """Acknowledge an OPEN alert (Doctor only); assigns the acknowledging doctor."""
-    ip_address = _get_client_ip(raw_request)
-    result = await service.acknowledge_alert(
-        alert_id=alert_id, actor_payload=current_user, ip_address=ip_address
-    )
+    ip_address = get_client_ip(raw_request)
+    result = await service.acknowledge_alert(alert_id=alert_id, actor_payload=current_user, ip_address=ip_address)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Alert acknowledged successfully",
@@ -351,7 +322,7 @@ async def resolve_alert(
     service: AlertServiceDep,
 ) -> JSONResponse:
     """Resolve an OPEN/ACKNOWLEDGED alert (Doctor only)."""
-    ip_address = _get_client_ip(raw_request)
+    ip_address = get_client_ip(raw_request)
     result = await service.resolve_alert(
         alert_id=alert_id,
         request=request_body,
