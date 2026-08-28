@@ -49,7 +49,9 @@ async def change_password(
     current_user: CurrentUserDep,
     service: AuthServiceDep,
 ) -> JSONResponse:
-    """Update PIN password and set is_first_login to false for authenticated user."""
+    """Update PIN password. Clears need_onboarding too, but only for
+    non-PATIENT roles -- a PATIENT's onboarding gate clears separately once
+    they actually finish onboarding."""
     user_id = current_user["sub"]
     result = await service.change_password(
         user_id=user_id,

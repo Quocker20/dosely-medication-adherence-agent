@@ -46,7 +46,8 @@ class AuthService:
         2. Retrieve user and verify status.
         3. Verify password + pepper against stored bcrypt hash.
         4. Issue access and refresh tokens.
-        5. Return AuthTokenResponse containing is_first_login status.
+        5. Return AuthTokenResponse containing must_change_password and
+           need_onboarding status.
         """
         if not self._is_valid_pin(password):
             raise UnauthorizedException(message="Invalid phone number or password")
@@ -89,7 +90,8 @@ class AuthService:
             refresh_token=refresh_token_str,
             token_type="Bearer",
             expires_in=settings.access_token_expire_minutes * 60,
-            is_first_login=user.is_first_login,
+            must_change_password=user.password_changed_at is None,
+            need_onboarding=user.need_onboarding,
             user=UserResponse(
                 id=user.id,
                 phone=user.phone,
@@ -101,14 +103,16 @@ class AuthService:
     async def change_password(
         self, user_id: str | uuid.UUID, current_password: str, new_password: str
     ) -> MessageResponse:
-        """Change user password PIN and mark is_first_login as False.
+        """Change user password PIN and record password_changed_at.
 
         1. Retrieve user by ID.
         2. Verify current password.
         3. Validate new_password format (must be 6-digit PIN).
         4. Hash new password with bcrypt + pepper.
-        5. Update password in database.
-        6. Set is_first_login = False.
+        5. Update password + password_changed_at in database.
+        6. Clear need_onboarding too, but only for non-PATIENT roles -- a
+           PATIENT's onboarding gate is separate from their PIN-change gate
+           and only clears once they actually finish onboarding.
         7. Revoke existing refresh tokens.
         """
         if not self._is_valid_pin(new_password):
@@ -126,7 +130,9 @@ class AuthService:
                 raise ValidationException(message="Current password is incorrect")
 
             new_hashed = hash_password(new_password)
-            await self._repository.change_password(user.id, new_hashed)
+            await self._repository.change_password(
+                user.id, new_hashed, clear_need_onboarding=user.role != "PATIENT"
+            )
 
         return MessageResponse(message="Password changed successfully")
 
@@ -180,7 +186,8 @@ class AuthService:
             refresh_token=new_refresh_token,
             token_type="Bearer",
             expires_in=settings.access_token_expire_minutes * 60,
-            is_first_login=user.is_first_login,
+            must_change_password=user.password_changed_at is None,
+            need_onboarding=user.need_onboarding,
             user=UserResponse(
                 id=user.id,
                 phone=user.phone,
