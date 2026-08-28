@@ -43,7 +43,8 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `refresh_token` (str): Mã dùng để cấp lại Access Token mới.
   * `token_type` (str): Định dạng token (Mặc định: `"Bearer"`).
   * `expires_in` (int): Thời gian sống của Access Token (tính bằng giây).
-  * `is_first_login` (bool): Cờ báo `True` nếu đây là lần đầu đăng nhập (yêu cầu điều hướng tới màn hình đổi mật khẩu).
+  * `must_change_password` (bool): Cờ báo `True` nếu tài khoản chưa từng đổi mật khẩu PIN tạm (mọi role) — yêu cầu điều hướng tới màn hình đổi mật khẩu. Derived từ `users.password_changed_at IS NULL`.
+  * `need_onboarding` (bool): Cờ báo `True` nếu bệnh nhân chưa hoàn tất onboarding (chỉ có ý nghĩa với PATIENT). Chỉ tắt khi gọi `POST /patients/me/profile` hoặc `PUT /patients/{id}/routine` với dữ liệu thật — **không** tắt khi đổi mật khẩu, để tách biệt hai gate độc lập (đổi PIN tạm vs hoàn tất onboarding).
   * `user` (UserResponse): Đối tượng thông tin tổng quan của tài khoản.
 
 ### 1.4 UserResponse

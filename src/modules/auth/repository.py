@@ -43,7 +43,7 @@ class AuthRepository:
             phone=phone,
             hashed_password=hashed_password,
             role=role,
-            is_first_login=True,
+            need_onboarding=True,
             status="ACTIVE",
         )
         self._db.add(user)
@@ -51,19 +51,27 @@ class AuthRepository:
         return user
 
     async def change_password(
-        self, user_id: uuid.UUID, hashed_password: str
+        self, user_id: uuid.UUID, hashed_password: str, clear_need_onboarding: bool
     ) -> None:
-        """Atomically update password, clear first login flag, and revoke all active refresh tokens."""
+        """Atomically update password, record password_changed_at, optionally
+        clear need_onboarding, and revoke all active refresh tokens.
+
+        clear_need_onboarding is only True for non-PATIENT roles (DOCTOR,
+        ADMIN, CAREGIVER): their temp-PIN change IS their whole onboarding
+        gate. A PATIENT's need_onboarding stays True here -- it only clears
+        when they actually finish onboarding (see PatientService), so closing
+        the app between changing the PIN and finishing onboarding still routes
+        them back to it on the next launch.
+        """
         now = datetime.now(timezone.utc)
-        stmt_user = (
-            update(User)
-            .where(User.id == user_id)
-            .values(
-                hashed_password=hashed_password,
-                is_first_login=False,
-                updated_at=now,
-            )
-        )
+        values: dict = {
+            "hashed_password": hashed_password,
+            "password_changed_at": now,
+            "updated_at": now,
+        }
+        if clear_need_onboarding:
+            values["need_onboarding"] = False
+        stmt_user = update(User).where(User.id == user_id).values(**values)
         stmt_tokens = (
             update(RefreshToken)
             .where(
@@ -74,6 +82,20 @@ class AuthRepository:
         )
         await self._db.execute(stmt_user)
         await self._db.execute(stmt_tokens)
+
+    async def clear_need_onboarding(self, user_id: uuid.UUID) -> None:
+        """Mark a patient as having finished onboarding.
+
+        The `need_onboarding` predicate makes a repeat call (double-submit,
+        or onboarding finished via two different endpoints) a zero-row no-op
+        instead of a redundant write.
+        """
+        stmt = (
+            update(User)
+            .where(User.id == user_id, User.need_onboarding.is_(True))
+            .values(need_onboarding=False, updated_at=datetime.now(timezone.utc))
+        )
+        await self._db.execute(stmt)
 
     async def update_last_login(self, user_id: uuid.UUID) -> None:
         """Update user last_login_at timestamp."""
