@@ -3,6 +3,7 @@
 // và cách gọi vẫn phẳng: api.dashboardPatients(...), api.createDoctor(...).
 
 import { adminApi } from "./admin";
+import { adherenceApi } from "./adherence";
 import { alertsApi } from "./alerts";
 import { authApi } from "./auth";
 import { dashboardApi } from "./dashboard";
@@ -27,6 +28,7 @@ export const api = {
   ...schedulesApi,
   ...adminApi,
   ...healthSurveysApi,
+  ...adherenceApi,
 };
 
 /**
