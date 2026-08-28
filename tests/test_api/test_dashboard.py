@@ -9,6 +9,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
@@ -26,6 +28,7 @@ from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
+from src.modules.dashboard.service import DashboardEventService
 from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
@@ -445,6 +448,45 @@ def test_socket_rejects_patient_role():
     assert exc_info.value.code == 1008
 
 
+def test_patient_socket_rejects_doctor_role():
+    with TestClient(app) as tc:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with tc.websocket_connect(f"/ws/patient?token={_ws_token('DOCTOR')}"):
+                pass
+    assert exc_info.value.code == 1008
+
+
+def test_patient_socket_rejects_missing_token():
+    with TestClient(app) as tc:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with tc.websocket_connect("/ws/patient"):
+                pass
+    assert exc_info.value.code == 1008
+
+
+@pytest.mark.asyncio
+async def test_patient_event_stream_never_yields_another_patients_frame(monkeypatch):
+    patient_id = uuid.uuid4()
+    own_frame = {
+        "event_type": "routine.updated",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": {"patient_id": str(patient_id), "updated_at": "2026-08-28T10:00:00+00:00"},
+    }
+
+    async def stream():
+        yield {
+            "event_type": "routine.updated",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": {"patient_id": str(uuid.uuid4())},
+        }
+        yield own_frame
+
+    monkeypatch.setattr(DashboardEventService, "stream", staticmethod(stream))
+    frames = [frame async for frame in DashboardEventService.stream_patient(patient_id)]
+
+    assert frames == [own_frame]
+
+
 def test_socket_rejects_a_refresh_token():
     """A refresh token carries no role claim and must not open the feed."""
     refresh = create_refresh_token(user_id=str(uuid.uuid4()))
@@ -477,12 +519,11 @@ def _publish_from_test_thread(event_type: str, data: dict) -> None:
     asyncio.run(_run())
 
 
-@pytest.mark.parametrize("role", ["DOCTOR", "ADMIN"])
-def test_socket_delivers_published_frames(role):
+def test_admin_socket_delivers_published_frames():
     """End-to-end through Redis: what a write path publishes is what the portal
     receives, in the documented envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token(role)}") as ws:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
             # accept() returns before the pump task has issued SUBSCRIBE, and
             # Redis pub/sub drops anything published to a channel with no
             # subscriber yet — publishing immediately would race that gap.
@@ -502,14 +543,14 @@ def test_socket_delivers_published_frames(role):
     [
         ("alert.updated", {"id": "alert-1", "status": "ACKNOWLEDGED"}),
         ("adherence.updated", {"patient_id": "p-1", "action": "TAKEN"}),
-        ("schedule.updated", {"patient_id": "p-1", "generated_dose_count": 42}),
+        ("schedule.updated", {"patient_id": "p-1", "updated_at": "2026-08-28T10:00:00+00:00"}),
     ],
 )
-def test_socket_delivers_every_published_event_type(event_type, data):
+def test_admin_socket_delivers_every_published_event_type(event_type, data):
     """The four event types the write paths emit all reach the portal through
     the same channel and envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('DOCTOR')}") as ws:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
             time.sleep(0.5)
             _publish_from_test_thread(event_type, data)
             frame = ws.receive_json()
