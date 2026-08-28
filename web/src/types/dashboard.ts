@@ -43,3 +43,21 @@ export interface WebSocketEventStream {
   timestamp: string;
   data: Record<string, unknown>;
 }
+
+export interface RoutineUpdatedRealtimeEvent extends WebSocketEventStream {
+  event_type: "routine.updated";
+  data: {
+    patient_id: string;
+    updated_at: string;
+  };
+}
+
+export interface ScheduleUpdatedRealtimeEvent extends WebSocketEventStream {
+  event_type: "schedule.updated";
+  data: {
+    patient_id: string;
+    updated_at: string;
+  };
+}
+
+export type PatientRealtimeEvent = RoutineUpdatedRealtimeEvent | ScheduleUpdatedRealtimeEvent;
