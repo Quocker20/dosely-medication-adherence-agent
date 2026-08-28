@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Restaurant
@@ -21,7 +20,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.RoutineItem
@@ -60,7 +57,7 @@ fun OnboardingScreen(
 ) {
     val extras = LocalRemindRxColors.current
     var editedRoutine by remember(routine) { mutableStateOf(routine.withRequiredOnboardingItems()) }
-    val canSave = !isSaving && editedRoutine.all { it.time.isValidOnboardingTime() }
+    val canSave = !isSaving && editedRoutine.all { it.time.isValidRoutineTime() }
 
     Column(
         modifier = Modifier
@@ -99,7 +96,7 @@ fun OnboardingScreen(
                     icon = onboardingIconFor(item.key),
                     onTimeChanged = { value ->
                         editedRoutine = editedRoutine.toMutableList().also { items ->
-                            items[index] = item.copy(time = formatOnboardingTimeInput(value))
+                            items[index] = item.copy(time = value)
                         }
                         onInputChanged()
                     },
@@ -155,16 +152,12 @@ private fun EditableRoutineRow(
             }
         }
         Text(item.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        OutlinedTextField(
-            value = item.time,
-            onValueChange = onTimeChanged,
+        RoutineTimeField(
+            time = item.time,
+            onTimeChanged = onTimeChanged,
             modifier = Modifier.width(112.dp),
             shape = RoundedCornerShape(10.dp),
             textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            placeholder = { Text("HH:mm") },
-            isError = item.time.length == 5 && !item.time.isValidOnboardingTime(),
-            singleLine = true,
         )
     }
 }
@@ -175,17 +168,6 @@ private fun List<RoutineItem>.withRequiredOnboardingItems(): List<RoutineItem> {
         val existing = byKey[default.key]
         default.copy(time = existing?.time?.take(5)?.takeIf { it.isNotBlank() } ?: default.time)
     }
-}
-
-private fun formatOnboardingTimeInput(value: String): String {
-    val digits = value.filter(Char::isDigit).take(4)
-    return if (digits.length <= 2) digits else "${digits.take(2)}:${digits.drop(2)}"
-}
-
-private fun String.isValidOnboardingTime(): Boolean {
-    if (!matches(Regex("\\d{2}:\\d{2}"))) return false
-    val (hour, minute) = split(':').map(String::toInt)
-    return hour in 0..23 && minute in 0..59
 }
 
 @com.remindrx.app.ui.preview.RemindRxScreenPreview

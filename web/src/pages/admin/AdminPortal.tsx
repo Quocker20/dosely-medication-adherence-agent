@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import { api } from "../../api";
 import { useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
@@ -13,6 +11,8 @@ export type AdminView = "overview" | "doctors" | "audit";
 
 interface Props {
   session: Session;
+  view: AdminView;
+  onViewChange: (view: AdminView) => void;
 }
 
 const TITLES: Record<AdminView, [string, string]> = {
@@ -21,8 +21,7 @@ const TITLES: Record<AdminView, [string, string]> = {
   audit: ["Audit logs", "Lịch sử thay đổi quản trị do backend ghi nhận"],
 };
 
-export default function AdminPortal({ session }: Props) {
-  const [view, setView] = useState<AdminView>("overview");
+export default function AdminPortal({ session, view, onViewChange }: Props) {
   const { theme, cycleTheme } = useTheme();
   const { toasts, notify: toast } = useToasts();
 
@@ -39,7 +38,7 @@ export default function AdminPortal({ session }: Props) {
   return (
     <>
       <div className="app">
-        <AdminSidebar view={view} theme={theme} onView={setView} onTheme={cycleTheme} onLogout={logout} />
+        <AdminSidebar view={view} theme={theme} onView={onViewChange} onTheme={cycleTheme} onLogout={logout} />
         <main className="main">
           <header className="topbar">
             <div>

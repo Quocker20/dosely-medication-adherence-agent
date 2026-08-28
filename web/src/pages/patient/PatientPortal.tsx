@@ -22,8 +22,13 @@ const navItems: Array<{ id: Tab; label: string; description: string; icon: IconN
   { id: "sos", label: "Hỗ trợ khẩn cấp", description: "Gửi cảnh báo SOS", icon: "alert" },
 ];
 
-export default function PatientPortal({ session }: { session: Session }) {
-  const [tab, setTab] = useState<Tab>("dashboard");
+interface Props {
+  session: Session;
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
+}
+
+export default function PatientPortal({ session, tab, onTabChange }: Props) {
   const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
   const [summary, setSummary] = useState<AdherenceSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,18 +68,18 @@ export default function PatientPortal({ session }: { session: Session }) {
   return <div className="patient-web-shell">
     <aside className="patient-sidebar">
       <div className="patient-brand"><span className="patient-logo"><Icon name="pill" size={22}/></span><div><strong>RemindRx</strong><small>Patient Portal</small></div></div>
-      <nav className="patient-side-nav" aria-label="Điều hướng bệnh nhân"><span className="patient-nav-label">MENU CHÍNH</span>{navItems.map((item) => <button key={item.id} className={`${tab === item.id ? "active" : ""} ${item.id === "sos" ? "sos-nav" : ""}`} onClick={() => setTab(item.id)}><span className="nav-icon"><Icon name={item.icon}/></span><span><b>{item.label}</b><small>{item.description}</small></span>{item.id === "schedule" && doses.length > 0 && <em>{doses.length}</em>}</button>)}</nav>
+      <nav className="patient-side-nav" aria-label="Điều hướng bệnh nhân"><span className="patient-nav-label">MENU CHÍNH</span>{navItems.map((item) => <button key={item.id} className={`${tab === item.id ? "active" : ""} ${item.id === "sos" ? "sos-nav" : ""}`} onClick={() => onTabChange(item.id)}><span className="nav-icon"><Icon name={item.icon}/></span><span><b>{item.label}</b><small>{item.description}</small></span>{item.id === "schedule" && doses.length > 0 && <em>{doses.length}</em>}</button>)}</nav>
       <div className="patient-safe-card"><span><Icon name="shield" size={19}/></span><div><b>Dữ liệu được bảo vệ</b><small>Chỉ bạn và bác sĩ phụ trách có quyền truy cập.</small></div></div>
       <div className="patient-account"><span className="patient-avatar">BN</span><div><b>Bệnh nhân</b><small>{session.user.phone}</small></div><button aria-label="Đăng xuất" onClick={logout}><Icon name="logout" size={18}/></button></div>
     </aside>
     <div className="patient-workspace">
       <header className="patient-header"><h1>{navItems.find((item) => item.id === tab)?.label}</h1><div className="patient-header-actions"><span className="sync-state"><i/> Dữ liệu đã đồng bộ</span><button className="header-bell" aria-label="Thông báo"><Icon name="bell"/></button></div></header>
       <main className={`patient-content ${tab === "assistant" ? "chat-content" : ""}`}>
-        {tab === "dashboard" && <DashboardView today={today} adherence={adherence} completed={completed} doses={doses} nextDose={nextDose} error={error} busyId={busyId} onRetry={refresh} onAction={action} onOpenSchedule={() => setTab("schedule")} onOpenSurvey={() => setTab("survey")}/>}
+        {tab === "dashboard" && <DashboardView today={today} adherence={adherence} completed={completed} doses={doses} nextDose={nextDose} error={error} busyId={busyId} onRetry={refresh} onAction={action} onOpenSchedule={() => onTabChange("schedule")} onOpenSurvey={() => onTabChange("survey")}/>}
         {tab === "schedule" && <ScheduleView doses={doses} busyId={busyId} onAction={action}/>}
         {tab === "assistant" && <ChatView patientId={patientId}/>}
-        {tab === "survey" && <SurveyView patientId={patientId} today={today} onDone={(message) => { notify(message); setTab("dashboard"); }}/>}
-        {tab === "sos" && <SosView patientId={patientId} onDone={(message) => { if (message) notify(message); setTab("dashboard"); }}/>}
+        {tab === "survey" && <SurveyView patientId={patientId} today={today} onDone={(message) => { notify(message); onTabChange("dashboard"); }}/>}
+        {tab === "sos" && <SosView patientId={patientId} onDone={(message) => { if (message) notify(message); onTabChange("dashboard"); }}/>}
       </main>
     </div>
     {/* Chỉ hiện toast mới nhất — giữ đúng hành vi "một toast tại một thời điểm" như trước khi gộp hook. */}
