@@ -7,6 +7,7 @@ import type { ActiveSchedule, AdherenceSummary, ScheduledDoseRow } from "../../t
 import ChatView, { chatStorageKey } from "./components/ChatView";
 import DashboardView from "./components/DashboardView";
 import Icon, { type IconName } from "./components/Icon";
+import OnboardingView from "./components/OnboardingView";
 import ScheduleView from "./components/ScheduleView";
 import SosView from "./components/SosView";
 import RoutineView from "./components/RoutineView";
@@ -65,6 +66,18 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
       notify(type === "TAKEN" ? "Đã ghi nhận bạn đã uống thuốc" : type === "SNOOZE" ? "Đã nhắc lại sau 15 phút" : "Đã ghi nhận cữ thuốc bỏ qua");
     } catch (cause) { notify(cause instanceof ApiError ? cause.message : "Không cập nhật được cữ thuốc"); }
     finally { setBusyId(null); }
+  }
+
+  if (session.needOnboarding) {
+    return (
+      <div className="patient-web-shell" style={{ display: "block", overflowY: "auto" }}>
+        <div className="patient-workspace" style={{ height: "auto" }}>
+          <main className="patient-content" style={{ paddingTop: 40 }}>
+            <OnboardingView patientId={patientId} onDone={() => setSession({ ...session, needOnboarding: false })} />
+          </main>
+        </div>
+      </div>
+    );
   }
 
   return <div className="patient-web-shell">

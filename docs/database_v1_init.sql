@@ -30,7 +30,8 @@ CREATE TABLE users (
         CONSTRAINT ck_users_role CHECK (role IN ('PATIENT','DOCTOR','ADMIN','CAREGIVER')),
     phone VARCHAR(20) NOT NULL UNIQUE,
     hashed_password VARCHAR(255) NOT NULL,
-    is_first_login BOOLEAN NOT NULL DEFAULT TRUE,
+    need_onboarding BOOLEAN NOT NULL DEFAULT TRUE,
+    password_changed_at TIMESTAMPTZ,
     status VARCHAR(20) NOT NULL
         CONSTRAINT ck_users_status CHECK (status IN ('ACTIVE','INACTIVE','BLOCKED')),
     last_login_at TIMESTAMPTZ,

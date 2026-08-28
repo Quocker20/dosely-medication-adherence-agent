@@ -56,7 +56,6 @@ enum class SosSubmissionStatus { IDLE, SENDING, SENT, QUEUED_OFFLINE, FAILED }
 data class PatientUiState(
     val isCheckingRoutine: Boolean = false,
     val routineCheckCompleted: Boolean = false,
-    val needsRoutineOnboarding: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
     val routine: List<RoutineItem> = defaultRoutine(),
@@ -154,8 +153,6 @@ class PatientViewModel @Inject constructor(
         launchInSession { revision ->
             runCatching { repository.getRoutine() }
                 .onSuccess { routine ->
-                    val isRoutineComplete = routine.size == 5 &&
-                        routine.all { item -> item.time.isValidTime() }
                     val editableRoutine = defaultRoutine().map { default ->
                         routine.firstOrNull { it.key == default.key }
                             ?.takeIf { it.time.isValidTime() }
@@ -166,11 +163,10 @@ class PatientViewModel @Inject constructor(
                             routine = editableRoutine,
                             isCheckingRoutine = false,
                             routineCheckCompleted = true,
-                            needsRoutineOnboarding = !isRoutineComplete,
                             error = null,
                         )
                     }
-                    if (isRoutineComplete && isCurrentSession(revision)) refresh()
+                    if (isCurrentSession(revision)) refresh()
                 }
                 .onFailure { error ->
                     updateForSession(revision) {
@@ -178,7 +174,6 @@ class PatientViewModel @Inject constructor(
                             it.copy(
                                 isCheckingRoutine = false,
                                 routineCheckCompleted = true,
-                                needsRoutineOnboarding = true,
                                 error = null,
                             )
                         } else {

@@ -63,7 +63,6 @@ class PatientViewModelTest {
         assertEquals(1, repository.getRoutineCalls)
         assertEquals(1, repository.loadHomeCalls)
         assertTrue(viewModel.state.value.routineCheckCompleted)
-        assertFalse(viewModel.state.value.needsRoutineOnboarding)
         assertFalse(viewModel.state.value.isLoading)
         assertEquals(routine, viewModel.state.value.routine)
         assertEquals(88, viewModel.state.value.adherenceRate)
@@ -84,7 +83,7 @@ class PatientViewModelTest {
     }
 
     @Test
-    fun `partial backend routine still requires routine onboarding`() {
+    fun `partial backend routine falls back to defaults for invalid entries`() {
         val repository = FakePatientRepository().apply {
             routineResponse = routineAt("", "07:10", "11:45", "18:15", "22:30")
         }
@@ -93,8 +92,7 @@ class PatientViewModelTest {
         viewModel.startSession("patient-1")
 
         assertTrue(viewModel.state.value.routineCheckCompleted)
-        assertTrue(viewModel.state.value.needsRoutineOnboarding)
-        assertEquals(0, repository.loadHomeCalls)
+        assertEquals(1, repository.loadHomeCalls)
         assertEquals("06:30", viewModel.state.value.routine.first { it.key == "wake_time" }.time)
     }
 
@@ -216,7 +214,6 @@ class PatientViewModelTest {
         }
         val viewModel = PatientViewModel(repository)
         viewModel.startSession("patient-1")
-        assertTrue(viewModel.state.value.needsRoutineOnboarding)
         assertEquals(0, repository.loadHomeCalls)
 
         viewModel.saveRoutine(submitted)

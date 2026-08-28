@@ -71,7 +71,8 @@ Response `data` (`AuthTokenResponse`):
   "refresh_token": "eyJhbGciOi...",
   "token_type": "Bearer",
   "expires_in": 3600,
-  "is_first_login": false,
+  "must_change_password": false,
+  "need_onboarding": false,
   "user": {
     "id": "b3f1...uuid",
     "phone": "0901234567",
@@ -82,7 +83,7 @@ Response `data` (`AuthTokenResponse`):
 ```
 
 ### POST /auth/change-password
-Auth required. Sets `is_first_login = false`.
+Auth required. Sets `password_changed_at = now()`. Also clears `need_onboarding` for non-PATIENT roles only (DOCTOR/ADMIN/CAREGIVER) — a PATIENT's `need_onboarding` stays true until they finish onboarding via `POST /patients/me/profile` or a non-empty `PUT /patients/{id}/routine`.
 
 Request body:
 ```json
