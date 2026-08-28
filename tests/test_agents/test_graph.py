@@ -202,11 +202,7 @@ async def test_drug_recommendation_is_blocked_before_classify_chat_and_rag():
     ):
         result = await agent.ainvoke(
             {
-                "messages": [
-                    HumanMessage(
-                        content="Tôi không thích ăn rau, có thuốc nào hỗ trợ giấc ngủ không?"
-                    )
-                ],
+                "messages": [HumanMessage(content="Tôi không thích ăn rau, có thuốc nào hỗ trợ giấc ngủ không?")],
                 "patient_id": "patient-123",
             }
         )
@@ -269,7 +265,20 @@ def test_rag_node_is_only_reachable_after_safety_guard():
     graph = build_graph().get_graph()
     start_targets = {edge.target for edge in graph.edges if edge.source == "__start__"}
     assert start_targets == {"safety_guard"}
-    classify_targets = {
-        edge.target for edge in graph.edges if edge.source == "classify_intent"
-    }
+    classify_targets = {edge.target for edge in graph.edges if edge.source == "classify_intent"}
     assert "drug_rag" in classify_targets
+
+
+def test_chat_system_prompt_guides_profile_based_addressing():
+    from src.agents.nodes.chat_node import _build_system_message
+
+    content = _build_system_message("patient-123").content
+
+    assert 'Không mặc định mở đầu bằng "chào bác"' in content
+    assert "get_patient_profile" in content
+    assert "profile.dob" in content
+    assert "profile.sex" in content
+    assert "bác" in content
+    assert "anh" in content
+    assert "chị" in content
+    assert "bạn" in content
