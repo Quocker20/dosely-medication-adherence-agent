@@ -185,32 +185,6 @@ private fun MedicationDetailContent(medication: Medication?, detail: MedicationD
         }
 
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = extras.surfaceAlt),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Column {
-                        Text("Nguồn thông tin", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            detail.sourceName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = extras.inkMuted,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(top = 3.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
             GuardrailNote(
                 "Thông tin thuốc chỉ dùng để tham khảo, không thay thế đơn thuốc hoặc tư vấn của bác sĩ/dược sĩ. Không tự thay đổi liều.",
                 modifier = Modifier.fillMaxWidth(),

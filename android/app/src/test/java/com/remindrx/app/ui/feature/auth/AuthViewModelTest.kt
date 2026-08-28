@@ -69,6 +69,9 @@ private class FakeAuthRepository(initialSession: AuthSession?) : AuthRepository 
     }
 
     override suspend fun refreshSession(): AuthSession = error("Not used")
+
+    override suspend fun registerDeviceToken(fcmToken: String, deviceName: String?) {
+    }
 }
 
 private fun authSession(): AuthSession = AuthSession(
