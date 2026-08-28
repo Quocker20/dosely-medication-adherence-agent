@@ -178,20 +178,16 @@ class DashboardRepository:
                 .exists()
             )
         if adherence_band == "LOW":
-            # No logged doses is displayed as 0% in the dashboard, so it belongs
-            # in the low-adherence band too.
-            filters.append(
-                or_(
-                    total_doses == 0,
-                    taken_doses * 100 < total_doses * 50,
-                )
-            )
+            # Zero-dose patients have no adherence stat yet and are excluded
+            # from every band, not just LOW.
+            filters.append(total_doses > 0)
+            filters.append(taken_doses * 100 < total_doses * 50)
         elif adherence_band == "MEDIUM":
-            filters.append(
-                taken_doses * 100 >= total_doses * 50,
-            )
+            filters.append(total_doses > 0)
+            filters.append(taken_doses * 100 >= total_doses * 50)
             filters.append(taken_doses * 100 < total_doses * 70)
         elif adherence_band == "HIGH":
+            filters.append(total_doses > 0)
             filters.append(taken_doses * 100 >= total_doses * 70)
 
         count_stmt = select(func.count(PatientProfile.user_id)).join(
