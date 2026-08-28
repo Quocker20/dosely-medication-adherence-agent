@@ -456,9 +456,10 @@ class SchedulingService:
             "schedule.updated",
             {
                 "patient_id": str(patient_id),
-                "agent_run_id": str(run_id),
-                "generated_dose_count": inserted_count,
-                "is_reschedule": is_reschedule,
+                # A websocket is only a refresh marker.  Medication names,
+                # dose counts, and agent-run metadata stay behind the
+                # authenticated REST endpoints that clients re-fetch.
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         )
         # New/replaced doses change the denominator behind the cached
