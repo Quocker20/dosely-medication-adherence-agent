@@ -17,6 +17,7 @@ from src.modules.dashboard.service import DashboardEventService, DashboardServic
 logger = logging.getLogger(__name__)
 
 _WS_ALLOWED_ROLES = ("DOCTOR", "ADMIN")
+_PATIENT_WS_ALLOWED_ROLES = ("PATIENT",)
 _WS_POLICY_VIOLATION = 1008
 
 
@@ -102,9 +103,26 @@ def _authorize_ws_token(token: Optional[str]) -> dict:
     return payload
 
 
+def _authorize_patient_ws_token(token: Optional[str]) -> dict:
+    """Validate a patient-only realtime handshake token."""
+    if not token:
+        raise UnauthorizedException(message="Missing authentication token")
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise UnauthorizedException(message="Invalid token type")
+    if payload.get("role") not in _PATIENT_WS_ALLOWED_ROLES:
+        raise UnauthorizedException(message="Role is not authorized for the patient feed")
+    try:
+        uuid.UUID(str(payload["sub"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise UnauthorizedException(message="Invalid patient identity") from exc
+    return payload
+
+
 @ws_router.websocket("/ws/dashboard")
 async def dashboard_events_socket(
     websocket: WebSocket,
+    db: Annotated[AsyncSession, Depends(get_db)],
     token: Optional[str] = Query(None),
 ) -> None:
     """Live dashboard feed (Doctor/Admin), one JSON WebSocketEventStream frame
@@ -116,7 +134,7 @@ async def dashboard_events_socket(
     than propagating as an AppException nothing would render.
     """
     try:
-        _authorize_ws_token(token)
+        actor_payload = _authorize_ws_token(token)
     except UnauthorizedException as exc:
         await websocket.close(code=_WS_POLICY_VIOLATION, reason=exc.message)
         return
@@ -124,13 +142,65 @@ async def dashboard_events_socket(
     await websocket.accept()
 
     async def _pump() -> None:
-        async for frame in DashboardEventService.stream():
+        # Redis publishes every dashboard event to one channel.  The service
+        # re-checks the doctor↔patient relationship before each delivery.
+        async for frame in DashboardEventService.stream_for_dashboard_actor(
+            actor_payload,
+            DashboardRepository(db),
+        ):
             await websocket.send_json(frame)
 
     async def _watch_disconnect() -> None:
         # Nothing is expected from the client; this read exists purely so a
         # disconnect is noticed. Without it, a socket that drops during a quiet
         # period would hold its Redis subscription open until the next event.
+        while True:
+            await websocket.receive_text()
+
+    pump = asyncio.create_task(_pump())
+    watch = asyncio.create_task(_watch_disconnect())
+    try:
+        done, pending = await asyncio.wait(
+            {pump, watch}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        for task in done:
+            exc = task.exception()
+            if exc is not None and not isinstance(exc, WebSocketDisconnect):
+                raise exc
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for task in (pump, watch):
+            task.cancel()
+
+
+@ws_router.websocket("/ws/patient")
+async def patient_events_socket(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+) -> None:
+    """Live patient feed, filtered server-side to the token subject.
+
+    Event payloads deliberately contain identifiers/status only.  Clients use
+    their authenticated REST calls to reload authoritative routine and
+    schedule data after an event arrives.
+    """
+    try:
+        payload = _authorize_patient_ws_token(token)
+        patient_id = uuid.UUID(payload["sub"])
+    except UnauthorizedException as exc:
+        await websocket.close(code=_WS_POLICY_VIOLATION, reason=exc.message)
+        return
+
+    await websocket.accept()
+
+    async def _pump() -> None:
+        async for frame in DashboardEventService.stream_patient(patient_id):
+            await websocket.send_json(frame)
+
+    async def _watch_disconnect() -> None:
         while True:
             await websocket.receive_text()
 

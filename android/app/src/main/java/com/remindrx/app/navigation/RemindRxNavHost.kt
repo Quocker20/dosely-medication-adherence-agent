@@ -29,6 +29,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remindrx.app.ui.components.RemindRxBottomBar
+import com.remindrx.app.ui.components.OfflineBanner
 import com.remindrx.app.ui.components.SosFab
 import com.remindrx.app.ui.feature.auth.AuthViewModel
 import com.remindrx.app.ui.feature.assistant.AssistantViewModel
@@ -96,6 +97,7 @@ fun RemindRxApp() {
     val assistantState by assistantViewModel.state.collectAsStateWithLifecycle()
     val patientViewModel: PatientViewModel = hiltViewModel()
     val patientState by patientViewModel.state.collectAsStateWithLifecycle()
+    val isOnline by patientViewModel.isOnline.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -158,6 +160,14 @@ fun RemindRxApp() {
     }
 
     Scaffold(
+        topBar = {
+            if (showBottomChrome || currentRoute == Routes.SOS || currentRoute == Routes.REMINDER) {
+                OfflineBanner(
+                    isOnline = isOnline,
+                    pendingSyncCount = patientState.pendingSyncCount,
+                )
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBottomChrome && currentRoute != Routes.ASSISTANT) {
@@ -388,8 +398,7 @@ fun RemindRxApp() {
             }
             composable(Routes.SOS) {
                 SosScreen(
-                    isSending = patientState.isSendingSos,
-                    isSent = patientState.isSosSent,
+                    sosStatus = patientState.sosStatus,
                     error = patientState.sosError,
                     onTriggered = patientViewModel::createSos,
                     onCancel = {

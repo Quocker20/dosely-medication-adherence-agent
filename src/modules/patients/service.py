@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
 from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
+from src.core.redis import publish_dashboard_event
 from src.core.config import get_settings
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
@@ -359,6 +360,16 @@ class PatientService:
         # already-generated future doses still sit on the old meal times.
         if updates:
             self._dispatch_reschedule(patient_id)
+            # Publish only the identity/version marker after the transaction
+            # commits.  Both web and Android reload the routine through REST;
+            # routine times never travel in the realtime frame.
+            await publish_dashboard_event(
+                "routine.updated",
+                {
+                    "patient_id": str(patient_id),
+                    "updated_at": routine.updated_at.isoformat(),
+                },
+            )
         return self._to_routine_response(routine)
 
     async def _resolve_or_create_caregiver(self, cleaned_phone: str) -> tuple:
