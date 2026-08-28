@@ -115,7 +115,8 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         accessToken = accessToken,
         refreshToken = refreshToken,
         patientId = user.id,
-        isFirstLogin = isFirstLogin,
+        mustChangePassword = mustChangePassword,
+        needOnboarding = needOnboarding,
         phone = user.phone,
     )
 

@@ -15,6 +15,8 @@ export interface Session {
   accessToken: string;
   refreshToken: string;
   user: UserResponse;
+  /** PATIENT-only onboarding gate; kept in sync on every login/refresh (Slice 1). */
+  needOnboarding: boolean;
 }
 
 type Listener = (session: Session | null) => void;
@@ -60,6 +62,7 @@ export function sessionFromTokens(tokens: AuthTokenResponse): Session {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     user: tokens.user,
+    needOnboarding: tokens.need_onboarding,
   };
 }
 
