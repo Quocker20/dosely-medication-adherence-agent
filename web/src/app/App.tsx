@@ -1,57 +1,95 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import LoginScreen from "../components/auth/LoginScreen";
 import HomePage from "../components/shared/HomePage";
 import AdminPortal from "../pages/admin/AdminPortal";
 import DoctorPortal from "../pages/doctor/DoctorPortal";
 import PatientPortal from "../pages/patient/PatientPortal";
+import { getPathname, navigate, subscribe as subscribeToRoute } from "../router";
 import { getSession, setSession, subscribe, type Session } from "../session";
 
-/**
- * Router cấp cao nhất: chọn portal theo role. Không có thư viện router nào —
- * pathname chỉ được đồng bộ cho đẹp URL, mọi điều hướng trong portal là state.
- */
+const roleRoutes = {
+  ADMIN: { prefix: "admin", defaultTab: "overview" },
+  DOCTOR: { prefix: "doctor", defaultTab: "dashboard" },
+  PATIENT: { prefix: "patient", defaultTab: "dashboard" },
+} as const;
+
+const portalPrefixes: Set<string> = new Set(Object.values(roleRoutes).map(({ prefix }) => prefix));
+
+function pathSegments(pathname: string): [string | undefined, string | undefined] {
+  const [prefix, tab] = pathname.split("/").filter(Boolean);
+  return [prefix, tab];
+}
+
+/** Router cấp cao nhất cho home, login và ba portal. */
 export default function App() {
   const [session, setLocalSession] = useState<Session | null>(getSession);
-  const [, setPathname] = useState(() => window.location.pathname);
-  // Cổng trước đăng nhập: trang chủ trước, form đăng nhập chỉ hiện sau khi bấm nút.
-  const [showLogin, setShowLogin] = useState(false);
+  const [pathname, setPathname] = useState(getPathname);
+  const previousSession = useRef<Session | null>(session);
+  const [prefix, requestedTab] = pathSegments(pathname);
+  const roleRoute = session ? roleRoutes[session.user.role as keyof typeof roleRoutes] : undefined;
+  const isProtectedPortalRoute = prefix !== undefined && portalPrefixes.has(prefix);
 
   // api/client.ts tự xoá phiên khi refresh token hết hạn — App phải nghe để quay về màn đăng nhập.
   useEffect(() => subscribe(setLocalSession), []);
-
-  // Session rớt về null (hết hạn hoặc logout) thì luôn quay lại trang chủ,
-  // không văng thẳng vào form đăng nhập.
-  useEffect(() => {
-    if (!session) setShowLogin(false);
-  }, [session]);
+  useEffect(() => subscribeToRoute(setPathname), []);
 
   useEffect(() => {
-    const onPopState = () => setPathname(window.location.pathname);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    const previous = previousSession.current;
+    previousSession.current = session;
 
-  useEffect(() => {
-    if (!session) return;
-    const expected = session.user.role === "ADMIN" ? "/admin/" : session.user.role === "PATIENT" ? "/patient/" : "/doctor/";
-    if (window.location.pathname !== expected) {
-      window.history.replaceState({}, "", expected);
-      setPathname(expected);
+    if (!previous && session && roleRoute) {
+      navigate(`/${roleRoute.prefix}/${roleRoute.defaultTab}`);
+    } else if (previous && !session) {
+      // Logout/hết phiên luôn trở về trang chủ, không tự mở lại form đăng nhập.
+      navigate("/");
     }
-  }, [session, setPathname]);
+  }, [roleRoute, session]);
+
+  useEffect(() => {
+    if (session && !roleRoute) setSession(null);
+  }, [roleRoute, session]);
+
+  useEffect(() => {
+    if (session && roleRoute && prefix !== roleRoute.prefix && prefix !== "login") {
+      navigate(`/${roleRoute.prefix}/${roleRoute.defaultTab}`, { replace: true });
+    }
+  }, [prefix, roleRoute, session]);
+
+  useEffect(() => {
+    if (!session && isProtectedPortalRoute) navigate("/login", { replace: true });
+  }, [isProtectedPortalRoute, session]);
 
   if (!session) {
-    return showLogin ? (
-      <LoginScreen onBack={() => setShowLogin(false)} />
+    return pathname === "/login" || isProtectedPortalRoute ? (
+      <LoginScreen onBack={() => navigate("/")} />
     ) : (
-      <HomePage onLogin={() => setShowLogin(true)} />
+      <HomePage onLogin={() => navigate("/login")} />
     );
   }
-  if (session.user.role === "ADMIN") return <AdminPortal session={session} />;
-  if (session.user.role === "DOCTOR") return <DoctorPortal session={session} />;
-  if (session.user.role === "PATIENT") return <PatientPortal session={session} />;
+
+  // Back từ portal về login vẫn hiển thị login thay vì tự động đá người dùng
+  // quay lại portal; Forward sẽ đưa họ đến entry portal trước đó.
+  if (pathname === "/login") return <LoginScreen onBack={() => navigate("/")} />;
+
+  if (session.user.role === "ADMIN") {
+    const view = requestedTab === "doctors" || requestedTab === "audit" ? requestedTab : "overview";
+    return <AdminPortal session={session} view={view} onViewChange={(tab) => navigate(`/admin/${tab}`)} />;
+  }
+  if (session.user.role === "DOCTOR") {
+    const view = ["dashboard", "patients", "alerts", "surveys", "rx"].includes(requestedTab ?? "")
+      ? requestedTab as "dashboard" | "patients" | "alerts" | "surveys" | "rx"
+      : "dashboard";
+    return <DoctorPortal session={session} view={view} onViewChange={(tab) => navigate(`/doctor/${tab}`)} />;
+  }
+  if (session.user.role === "PATIENT") {
+    const tab = ["dashboard", "schedule", "assistant", "survey", "sos"].includes(requestedTab ?? "")
+      ? requestedTab as "dashboard" | "schedule" | "assistant" | "survey" | "sos"
+      : "dashboard";
+    return <PatientPortal session={session} tab={tab} onTabChange={(nextTab) => navigate(`/patient/${nextTab}`)} />;
+  }
+
   // Role không hợp lệ nhưng vẫn có session (vd. dữ liệu localStorage cũ) —
   // xoá phiên và quay lại trang chủ thay vì render vỡ.
-  return <HomePage onLogin={() => setSession(null)} />;
+  return <HomePage onLogin={() => navigate("/login")} />;
 }

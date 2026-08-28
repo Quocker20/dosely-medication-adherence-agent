@@ -45,8 +45,13 @@ const ADHERENCE_FILTERS = [
   { value: "HIGH", label: "Tuân thủ từ 70%" },
 ];
 
-export default function DoctorPortal({ session }: { session: Session }) {
-  const [view, setView] = useState<ViewName>("dashboard");
+interface Props {
+  session: Session;
+  view: ViewName;
+  onViewChange: (view: ViewName) => void;
+}
+
+export default function DoctorPortal({ session, view, onViewChange }: Props) {
   const { theme, cycleTheme } = useTheme();
 
   const [patients, setPatients] = useState<DashboardPatientListItem[]>([]);
@@ -263,7 +268,7 @@ export default function DoctorPortal({ session }: { session: Session }) {
           theme={theme}
           user={session.user}
           doctorName={doctorName}
-          onView={setView}
+          onView={onViewChange}
           onTheme={cycleTheme}
           onLogout={logout}
         />
@@ -401,7 +406,7 @@ export default function DoctorPortal({ session }: { session: Session }) {
                 }}
                 onAdd={() => {
                   setRxPhone("");
-                  setView("rx");
+                  onViewChange("rx");
                 }}
                 selectedPatientId={drawerOpen ? (detail?.patient.user_id ?? null) : null}
               />
@@ -478,7 +483,7 @@ export default function DoctorPortal({ session }: { session: Session }) {
         onPrescribe={(phone) => {
           setDrawerOpen(false);
           setRxPhone(phone);
-          setView("rx");
+          onViewChange("rx");
         }}
         onGenerateSchedule={requestReschedule}
       />

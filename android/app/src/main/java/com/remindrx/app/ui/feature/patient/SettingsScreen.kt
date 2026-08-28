@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.RoutineItem
@@ -68,7 +65,7 @@ fun SettingsScreen(
     val normalizedRoutine = remember(routine) { routine.withRequiredSettingsItems() }
     var editedRoutine by remember(normalizedRoutine) { mutableStateOf(normalizedRoutine) }
     val canSaveRoutine = editedRoutine != normalizedRoutine &&
-        editedRoutine.all { it.time.isValidSettingsTime() } &&
+        editedRoutine.all { it.time.isValidRoutineTime() } &&
         !isSavingRoutine
 
     Column(
@@ -132,21 +129,17 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(item.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = item.time,
-                        onValueChange = { value ->
+                    RoutineTimeField(
+                        time = item.time,
+                        onTimeChanged = { value ->
                             editedRoutine = editedRoutine.toMutableList().also { items ->
-                                items[index] = item.copy(time = formatSettingsTimeInput(value))
+                                items[index] = item.copy(time = value)
                             }
                             onRoutineInputChanged()
                         },
                         modifier = Modifier.width(112.dp),
                         shape = RoundedCornerShape(12.dp),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center),
-                        placeholder = { Text("HH:mm") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        isError = item.time.length == 5 && !item.time.isValidSettingsTime(),
-                        singleLine = true,
                     )
                 }
             }
@@ -263,17 +256,6 @@ private fun List<RoutineItem>.withRequiredSettingsItems(): List<RoutineItem> {
         val existing = byKey[default.key]
         default.copy(time = existing?.time?.take(5)?.takeIf { it.isNotBlank() } ?: default.time)
     }
-}
-
-private fun formatSettingsTimeInput(value: String): String {
-    val digits = value.filter(Char::isDigit).take(4)
-    return if (digits.length <= 2) digits else "${digits.take(2)}:${digits.drop(2)}"
-}
-
-private fun String.isValidSettingsTime(): Boolean {
-    if (!matches(Regex("\\d{2}:\\d{2}"))) return false
-    val (hour, minute) = split(':').map(String::toInt)
-    return hour in 0..23 && minute in 0..59
 }
 
 @com.remindrx.app.ui.preview.RemindRxScreenPreview
