@@ -32,7 +32,7 @@ export default function OnboardingView({ patientId, onDone }: { patientId: strin
     setBusy(true);
     setError(null);
     try {
-      await api.updateRoutine(patientId, times);
+      await api.updatePatientRoutine(patientId, times);
       onDone();
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : "Không lưu được thói quen, vui lòng thử lại");
