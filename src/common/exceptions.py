@@ -1,5 +1,6 @@
 import logging
 from typing import Any, Optional
+
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -46,6 +47,19 @@ class ValidationException(AppException):
 class ConflictException(AppException):
     def __init__(self, message: str = "Resource conflict", errors: Optional[Any] = None):
         super().__init__(message=message, code=status.HTTP_409_CONFLICT, errors=errors)
+
+
+class TooManyRequestsException(AppException):
+    def __init__(
+        self,
+        message: str = "Too many requests",
+        retry_after_seconds: int = 60,
+    ):
+        super().__init__(
+            message=message,
+            code=status.HTTP_429_TOO_MANY_REQUESTS,
+            errors={"retry_after_seconds": retry_after_seconds},
+        )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
