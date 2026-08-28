@@ -1,6 +1,8 @@
 // Part of src/types/ — xem index.ts cho ràng buộc sync với backend.
 // Slice 2 — Patient profile (src/modules/patients/schemas.py)
 
+import type { PatientRoutine, UpdateRoutineRequest } from "./routine";
+
 /**
  * Trả về bởi GET /patients/by-phone (Doctor only).
  *
@@ -22,4 +24,19 @@ export interface PatientDetail {
   emergency_note: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** POST /patients/me/profile — hoàn tất onboarding, xoá cờ need_onboarding. */
+export interface PatientOnboardingRequest {
+  name: string;
+  dob?: string;
+  sex?: string;
+  timezone?: string;
+  emergency_note?: string;
+  routine: UpdateRoutineRequest;
+}
+
+export interface PatientProfileDetailResponse {
+  profile: PatientDetail;
+  routine: PatientRoutine;
 }

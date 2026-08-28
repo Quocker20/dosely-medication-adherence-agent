@@ -17,7 +17,8 @@ data class AuthTokenResponseDto(
     val refreshToken: String,
     val tokenType: String,
     val expiresIn: Int,
-    val isFirstLogin: Boolean,
+    val mustChangePassword: Boolean,
+    val needOnboarding: Boolean,
     val user: UserDto,
 )
 

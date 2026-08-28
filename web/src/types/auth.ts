@@ -15,6 +15,7 @@ export interface AuthTokenResponse {
   refresh_token: string;
   token_type: string;
   expires_in: number;
-  is_first_login: boolean;
+  must_change_password: boolean;
+  need_onboarding: boolean;
   user: UserResponse;
 }
