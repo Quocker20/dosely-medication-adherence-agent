@@ -308,6 +308,7 @@ private fun testSession(): AuthSession = AuthSession(
     accessToken = "access",
     refreshToken = "refresh",
     patientId = "patient-1",
-    isFirstLogin = false,
+    mustChangePassword = false,
+    needOnboarding = false,
     phone = "+84901234567",
 )

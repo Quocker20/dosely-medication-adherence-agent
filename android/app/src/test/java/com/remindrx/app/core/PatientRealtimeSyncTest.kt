@@ -53,7 +53,8 @@ class PatientRealtimeSyncTest {
         accessToken = "access-token",
         refreshToken = "refresh-token",
         patientId = "patient-1",
-        isFirstLogin = false,
+        mustChangePassword = false,
+        needOnboarding = false,
         phone = "0900000000",
     )
 

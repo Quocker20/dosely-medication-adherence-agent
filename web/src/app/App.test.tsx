@@ -42,7 +42,7 @@ const DOCTOR_USER: UserResponse = { id: "doc-1", phone: "0911111111", role: "DOC
 const PATIENT_USER: UserResponse = { id: "pat-1", phone: "0922222222", role: "PATIENT", status: "ACTIVE" };
 
 function loginAs(user: UserResponse) {
-  setSession({ accessToken: "access-token", refreshToken: "refresh-token", user });
+  setSession({ accessToken: "access-token", refreshToken: "refresh-token", user, needOnboarding: false });
 }
 
 describe("App routing", () => {
