@@ -40,11 +40,28 @@ _MY_MEDICATION_PHRASES = (
     "my current medications",
 )
 
+_EXPLAIN_MY_MEDICATION_PHRASES = (
+    "giải thích cách dùng thuốc của tôi",
+    "giải thích thuốc của tôi",
+    "thuốc của tôi dùng như thế nào",
+    "cách dùng các thuốc của tôi",
+    "explain my medications",
+)
+
+_NEXT_DOSE_PHRASES = (
+    "liều tiếp theo",
+    "cữ tiếp theo",
+    "thuốc tiếp theo lúc",
+    "next dose",
+)
+
 _CLASSIFY_SYSTEM_PROMPT = """Phân loại tin nhắn của bệnh nhân vào ĐÚNG 1 nhãn:
 
 - "report_meal_shift": bệnh nhân báo một bữa ăn hôm nay bị lệch giờ (ăn sớm/muộn hơn thường lệ)
 - "ask_schedule": hỏi về lịch uống thuốc, đã uống thuốc chưa, cữ tiếp theo lúc nào
 - "ask_my_medications": hỏi danh sách thuốc bản thân đang được kê/đang sử dụng
+- "explain_my_medications": yêu cầu giải thích cách dùng các thuốc của bản thân
+- "ask_next_dose": hỏi cữ/liều tiếp theo của bản thân
 - "ask_drug_info": hỏi thông tin về một loại thuốc (công dụng, cách dùng...)
 - "general": mọi trường hợp khác (chào hỏi, hỏi chung, yêu cầu đổi liều/ngưng thuốc, v.v.)
 
@@ -53,7 +70,13 @@ Chỉ trả về đúng nhãn, không giải thích."""
 
 class IntentClassification(BaseModel):
     intent: Literal[
-        "report_meal_shift", "ask_schedule", "ask_my_medications", "ask_drug_info", "general"
+        "report_meal_shift",
+        "ask_schedule",
+        "ask_my_medications",
+        "explain_my_medications",
+        "ask_next_dose",
+        "ask_drug_info",
+        "general",
     ] = Field(
         description="Nhãn ý định của tin nhắn — xem hướng dẫn."
     )
@@ -69,6 +92,10 @@ def _last_human_text(state: AgentState) -> str:
 async def classify_intent_node(state: AgentState) -> dict:
     text = _last_human_text(state)
     normalized = " ".join(text.casefold().split())
+    if any(phrase in normalized for phrase in _EXPLAIN_MY_MEDICATION_PHRASES):
+        return {"intent": "explain_my_medications"}
+    if any(phrase in normalized for phrase in _NEXT_DOSE_PHRASES):
+        return {"intent": "ask_next_dose"}
     asks_about_own_current_medicines = (
         "thuốc" in normalized
         and "tôi" in normalized

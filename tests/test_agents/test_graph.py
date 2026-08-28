@@ -117,7 +117,7 @@ async def test_agent_calls_formulary_rag_only_after_safety_passes():
 
     mock_get_llm.assert_not_called()
     mock_rag.return_value.query.assert_called_once_with("Acid ascorbic có chỉ định gì?")
-    assert result["messages"][-1].content == rag_result.answer
+    assert result["messages"][-1].content == "Acid ascorbic điều trị thiếu vitamin C."
     assert result["grounding_valid"] is True
 
 
