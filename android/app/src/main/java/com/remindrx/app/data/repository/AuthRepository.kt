@@ -6,7 +6,8 @@ data class AuthSession(
     val accessToken: String,
     val refreshToken: String,
     val patientId: String,
-    val isFirstLogin: Boolean,
+    val mustChangePassword: Boolean,
+    val needOnboarding: Boolean,
     val phone: String,
 )
 

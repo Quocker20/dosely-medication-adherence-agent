@@ -38,7 +38,7 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun login(phone: String, pin: String, onSuccess: (isFirstLogin: Boolean) -> Unit) {
+    fun login(phone: String, pin: String, onSuccess: (mustChangePassword: Boolean) -> Unit) {
         if (_state.value.isLoading) return
         if (!validateVnPhone(phone).ok) {
             _state.update { it.copy(error = "Số điện thoại không đúng định dạng (VD: 0901234567)") }
@@ -60,7 +60,7 @@ class AuthViewModel @Inject constructor(
                     _state.update { it.copy(isLoading = false, session = session) }
                     // B2: Đồng bộ FCM token vào user_devices ngay sau khi login
                     syncFcmTokenAfterLogin()
-                    onSuccess(session.isFirstLogin)
+                    onSuccess(session.mustChangePassword)
                 }
                 .onFailure { error ->
                     _state.update {
