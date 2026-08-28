@@ -16,6 +16,7 @@ import retrofit2.HttpException
 class RemoteAuthRepositoryImpl @Inject constructor(
     private val api: RemindRxApiService,
     private val sessionStore: SessionStore,
+    private val readableCacheCleaner: PatientReadableCacheCleaner = NoOpPatientReadableCacheCleaner,
 ) : AuthRepository {
 
     override val session: StateFlow<AuthSession?> = sessionStore.session
@@ -90,6 +91,7 @@ class RemoteAuthRepositoryImpl @Inject constructor(
                 api.logout(LogoutRequestDto(renewed.refreshToken)).requireSuccess("đăng xuất")
             }
         } finally {
+            runCatching { readableCacheCleaner.clearReadableCache(sessionBeingLoggedOut.patientId) }
             sessionStore.clearIfCurrent(sessionBeingLoggedOut)
         }
     }

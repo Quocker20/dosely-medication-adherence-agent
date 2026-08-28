@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,3 +56,33 @@ class WebSocketEventStream(BaseModel):
     event_type: str
     timestamp: datetime
     data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RoutineUpdatedEventData(BaseModel):
+    """Minimal marker sent after a committed patient routine change."""
+
+    patient_id: uuid.UUID
+    updated_at: datetime
+
+
+class RoutineUpdatedEventEnvelope(BaseModel):
+    """Typed websocket frame for ``routine.updated`` (no routine times)."""
+
+    event_type: Literal["routine.updated"]
+    timestamp: datetime
+    data: RoutineUpdatedEventData
+
+
+class ScheduleUpdatedEventData(BaseModel):
+    """Minimal marker sent after a generated schedule has been persisted."""
+
+    patient_id: uuid.UUID
+    updated_at: datetime
+
+
+class ScheduleUpdatedEventEnvelope(BaseModel):
+    """Typed websocket frame for ``schedule.updated`` (no medication data)."""
+
+    event_type: Literal["schedule.updated"]
+    timestamp: datetime
+    data: ScheduleUpdatedEventData

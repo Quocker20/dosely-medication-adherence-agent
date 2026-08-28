@@ -13,11 +13,11 @@ export interface PatientRoutine {
   updated_at: string;
 }
 
-/** PUT /patients/{id}/routine — mọi trường optional, "HH:MM:SS" hoặc "HH:MM". */
-export interface UpdateRoutineRequest {
-  wake_time?: string;
-  breakfast_time?: string;
-  lunch_time?: string;
-  dinner_time?: string;
-  sleep_time?: string;
+/** PATCH-like PUT body: omitted fields must remain untouched on the server. */
+export interface UpdatePatientRoutineRequest {
+  wake_time?: string | null;
+  breakfast_time?: string | null;
+  lunch_time?: string | null;
+  dinner_time?: string | null;
+  sleep_time?: string | null;
 }
