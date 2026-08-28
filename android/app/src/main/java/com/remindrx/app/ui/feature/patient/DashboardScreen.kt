@@ -451,7 +451,7 @@ private fun DashboardHeader() {
         verticalAlignment = Alignment.Top,
     ) {
         Column {
-            Text("Chào bác", style = MaterialTheme.typography.titleLarge)
+            Text("Xin chào", style = MaterialTheme.typography.titleLarge)
             Text(
                 today,
                 style = MaterialTheme.typography.labelMedium,
