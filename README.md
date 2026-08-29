@@ -340,20 +340,23 @@ P-216/
 │   ├── agents/                 #    LangGraph State, Nodes, Edges & Tools
 │   ├── core/                   #    Config, Database, Security, Redis, Celery
 │   ├── modules/                #    Vertical Slice Modules:
-│   │   ├── auth/               #      - Auth (JWT, OTP)
-│   │   ├── doctors/            #      - Doctor profile & Audit logs
-│   │   ├── patients/           #      - Patient profile & Routine
-│   │   ├── prescriptions/      #      - Prescriptions & Items
-│   │   ├── adherence/          #      - Adherence logs & SOS Alerts
-│   │   └── ocr_rag/            #      - OCR & RAG search
+│   │   ├── auth/               #      - Auth (JWT, PIN login)
+│   │   ├── admin/               #      - Doctor profile & Audit logs
+│   │   ├── patients/            #      - Patient profile & Routine
+│   │   ├── prescriptions/       #      - Prescriptions & Items
+│   │   ├── adherence/           #      - Adherence logs & SOS Alerts
+│   │   ├── dashboard/           #      - Doctor dashboard realtime
+│   │   ├── agents/              #      - Schedule planner, agent runs & grouping
+│   │   └── planning/            #      - Planning Agent's backend-client core
 │   ├── api/                    #    Global Routers & Dependencies
 │   └── main.py                 #    FastAPI Entrypoint & WebSockets
 ├── tests/                      # 🧪 Pytest Suite (API & Agent tests)
-├── docs/                       # 📖 Tài liệu PRD, Database Spec & Guidebooks
+├── docs/                       # 📖 Tài liệu PRD, Database Spec, API Contract & Reference
+│   ├── api-contract.md         #    Hợp đồng endpoint theo slice (design-time)
+│   └── api-reference.md        #    Chi tiết API as-built (sinh từ code thật)
 ├── scripts/                    # 🔌 AI Logging Hooks (setup_hooks.sh, log_hook.py)
 ├── docker-compose.yml          # 🐙 Orchestration (Backend, Postgres, Redis)
-├── Dockerfile                  # 🐳 Multi-stage container build
-└── api.md                      # 📡 Chi tiết API Specification
+└── Dockerfile                  # 🐳 Multi-stage container build
 ```
 
 ### 🛠 Tech Stack
@@ -384,9 +387,10 @@ Hooks sẽ tự động quét và thu thập log prompt từ các công cụ AI 
 ## 📋 Deliverables & Tài Liệu Tham Khảo
 
 - 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 📡 **Full API Specification:** [api.md](api.md)
+- 📡 **Full API Specification:** [docs/api-reference.md](docs/api-reference.md)
+- 📑 **API Contract (design-time):** [docs/api-contract.md](docs/api-contract.md)
 - 🏗 **Architecture Documentation:** [ARCHITECTURE.md](ARCHITECTURE.md)
-- 📐 **Database Schema:** [schema.md](schema.md)
+- 📐 **Database Schema:** [docs/schema.md](docs/schema.md)
 
 ---
 
