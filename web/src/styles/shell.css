@@ -402,6 +402,23 @@ nav {
   gap: 18px;
 }
 
+/* ---------- doctor patient detail ---------- */
+.patient-detail-page { gap: 14px; }
+.detail-back { width: fit-content; border: 0; padding: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.detail-hero { display: flex; align-items: center; gap: 15px; padding: 20px; }
+.detail-avatar { width: 52px; height: 52px; display: grid; place-items: center; flex: none; border-radius: 16px; color: var(--on-accent); background: var(--accent); font-size: 21px; font-weight: 720; }
+.detail-identity { min-width: 0; }.detail-identity h1 { margin-top: 3px; }.detail-identity p,.detail-subtitle { color: var(--text-2); font-size: 12px; margin-top: 4px; }
+.detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.detail-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 4px; border: 1px solid var(--line); border-radius: calc(var(--radius) + 2px); background: var(--surface); }
+.detail-tabs button { flex: none; border: 0; border-radius: calc(var(--radius) - 2px); padding: 8px 11px; background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.detail-tabs button.active { color: var(--accent); background: var(--accent-soft); }
+.detail-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }.detail-kpis article { padding: 14px 16px; }.detail-kpis span,.detail-kpis small { display: block; color: var(--text-2); font-size: 11.5px; }.detail-kpis strong { display: block; margin: 4px 0 3px; font-family: var(--mono); font-size: 25px; }.detail-kpis strong.ok,.detail-stat-list .ok,.detail-row .ok { color: var(--ok); }.detail-kpis strong.crit,.detail-stat-list .crit,.detail-row .crit { color: var(--crit); }.detail-stat-list .warn { color: var(--warn); }
+.detail-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }.detail-list { gap: 0; }.detail-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }.detail-row:last-child { border-bottom: 0; }.detail-row span { min-width: 0; }.detail-row b,.detail-row small { display: block; }.detail-row small { color: var(--text-2); font-size: 11px; margin-top: 2px; }.detail-row time { color: var(--text-2); font-family: var(--mono); font-size: 12px; }.detail-stat-list { display: grid; grid-template-columns: repeat(3, 1fr); }.detail-stat-list span { display: grid; gap: 5px; color: var(--text-2); font-size: 12px; }.detail-stat-list b { color: var(--text); font-family: var(--mono); font-size: 21px; }
+.detail-empty { padding: 10px 0; color: var(--text-2); font-size: 13px; }.prescription-card { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); }.prescription-card > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }.prescription-card > div:first-child small { width: 100%; color: var(--text-2); font-size: 11px; }.medication-detail { display: grid; gap: 3px; margin-top: 12px; padding: 11px; border-radius: 8px; background: var(--surface-2); }.medication-detail span { color: var(--text); font-size: 12.5px; }.medication-detail small { color: var(--text-2); font-size: 11px; }.survey-detail { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }.survey-detail:last-child { border-bottom: 0; }.survey-detail span,.survey-detail small { color: var(--text-2); font-size: 11.5px; }.routine-readonly { gap: 0; }.routine-readonly > span { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); }.routine-readonly > span:last-child { border-bottom: 0; }.routine-readonly time { color: var(--accent); font-family: var(--mono); font-size: 16px; font-weight: 700; }.detail-safety-note { padding: 11px 14px; border: 1px solid var(--ok-line); border-radius: var(--radius); color: var(--text-2); background: var(--ok-soft); font-size: 12px; }
+
+@media (max-width: 980px) { .detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }.detail-two-col { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .detail-hero { align-items: flex-start; flex-wrap: wrap; }.detail-actions { width: 100%; margin-left: 0; }.detail-actions .btn { flex: 1 1 180px; }.detail-kpis { grid-template-columns: 1fr 1fr; }.detail-kpis strong { font-size: 21px; }.detail-stat-list { grid-template-columns: 1fr; gap: 11px; } }
+
 .admin-two-col {
   display: grid;
   grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.6fr);

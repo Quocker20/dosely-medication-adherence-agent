@@ -19,6 +19,8 @@ from src.modules.dashboard.schemas import (
     DashboardPatientDetailResponse,
     DashboardPatientListResponse,
     DashboardPatientSummary,
+    RoutineUpdatedEventEnvelope,
+    ScheduleUpdatedEventEnvelope,
     WebSocketEventStream,
 )
 
@@ -92,6 +94,7 @@ class DashboardService:
         async def _load() -> PageResponse[DashboardPatientListResponse]:
             rows, total_count = await self._repo.list_dashboard_patients(
                 range_start=self._window_start(),
+                overdue_minutes=get_settings().missed_dose_overdue_minutes,
                 doctor_id=self._scope_doctor_id(actor_payload),
                 page=page,
                 size=size,
@@ -161,7 +164,7 @@ class DashboardService:
 
             active_count = await self._repo.count_active_prescriptions(patient_id)
             total, taken, skipped, missed = await self._repo.get_dose_status_counts(
-                patient_id, range_start
+                patient_id, range_start, settings.missed_dose_overdue_minutes
             )
             alerts = await self._repo.list_recent_alerts(
                 patient_id, limit=settings.dashboard_recent_alerts_limit
@@ -210,7 +213,59 @@ class DashboardEventService:
         async for raw in subscribe_dashboard_events():
             try:
                 frame = WebSocketEventStream.model_validate(raw)
+                # Event-specific validation keeps the two cross-device
+                # markers deliberately minimal.  Other historical dashboard
+                # events continue using the generic envelope above.
+                if frame.event_type == "routine.updated":
+                    RoutineUpdatedEventEnvelope.model_validate(raw)
+                elif frame.event_type == "schedule.updated":
+                    ScheduleUpdatedEventEnvelope.model_validate(raw)
             except ValidationError:
                 logger.warning("Dropping dashboard frame that failed schema validation")
                 continue
             yield frame.model_dump(mode="json")
+
+    @staticmethod
+    async def stream_patient(patient_id: uuid.UUID) -> AsyncIterator[Dict[str, Any]]:
+        """Yield only minimal realtime frames belonging to one patient.
+
+        The underlying Redis channel is shared with the doctor dashboard, but
+        a patient socket must never receive another patient's event and rely on
+        the browser to hide it.  Filtering here keeps the access boundary on
+        the server side.  Every patient-relevant publisher includes
+        ``patient_id`` in its payload; malformed or unrelated frames are
+        ignored.
+        """
+        async for frame in DashboardEventService.stream():
+            event_patient_id = frame.get("data", {}).get("patient_id")
+            if event_patient_id == str(patient_id):
+                yield frame
+
+    @staticmethod
+    async def stream_for_dashboard_actor(
+        actor_payload: dict,
+        dashboard_repository: DashboardRepository,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Yield dashboard frames within the receiving actor's care scope.
+
+        Redis fan-out is intentionally shared, so authorization cannot stop at
+        the WebSocket handshake.  Each DOCTOR frame with a patient identifier
+        is re-authorized against the prescription relationship before it is
+        sent; ADMIN is the sole global dashboard role.  Events without a
+        patient identifier are discarded for doctors rather than risking an
+        unscoped delivery as new event types are added.
+        """
+        if actor_payload.get("role") == "ADMIN":
+            async for frame in DashboardEventService.stream():
+                yield frame
+            return
+
+        doctor_id = uuid.UUID(actor_payload["sub"])
+        async for frame in DashboardEventService.stream():
+            raw_patient_id = frame.get("data", {}).get("patient_id")
+            try:
+                patient_id = uuid.UUID(str(raw_patient_id))
+            except (TypeError, ValueError):
+                continue
+            if await dashboard_repository.get_patient_identity(patient_id, doctor_id=doctor_id):
+                yield frame

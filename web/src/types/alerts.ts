@@ -3,7 +3,7 @@
 
 export type AlertStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
 export type AlertSeverity = "CRITICAL" | "HIGH" | "MEDIUM";
-export type AlertTriggeredBy = "SOS_BUTTON" | "SEVERE_SYMPTOM" | "MISSED_DOSES";
+export type AlertTriggeredBy = "SOS_BUTTON" | "SEVERE_SYMPTOM" | "MISSED_DOSES" | "ADHERENCE_REVIEW";
 
 export interface AlertDetail {
   id: string;

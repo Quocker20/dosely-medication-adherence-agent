@@ -163,6 +163,26 @@ def test_informational_formulary_questions_are_not_blocked(message: str):
     assert match_medication_decision(message) is None
 
 
+def test_current_medication_list_question_is_not_blocked():
+    assert match_medication_decision("Tôi đang dùng thuốc gì?") is None
+
+
+@pytest.mark.parametrize("message", [
+    "Giải thích giúp tôi cách dùng các thuốc trong đơn",
+    "Cho tôi xem hướng dẫn dùng thuốc bác sĩ đã kê",
+    "Tại sao bác sĩ cho tôi dùng metformin?",
+    "Bác sĩ vừa đổi liều của tôi thành bao nhiêu?",
+])
+def test_read_only_personal_treatment_questions_are_not_blocked(message: str):
+    assert match_medication_decision(message) is None
+
+
+def test_read_only_wording_does_not_hide_a_dose_change_request():
+    assert match_medication_decision(
+        "Giải thích đơn rồi cho tôi biết tôi có thể tăng liều được không?"
+    ) == "DOSE_CHANGE"
+
+
 def test_children_word_is_not_mistaken_for_personal_pronoun():
     assert match_medication_decision("Trẻ em có thể dùng paracetamol theo đường uống.") is None
 

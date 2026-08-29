@@ -86,7 +86,8 @@ class AssistantViewModel @Inject constructor(
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val result = runCatching { repository.sendText(question) }
+            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
+            val result = runCatching { repository.sendText(question, conversationId) }
             if (!isCurrentSession(revision)) return@launch
             result
                 .onSuccess(::appendAssistantMessage)
@@ -148,7 +149,8 @@ class AssistantViewModel @Inject constructor(
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val result = runCatching { repository.sendVoice(file, "audio/mp4") }
+            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
+            val result = runCatching { repository.sendVoice(file, "audio/mp4", conversationId) }
             if (!isCurrentSession(revision)) {
                 file.delete()
                 return@launch
@@ -256,9 +258,11 @@ class AssistantViewModel @Inject constructor(
     }
 }
 
-private fun welcomeMessage() = ChatMessage(
+internal fun welcomeMessage() = ChatMessage(
     id = "welcome",
     role = ChatRole.ASSISTANT,
-    content = "Chào bác! Tôi có thể giúp xem lịch uống thuốc và giải thích thông tin cơ bản về thuốc trong đơn. Bác muốn hỏi gì?",
+    // The local welcome is shown before any /chat call, so it must be neutral.
+    // Subsequent backend replies can personalize addressing from patient profile.
+    content = "Chào bạn! Tôi có thể giúp xem lịch uống thuốc và giải thích thông tin cơ bản về thuốc trong đơn. Bạn muốn hỏi gì?",
     time = "Bây giờ",
 )

@@ -2,6 +2,14 @@
 
 > Tiền đề: tầng 1 (constraint solver) đã xong và pass `test_scheduler.py`.
 > Tầng 2 KHÔNG tính giờ. Mọi phép tính lịch đều gọi lại solver của tầng 1.
+>
+> ⚠️ **Cập nhật tên file/module (nội dung/nguyên tắc bên dưới vẫn đúng):** không có file
+> `test_scheduler.py` hay `src/agents/nodes/compute_schedule.py` nào trong repo — 2 tên này
+> chưa từng được dùng làm tên thật. Solver "tầng 1" thật là `src/modules/agents/planner.py`
+> (hàm thuần, không DB/IO), test tương ứng ở `tests/test_services/test_planner.py` và
+> `tests/test_services/test_schedule_planner.py`. Nguyên tắc "agent không tự tính giờ" vẫn
+> được giữ đúng trong code — xem ghi chú tại Sprint 3 bên dưới về cách nó thật sự được
+> implement.
 
 ---
 
@@ -35,7 +43,10 @@ Output: {alert_id, channels_notified, timestamp}
 
 Định nghĩa xong:
 - [ ] Gọi được endpoint `POST /alerts` của backend
-- [ ] Retry 3 lần nếu lỗi mạng, sau đó ghi vào dead-letter queue
+- [ ] ~~Retry 3 lần nếu lỗi mạng, sau đó ghi vào dead-letter queue~~ — **chưa implement**:
+  `src/modules/planning/core/backend_client.py::post()` hiện chỉ gọi 1 lần, fail-open
+  (log `CRITICAL`, trả lỗi, không retry, không dead-letter queue). Vẫn đúng tinh thần
+  fail-open, chỉ chưa có retry/DLQ như phác thảo ban đầu.
 - [ ] Không phụ thuộc LLM ở bất kỳ điểm nào trên đường đi
 - [ ] Test: mock backend trả 500 → alert vẫn được ghi lại để gửi sau
 
@@ -100,6 +111,15 @@ text vào
 ### Sprint 3 — Rescheduling agent (2 ngày)
 
 Đây là chỗ agent thật sự có giá trị: hiểu câu nói tự do của bệnh nhân.
+
+> ⚠️ **ĐÃ THAY ĐỔI THIẾT KẾ so với sketch dưới đây.** Sketch gốc giả định có một
+> `solver.recompute(routine_override=..., from_time=now)` chạy tại chỗ ngay trong node.
+> Implementation thật (`src/agents/nodes/rescheduling_node.py:7-17`, đọc docstring đầu file
+> để biết lý do đầy đủ) **không** gọi solver tại chỗ — node chỉ trích xuất intent có cấu
+> trúc rồi gọi tool `reschedule_remaining_doses` kèm `reason`; việc tính giờ thật chạy qua
+> một pipeline LangGraph riêng (`src/agents/planning_graph.py`, xem
+> `docs/architecture_diagram.md` mục "Planning Graph Flow"). Nguyên tắc cốt lõi — **"agent
+> tuyệt đối không tự tính giờ"** — vẫn đúng 100%, chỉ đường gọi cụ thể đã đổi.
 
 ```
 "hôm nay tôi ăn trưa muộn, tầm 2 giờ chiều"

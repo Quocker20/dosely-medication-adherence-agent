@@ -312,21 +312,58 @@ class AdherenceLogRepository:
         actor_id: uuid.UUID,
         range_start: datetime,
         range_end: datetime,
+        overdue_minutes: int,
     ) -> Tuple[int, int, int, int]:
         """Single aggregate query (one round trip, FILTER-based conditional
         counts) returning (total, taken, skipped, missed) doses scheduled in
         [range_start, range_end) — avoids running four separate COUNT
         queries. Rides idx_scheduled_doses_patient_time (patient_id,
-        current_scheduled_at)."""
+        current_scheduled_at).
+
+        Only *due* doses count. A dose still PENDING within `overdue_minutes`
+        of its scheduled time has had no chance to be actioned yet, so
+        including it would deflate the rate for a patient who has done
+        nothing wrong — the denominator must be doses that resolved or should
+        have, not every dose on the calendar. `overdue_minutes` is the
+        caller's settings.missed_dose_overdue_minutes, the same threshold
+        MissedDoseScanService uses to flip PENDING -> MISSED, so the two
+        agree on what "overdue" means.
+
+        An overdue-but-still-PENDING dose is counted as missed rather than
+        left in a fourth bucket: the scan is up to
+        missed_dose_scan_interval_minutes behind, and without this the four
+        returned figures would not sum to `total` and the client's summary
+        card would show unexplained arithmetic. It also makes the result
+        immune to racing the scan — under either snapshot the row lands in
+        `missed`.
+
+        The cutoff is evaluated SQL-side: Postgres now() is transaction start
+        time, so the WHERE clause and every FILTER below see one instant with
+        no skew between numerator and denominator.
+        """
+        overdue_cutoff = func.now() - timedelta(minutes=overdue_minutes)
+        is_due = or_(
+            ScheduledDose.status != "PENDING",
+            ScheduledDose.current_scheduled_at <= overdue_cutoff,
+        )
         stmt = select(
             func.count(ScheduledDose.id),
             func.count(ScheduledDose.id).filter(ScheduledDose.status == "TAKEN"),
             func.count(ScheduledDose.id).filter(ScheduledDose.status == "SKIPPED"),
-            func.count(ScheduledDose.id).filter(ScheduledDose.status == "MISSED"),
+            # No cutoff repeated here: the WHERE below already dropped every
+            # not-yet-due row, so any PENDING one reaching this FILTER is
+            # overdue by definition.
+            func.count(ScheduledDose.id).filter(
+                or_(
+                    ScheduledDose.status == "MISSED",
+                    ScheduledDose.status == "PENDING",
+                )
+            ),
         ).where(
             ScheduledDose.patient_id == patient_id,
             ScheduledDose.current_scheduled_at >= range_start,
             ScheduledDose.current_scheduled_at < range_end,
+            is_due,
             _access_filter(actor_id, ScheduledDose.patient_id),
         )
         result = await self._db.execute(stmt)

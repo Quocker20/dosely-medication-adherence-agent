@@ -64,7 +64,9 @@ Sau khi có vector index, chạy bộ eval và bổ sung câu hỏi ground-truth
 ## Retrieval and grounded answers
 
 The approved corpus is embedded with `text-embedding-3-large` into
-`data/rag_dense_index/`. The index stores normalized float32 vectors in
+`data/rag_dense_index_q1_q2/` (the default in code — `DEFAULT_DENSE_INDEX` in
+`src/rag_retrieval/service.py`; the plain `rag_dense_index` name only survives as
+`LEGACY_DENSE_INDEX`, a fallback). The index stores normalized float32 vectors in
 `vectors.npy`, aligned metadata/documents in `records.jsonl`, plus a manifest
 and resumable state file. Review groups are never included automatically.
 
@@ -95,3 +97,10 @@ ranking. Run the real-index evaluation with:
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\evaluate_rag_retrieval.py
 ```
+
+**Status: wired into the live chatbot, not just an offline eval artifact.** The
+`search_drug_formulary` tool (`src/agents/tools/drug_rag_tools.py`) and
+`src/agents/nodes/drug_rag_node.py` load this same index at runtime via
+`src/rag_retrieval/service.py`/`safe_service.py` to answer real patient chat questions —
+see `docs/api-contract.md` (Slice 6) and `docs/CHATBOT_GUARDRAIL_PLAN.md` for how the
+guardrail/grounding layers wrap this retrieval before it reaches the patient.

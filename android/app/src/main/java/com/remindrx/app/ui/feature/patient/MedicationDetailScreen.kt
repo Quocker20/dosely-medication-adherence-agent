@@ -29,6 +29,7 @@ import com.remindrx.app.data.Medication
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.GuardrailNote
 import com.remindrx.app.ui.components.PrimaryButton
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.components.TimeChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
@@ -53,26 +54,29 @@ fun MedicationDetailScreen(
     isLoading: Boolean = false,
     error: String? = null,
     onRetry: () -> Unit = {},
+    onRefresh: () -> Unit = onRetry,
     onBack: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        MedicationDetailHeader(onBack)
+    RemindRxPullRefresh(isRefreshing = isLoading, onRefresh = onRefresh) {
+        Column(Modifier.fillMaxSize()) {
+            MedicationDetailHeader(onBack)
 
-        when {
-            isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            when {
+                isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+
+                error != null -> MedicationDetailError(error, onRetry)
+
+                detail == null -> Box(
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Không tìm thấy thông tin thuốc.", style = MaterialTheme.typography.titleMedium)
+                }
+
+                else -> MedicationDetailContent(medication = medication, detail = detail)
             }
-
-            error != null -> MedicationDetailError(error, onRetry)
-
-            detail == null -> Box(
-                modifier = Modifier.fillMaxSize().padding(20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Không tìm thấy thông tin thuốc.", style = MaterialTheme.typography.titleMedium)
-            }
-
-            else -> MedicationDetailContent(medication = medication, detail = detail)
         }
     }
 }
@@ -182,32 +186,6 @@ private fun MedicationDetailContent(medication: Medication?, detail: MedicationD
         }
         detail.sideEffects?.takeIf(String::isNotBlank)?.let { sideEffects ->
             item { KnowledgeSection("Tác dụng phụ có thể gặp", sideEffects, warning = true) }
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = extras.surfaceAlt),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Column {
-                        Text("Nguồn thông tin", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            detail.sourceName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = extras.inkMuted,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(top = 3.dp),
-                        )
-                    }
-                }
-            }
         }
 
         item {

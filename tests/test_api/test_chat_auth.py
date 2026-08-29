@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.core.security import create_access_token
-
+from src.modules.agents.schemas import ChatResponse, VoiceChatResponse
 
 PATIENT_ID = str(uuid.uuid4())
 
@@ -38,8 +38,11 @@ async def test_chat_rejects_non_patient_role(client):
 
 @pytest.mark.asyncio
 async def test_chat_uses_authenticated_patient_and_ignores_legacy_client_id(client):
-    run_agent = AsyncMock(return_value="Phản hồi an toàn")
-    with patch("src.modules.agents.router._run_agent", new=run_agent):
+    handle_text_chat = AsyncMock(return_value=ChatResponse(response="Phản hồi an toàn"))
+    with patch(
+        "src.modules.agents.service.ChatService.handle_text_chat",
+        new=handle_text_chat,
+    ):
         response = await client.post(
             "/api/v1/chat",
             json={
@@ -47,28 +50,33 @@ async def test_chat_uses_authenticated_patient_and_ignores_legacy_client_id(clie
                 # Backward compatibility: an older app may still send this,
                 # but it must never control the agent's patient context.
                 "patient_id": str(uuid.uuid4()),
+                "clientDate": "2026-08-29",
+                "clientDateTime": "2026-08-29T23:30:00+07:00",
             },
             headers=_auth_headers(),
         )
 
     assert response.status_code == 200
-    assert response.json() == {"response": "Phản hồi an toàn"}
-    run_agent.assert_awaited_once_with("Lịch thuốc hôm nay?", PATIENT_ID)
+    assert response.json()["data"] == {"response": "Phản hồi an toàn"}
+    call = handle_text_chat.await_args.kwargs
+    assert call["message"] == "Lịch thuốc hôm nay?"
+    assert call["patient_id"] == PATIENT_ID
+    assert call["client_date"].isoformat() == "2026-08-29"
+    assert call["client_datetime"].isoformat() == "2026-08-29T23:30:00+07:00"
 
 
 @pytest.mark.asyncio
 async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(client):
-    run_agent = AsyncMock(return_value="Đã kiểm tra lịch thuốc")
-    with (
-        patch(
-            "src.modules.agents.router.transcribe_audio",
-            new=AsyncMock(return_value="Tôi uống thuốc chưa?"),
-        ),
-        patch(
-            "src.modules.agents.router.synthesize_speech",
-            new=AsyncMock(return_value=b"mp3"),
-        ),
-        patch("src.modules.agents.router._run_agent", new=run_agent),
+    handle_voice_chat = AsyncMock(
+        return_value=VoiceChatResponse(
+            transcript="Tôi uống thuốc chưa?",
+            response="Đã kiểm tra lịch thuốc",
+            audio_base64="bXAz",
+        )
+    )
+    with patch(
+        "src.modules.agents.service.ChatService.handle_voice_chat",
+        new=handle_voice_chat,
     ):
         response = await client.post(
             "/api/v1/chat/voice",
@@ -77,5 +85,11 @@ async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(cli
         )
 
     assert response.status_code == 200
-    assert response.json()["transcript"] == "Tôi uống thuốc chưa?"
-    run_agent.assert_awaited_once_with("Tôi uống thuốc chưa?", PATIENT_ID)
+    assert response.json()["data"]["transcript"] == "Tôi uống thuốc chưa?"
+    handle_voice_chat.assert_awaited_once_with(
+        audio_bytes=b"audio",
+        filename="question.m4a",
+        patient_id=PATIENT_ID,
+        client_date=None,
+        client_datetime=None,
+    )

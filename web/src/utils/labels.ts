@@ -1,4 +1,10 @@
-import type { AlertSeverity, AlertStatus, AlertTriggeredBy } from "../types";
+import type {
+  AdherenceReviewSeverity,
+  AlertSeverity,
+  AlertStatus,
+  AlertTriggeredBy,
+  RemedyClass,
+} from "../types";
 
 type Tone = "crit" | "warn" | "ok";
 
@@ -21,6 +27,22 @@ export const ALERT_TRIGGER: Record<AlertTriggeredBy, string> = {
   SOS_BUTTON: "Bệnh nhân bấm SOS",
   SEVERE_SYMPTOM: "Triệu chứng nặng",
   MISSED_DOSES: "Chuỗi bỏ liều",
+  ADHERENCE_REVIEW: "Đánh giá tuân thủ hàng đêm",
+};
+
+export const REVIEW_SEVERITY: Record<AdherenceReviewSeverity, { label: string; tone: Tone }> = {
+  MILD: { label: "Nhẹ", tone: "warn" },
+  MODERATE: { label: "Trung bình", tone: "warn" },
+  SEVERE: { label: "Nghiêm trọng", tone: "crit" },
+};
+
+export const REMEDY_CLASS: Record<RemedyClass, string> = {
+  RESCHEDULE_TIMING: "Lệch múi giờ sinh hoạt",
+  SUSPECTED_SIDE_EFFECT: "Nghi tác dụng phụ",
+  DELIBERATE_REFUSAL: "Chủ động từ chối",
+  DISENGAGEMENT: "Mất kết nối điều trị",
+  EXTERNAL_DISRUPTION: "Gián đoạn ngoại cảnh",
+  UNCLEAR: "Chưa rõ nguyên nhân",
 };
 
 export function alertStatusView(status: string): { label: string; tone: Tone } {
@@ -33,6 +55,15 @@ export function alertSeverityView(severity: string): { label: string; tone: Tone
 
 export function alertTriggerLabel(trigger: string): string {
   return ALERT_TRIGGER[trigger as AlertTriggeredBy] ?? trigger;
+}
+
+export function reviewSeverityView(severity: string): { label: string; tone: Tone } {
+  return REVIEW_SEVERITY[severity as AdherenceReviewSeverity] ?? { label: severity, tone: "warn" };
+}
+
+export function remedyClassLabel(remedyClass: string | null): string {
+  if (!remedyClass) return "Chưa phân loại";
+  return REMEDY_CLASS[remedyClass as RemedyClass] ?? remedyClass;
 }
 
 /** Ngưỡng màu cho tỷ lệ tuân thủ — KPI MVP là 70%. */
@@ -93,6 +124,13 @@ export function formatTime(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** dose_value là NUMERIC(10,3) — DB trả về "1.000" cho liều 1 viên; bỏ số 0 thừa. */
+export function formatDoseValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const num = Number(value);
+  return Number.isFinite(num) ? String(num) : String(value);
 }
 
 export function formatDate(value: string | null): string {

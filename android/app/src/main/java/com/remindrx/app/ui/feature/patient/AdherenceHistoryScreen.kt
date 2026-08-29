@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.PrimaryButton
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 import kotlin.math.roundToInt
@@ -68,88 +69,90 @@ fun AdherenceHistoryScreen(
     onLoadMore: () -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
-                }
-                Text("Lịch sử dùng thuốc", style = MaterialTheme.typography.headlineMedium)
-            }
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                IconButton(onClick = onPreviousWeek) {
-                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Tuần trước")
-                }
-                Text(
-                    summary?.let { "${it.fromDateLabel} – ${it.toDateLabel}" } ?: "Tuần hiện tại",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                IconButton(onClick = onNextWeek, enabled = canGoNextWeek) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "Tuần sau")
-                }
-            }
-        }
-
-        if (isLoading) {
+    RemindRxPullRefresh(isRefreshing = isLoading, onRefresh = onRetry) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item {
-                Row(Modifier.fillMaxWidth().padding(36.dp), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                    }
+                    Text("Lịch sử dùng thuốc", style = MaterialTheme.typography.headlineMedium)
                 }
-            }
-        } else if (error != null) {
-            item {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
-                    PrimaryButton("Thử lại", onClick = onRetry, modifier = Modifier.padding(top = 12.dp))
-                }
-            }
-        } else {
-            summary?.let { adherence ->
-                item { AdherenceSummaryCard(adherence) }
             }
 
             item {
-                Text("Các lần ghi nhận", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-            }
-
-            if (logs.isEmpty()) {
-                item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    IconButton(onClick = onPreviousWeek) {
+                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Tuần trước")
+                    }
                     Text(
-                        "Chưa có lần dùng thuốc nào được ghi nhận trong tuần này.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = extras.inkMuted,
-                        modifier = Modifier.padding(vertical = 18.dp),
+                        summary?.let { "${it.fromDateLabel} – ${it.toDateLabel}" } ?: "Tuần hiện tại",
+                        style = MaterialTheme.typography.titleMedium,
                     )
+                    IconButton(onClick = onNextWeek, enabled = canGoNextWeek) {
+                        Icon(Icons.Filled.ChevronRight, contentDescription = "Tuần sau")
+                    }
+                }
+            }
+
+            if (isLoading) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(36.dp), horizontalArrangement = Arrangement.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            } else if (error != null) {
+                item {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
+                        PrimaryButton("Thử lại", onClick = onRetry, modifier = Modifier.padding(top = 12.dp))
+                    }
                 }
             } else {
-                items(logs, key = AdherenceLogUi::id) { log -> AdherenceLogRow(log) }
-            }
+                summary?.let { adherence ->
+                    item { AdherenceSummaryCard(adherence) }
+                }
 
-            if (hasMore || isLoadingMore) {
                 item {
-                    TextButton(
-                        onClick = onLoadMore,
-                        enabled = !isLoadingMore,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (isLoadingMore) {
-                            CircularProgressIndicator(modifier = Modifier.padding(4.dp))
-                        } else {
-                            Text("Xem thêm")
+                    Text("Các lần ghi nhận", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+                }
+
+                if (logs.isEmpty()) {
+                    item {
+                        Text(
+                            "Chưa có lần dùng thuốc nào được ghi nhận trong tuần này.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = extras.inkMuted,
+                            modifier = Modifier.padding(vertical = 18.dp),
+                        )
+                    }
+                } else {
+                    items(logs, key = AdherenceLogUi::id) { log -> AdherenceLogRow(log) }
+                }
+
+                if (hasMore || isLoadingMore) {
+                    item {
+                        TextButton(
+                            onClick = onLoadMore,
+                            enabled = !isLoadingMore,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (isLoadingMore) {
+                                CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+                            } else {
+                                Text("Xem thêm")
+                            }
                         }
                     }
                 }

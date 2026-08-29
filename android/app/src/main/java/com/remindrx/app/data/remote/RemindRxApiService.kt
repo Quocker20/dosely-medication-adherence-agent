@@ -1,6 +1,7 @@
 package com.remindrx.app.data.remote
 
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -134,6 +135,9 @@ interface RemindRxApiService {
     @POST("chat/voice")
     suspend fun sendVoiceChatMessage(
         @Part audio: MultipartBody.Part,
+        @Part("clientDate") clientDate: RequestBody,
+        @Part("clientDateTime") clientDateTime: RequestBody,
+        @Part("conversationId") conversationId: RequestBody,
     ): ApiEnvelope<VoiceChatResponseDto>
 
     @POST("auth/device-token")

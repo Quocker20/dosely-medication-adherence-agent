@@ -32,6 +32,16 @@
             "shell": "bash"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/_pyrun.sh scripts/doc_audit_hook.py",
+            "shell": "bash",
+            "statusMessage": "Checking if docs/ need updating"
+          }
+        ]
       }
     ]
   }
