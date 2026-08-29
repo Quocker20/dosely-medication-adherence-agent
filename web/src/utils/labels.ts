@@ -95,6 +95,13 @@ export function formatTime(value: string | null): string {
   return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** dose_value là NUMERIC(10,3) — DB trả về "1.000" cho liều 1 viên; bỏ số 0 thừa. */
+export function formatDoseValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const num = Number(value);
+  return Number.isFinite(num) ? String(num) : String(value);
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
