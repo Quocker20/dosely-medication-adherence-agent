@@ -35,6 +35,8 @@ _MY_MEDICATION_PHRASES = (
     "danh sách thuốc hiện tại",
     "bác sĩ đang cho tôi dùng thuốc",
     "bác sĩ kê cho tôi thuốc",
+    "bác sĩ kê cho tôi",
+    "xem thuốc của tôi",
     "what medicines am i taking",
     "what medications am i taking",
     "my current medications",
@@ -53,6 +55,23 @@ _NEXT_DOSE_PHRASES = (
     "cữ tiếp theo",
     "thuốc tiếp theo lúc",
     "next dose",
+)
+
+_TODAY_SCHEDULE_PHRASES = (
+    "lịch thuốc hôm nay",
+    "lịch uống thuốc hôm nay",
+    "hôm nay uống thuốc gì",
+    "hôm nay tôi uống thuốc gì",
+    "các cữ thuốc hôm nay",
+    "today's medication schedule",
+    "my schedule today",
+)
+
+_DRUG_INFO_MARKERS = (
+    "tác dụng", "công dụng", "chỉ định", "chống chỉ định", "tác dụng phụ",
+    "phản ứng bất lợi", "tương tác", "cách dùng", "đường dùng", "bảo quản",
+    "quên liều", "mang thai", "thai kỳ", "cho con bú", "used for",
+    "side effect", "contraindication", "interaction", "how to take", "storage",
 )
 
 _CLASSIFY_SYSTEM_PROMPT = """Phân loại tin nhắn của bệnh nhân vào ĐÚNG 1 nhãn:
@@ -96,18 +115,28 @@ async def classify_intent_node(state: AgentState) -> dict:
         return {"intent": "explain_my_medications"}
     if any(phrase in normalized for phrase in _NEXT_DOSE_PHRASES):
         return {"intent": "ask_next_dose"}
+    if any(phrase in normalized for phrase in _TODAY_SCHEDULE_PHRASES):
+        return {"intent": "ask_schedule"}
     asks_about_own_current_medicines = (
         "thuốc" in normalized
         and "tôi" in normalized
         and any(
             marker in normalized
-            for marker in ("đang uống", "đang dùng", "hiện tại", "danh sách", "bác sĩ")
+            for marker in (
+                "đang uống", "đang dùng", "hiện tại", "danh sách", "bác sĩ",
+                "thuốc của tôi",
+            )
         )
     )
     if asks_about_own_current_medicines or any(
         phrase in normalized for phrase in _MY_MEDICATION_PHRASES
     ):
         return {"intent": "ask_my_medications"}
+    # Route formulary-shaped questions to SafeDrugRAG without depending on an
+    # LLM classifier. Its input guard resolves the exact drug name or asks the
+    # user to provide one; it never performs an unscoped retrieval.
+    if any(marker in normalized for marker in _DRUG_INFO_MARKERS):
+        return {"intent": "ask_drug_info"}
     try:
         llm = get_llm(temperature=0).with_structured_output(IntentClassification)
         result = await llm.ainvoke(

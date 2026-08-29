@@ -11,6 +11,7 @@ from src.agents.nodes.explain_my_medications_node import explain_my_medications_
 from src.agents.nodes.next_dose_node import next_dose_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.safety_guard_node import safety_guard_node
+from src.agents.nodes.today_schedule_node import today_schedule_node
 from src.agents.state import AgentState
 from src.agents.tools import CHAT_TOOLS
 
@@ -30,6 +31,8 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "explain_my_medications"
     if state.get("intent") == "ask_next_dose":
         return "next_dose"
+    if state.get("intent") == "ask_schedule":
+        return "today_schedule"
     return "agent"
 
 
@@ -43,6 +46,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("current_medications", current_medications_node)
     graph.add_node("explain_my_medications", explain_my_medications_node)
     graph.add_node("next_dose", next_dose_node)
+    graph.add_node("today_schedule", today_schedule_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(CHAT_TOOLS, handle_tool_errors=True))
 
@@ -63,6 +67,7 @@ def build_graph() -> CompiledStateGraph:
             "current_medications": "current_medications",
             "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose",
+            "today_schedule": "today_schedule",
             "agent": "agent",
         },
     )
@@ -71,6 +76,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_edge("current_medications", END)
     graph.add_edge("explain_my_medications", END)
     graph.add_edge("next_dose", END)
+    graph.add_edge("today_schedule", END)
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.

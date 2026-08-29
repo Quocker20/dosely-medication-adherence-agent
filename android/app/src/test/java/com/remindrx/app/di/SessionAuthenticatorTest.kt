@@ -225,7 +225,8 @@ class SessionAuthenticatorTest {
         refreshToken = "refresh-new",
         tokenType = "Bearer",
         expiresIn = 900,
-        isFirstLogin = false,
+        mustChangePassword = false,
+        needOnboarding = false,
         user = UserDto(
             id = "patient-1",
             phone = "+84901234567",

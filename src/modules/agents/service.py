@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.audit import log_turn
 from src.agents.graph import agent
+from src.agents.patient_addressing import get_patient_address
+from src.agents.patient_presentation import patient_facing_text
 from src.agents.planning_graph import (
     planning_commit_graph,
     planning_draft_graph,
@@ -250,7 +252,12 @@ class SchedulingService:
             }
             for dose, display_name in rows
         ]
-        return ActiveScheduleResponse(patient_id=patient_id, date=target_date, doses=doses)
+        return ActiveScheduleResponse(
+            patient_id=patient_id,
+            date=target_date,
+            timezone=patient_timezone,
+            doses=doses,
+        )
 
     async def get_next_dose_for_patient(
         self, patient_id: uuid.UUID, actor_payload: dict
@@ -280,7 +287,9 @@ class SchedulingService:
             patient_id, range_start, range_end, actor_id=actor_id
         )
         if not rows:
-            return NextDoseResponse(status="NO_SCHEDULE", local_date=local_date)
+            return NextDoseResponse(
+                status="NO_SCHEDULE", local_date=local_date, timezone=patient_timezone
+            )
 
         resolved_statuses = {"TAKEN", "SKIPPED", "MISSED"}
         for dose, display_name in rows:
@@ -291,6 +300,7 @@ class SchedulingService:
                 return NextDoseResponse(
                     status="UPCOMING",
                     local_date=local_date,
+                    timezone=patient_timezone,
                     dose={
                         "scheduled_dose_id": dose.id,
                         "medication_name": display_name,
@@ -301,7 +311,37 @@ class SchedulingService:
                         "status": dose.status,
                     },
                 )
-        return NextDoseResponse(status="NO_UPCOMING", local_date=local_date)
+        return NextDoseResponse(
+            status="NO_UPCOMING", local_date=local_date, timezone=patient_timezone
+        )
+
+    async def get_today_schedule_for_patient(
+        self, patient_id: uuid.UUID, actor_payload: dict
+    ) -> ActiveScheduleResponse:
+        """Read today's live schedule using the authenticated patient's timezone.
+
+        The date is deliberately calculated by the backend. Chat clients and the
+        LLM must not supply either a patient id or a date for this self-service
+        path, which prevents cross-patient reads and server-timezone drift.
+        """
+        actor_id = uuid.UUID(actor_payload["sub"])
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(
+            patient_id, actor_id
+        )
+        if patient_timezone is None:
+            return ActiveScheduleResponse(
+                patient_id=patient_id,
+                date=datetime.now(UTC).date(),
+                timezone=None,
+                doses=[],
+            )
+
+        local_date = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+        return await self.get_schedule(
+            patient_id=patient_id,
+            actor_payload=actor_payload,
+            target_date=local_date,
+        )
 
     async def get_run_status(self, agent_run_id: uuid.UUID, actor_payload: dict) -> AgentRunStatusResponse:
         """PATIENT/DOCTOR/ADMIN, mirrors PrescriptionService.get_prescription's
@@ -456,9 +496,10 @@ class SchedulingService:
             "schedule.updated",
             {
                 "patient_id": str(patient_id),
-                "agent_run_id": str(run_id),
-                "generated_dose_count": inserted_count,
-                "is_reschedule": is_reschedule,
+                # A websocket is only a refresh marker.  Medication names,
+                # dose counts, and agent-run metadata stay behind the
+                # authenticated REST endpoints that clients re-fetch.
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         )
         # New/replaced doses change the denominator behind the cached
@@ -560,11 +601,16 @@ class ChatService:
     transcribe -> agent -> synthesize and never touches AsyncSession.
     """
 
-    async def handle_text_chat(self, message: str, patient_id: str) -> ChatResponse:
-        response_text = await self._run_agent(message, patient_id)
+    async def handle_text_chat(
+        self, message: str, patient_id: str, client_date=None, client_datetime=None
+    ) -> ChatResponse:
+        response_text = await self._run_agent(message, patient_id, client_date, client_datetime)
         return ChatResponse(response=response_text)
 
-    async def handle_voice_chat(self, audio_bytes: bytes, filename: str, patient_id: str) -> VoiceChatResponse:
+    async def handle_voice_chat(
+        self, audio_bytes: bytes, filename: str, patient_id: str,
+        client_date=None, client_datetime=None,
+    ) -> VoiceChatResponse:
         try:
             transcript = await transcribe_audio(audio_bytes, filename=filename)
         except SpeechServiceError as e:
@@ -573,7 +619,7 @@ class ChatService:
         if not transcript:
             raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
 
-        response_text = await self._run_agent(transcript, patient_id)
+        response_text = await self._run_agent(transcript, patient_id, client_date, client_datetime)
 
         audio_base64 = None
         try:
@@ -587,14 +633,24 @@ class ChatService:
         return VoiceChatResponse(transcript=transcript, response=response_text, audio_base64=audio_base64)
 
     @staticmethod
-    async def _run_agent(message: str, patient_id: str) -> str:
+    async def _run_agent(message: str, patient_id: str, client_date=None, client_datetime=None) -> str:
+        reference_date = client_date or (
+            client_datetime.date() if client_datetime is not None else date.today()
+        )
+        patient_address = await get_patient_address(patient_id, reference_date)
         result = await agent.ainvoke(
             {
                 "messages": [HumanMessage(content=message)],
                 "patient_id": patient_id,
+                "patient_address": patient_address,
+                "client_date": client_date.isoformat() if client_date else None,
+                "client_datetime": client_datetime.isoformat() if client_datetime else None,
             }
         )
-        response_text = result["messages"][-1].content
+        # Sources and citation ids remain available to the grounding/audit
+        # pipeline. They are removed exactly once at the API presentation
+        # boundary so no ReAct/tool fallback can leak "[Nguồn N]" to patients.
+        response_text = patient_facing_text(result["messages"][-1].content)
         log_turn(
             patient_id=patient_id,
             intent=result.get("intent"),
