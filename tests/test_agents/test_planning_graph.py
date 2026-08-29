@@ -14,7 +14,7 @@ from src.agents.planning_graph import (
 from src.modules.agents.grouping import DoseGroupingProposal
 
 
-def _item() -> SimpleNamespace:
+def _item(*, is_critical: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
         medication_id=uuid.uuid4(),
@@ -27,6 +27,7 @@ def _item() -> SimpleNamespace:
         minimum_interval_minutes=60,
         start_date=date(2026, 8, 21),
         end_date=date(2026, 8, 21),
+        is_critical=is_critical,
     )
 
 

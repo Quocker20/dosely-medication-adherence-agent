@@ -291,6 +291,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `start_date` (date): Ngày bắt đầu uống.
   * `end_date` (Optional[date]): Ngày kết thúc đợt uống.
   * `instructions` (Optional[str]): Hướng dẫn chi tiết bổ sung.
+  * `is_critical` (bool, default=False): Bác sĩ đánh dấu thuốc nguy hiểm/quan trọng. Được snapshot đóng băng sang `scheduled_doses.is_critical` tại thời điểm sinh lịch (không FK, không đổi dù item sau này bị sửa). Thu hẹp phạm vi cảnh báo đỏ tức thời (chuỗi bỏ lỡ 3 liều liên tiếp) — xem `docs/graded-adherence-implementation.md` Stage 2.
 
 ### 5.7 PrescriptionItemDetailResponse
 * **Mục đích**: Phản hồi thông tin chi tiết một dòng thuốc thuộc đơn.
@@ -311,6 +312,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `start_date` (date): Ngày bắt đầu.
   * `end_date` (Optional[date]): Ngày kết thúc.
   * `instructions` (Optional[str]): Hướng dẫn dùng.
+  * `is_critical` (bool): Cờ thuốc nguy hiểm/quan trọng do bác sĩ đặt.
   * `created_at` (datetime): Thời điểm tạo.
 
 ### 5.8 PrescriptionDetailResponse

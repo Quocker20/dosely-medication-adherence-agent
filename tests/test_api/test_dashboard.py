@@ -543,7 +543,13 @@ def test_admin_socket_delivers_published_frames():
     [
         ("alert.updated", {"id": "alert-1", "status": "ACKNOWLEDGED"}),
         ("adherence.updated", {"patient_id": "p-1", "action": "TAKEN"}),
-        ("schedule.updated", {"patient_id": "p-1", "updated_at": "2026-08-28T10:00:00+00:00"}),
+        (
+            "schedule.updated",
+            {
+                "patient_id": "11111111-1111-1111-1111-111111111111",
+                "updated_at": "2026-08-28T10:00:00+00:00",
+            },
+        ),
     ],
 )
 def test_admin_socket_delivers_every_published_event_type(event_type, data):
