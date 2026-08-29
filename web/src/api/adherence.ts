@@ -1,5 +1,5 @@
 import { request } from "./client";
-import type { AdherenceLog, AdherenceSummary, PageResponse } from "../types";
+import type { AdherenceLog, AdherenceReviewDetail, AdherenceSummary, PageResponse } from "../types";
 
 export const adherenceApi = {
   adherenceSummary: (patientId: string, from: string, to: string) =>
@@ -8,4 +8,9 @@ export const adherenceApi = {
     request<PageResponse<AdherenceLog>>(`/patients/${patientId}/adherence/logs`, {
       query: { from, to, page: 1, size },
     }),
+  adherenceReviews: (patientId: string, page = 1, size = 10) =>
+    request<PageResponse<AdherenceReviewDetail>>(`/patients/${patientId}/adherence-reviews`, {
+      query: { page, size },
+    }),
 };
+

@@ -46,6 +46,10 @@ class PrescriptionItemBase(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     instructions: Optional[str] = None
+    # Doctor-set on high-risk medications: narrows the missed-dose-streak
+    # fast-path alert to only this item instead of every medication. See
+    # docs/graded-adherence-implementation.md Stage 2.
+    is_critical: bool = False
 
 
 class CreatePrescriptionItemRequest(PrescriptionItemBase):
@@ -134,6 +138,7 @@ class PrescriptionItemDetailResponse(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     instructions: Optional[str] = None
+    is_critical: bool = False
     created_at: datetime
 
 
