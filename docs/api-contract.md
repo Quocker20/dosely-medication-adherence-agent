@@ -32,6 +32,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | POST | /auth/change-password | Required (Authenticated) | ChangePasswordRequest | 200 OK / MessageResponse |
 | POST | /auth/refresh | Public | RefreshTokenRequest | 200 OK / AuthTokenResponse |
 | POST | /auth/logout | Required (Authenticated) | LogoutRequest | 200 OK / MessageResponse |
+| POST | /auth/device-token | Required (Authenticated) | DeviceTokenRequest | 200 OK / MessageResponse |
 
 ### SLICE 2: ADMIN & DOCTOR MANAGEMENT
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
@@ -46,8 +47,10 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### SLICE 3: DOCTOR & PATIENT CLINICAL MANAGEMENT
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
+| GET | /doctors/me | Required (DOCTOR) | None — id read from token `sub` | 200 OK / DoctorDetailResponse |
 | POST | /doctors/patients | Required (DOCTOR) | CreatePatientByDoctorRequest | 201 Created / PatientDetailResponse |
 | GET | /doctors/patients | Required (DOCTOR) | Query Params (page, size, search) | 200 OK / PageResponse[PatientDetailResponse] |
+| GET | /doctors/patients/by-phone | Required (DOCTOR) | Query Param (phone: str) | 200 OK / PatientDetailResponse |
 | GET | /doctors/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / PatientDetailResponse |
 | GET | /medications | Required (Authenticated) | Query Params (page, size, search) | 200 OK / PageResponse[MedicationDetailResponse] |
 | GET | /medications/{medication_id} | Required (Authenticated) | Path Param (medication_id: UUID) | 200 OK / MedicationDetailResponse |
@@ -56,6 +59,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /patients/me/profile | Required (PATIENT) | PatientOnboardingRequest | 200 OK / PatientProfileDetailResponse |
+| GET | /patients/me/profile | Required (PATIENT) | None — id read from token `sub` | 200 OK / PatientProfileDetailResponse |
 | GET | /patients/{patient_id}/routine | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) | 200 OK / PatientRoutineResponse |
 | PUT | /patients/{patient_id}/routine | Required (PATIENT) | Path Param (patient_id: UUID) + UpdateRoutineRequest | 200 OK / PatientRoutineResponse |
 | POST | /patients/{patient_id}/caregivers | Required (PATIENT/DOCTOR) | Path Param (patient_id: UUID) + CreateCaregiverLinkRequest | 201 Created / CaregiverLinkDetailResponse |
@@ -66,33 +70,43 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /prescriptions | Required (DOCTOR) | CreatePrescriptionRequest (phone-based find-or-create patient, atomic with items) | 201 Created / CreatePrescriptionResponse |
+| GET | /patients/me/medications/current | Required (PATIENT) | Query Param (as_of: date, optional — defaults to today) | 200 OK / CurrentMedicationListResponse |
 | GET | /patients/{patient_id}/prescriptions | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (status, page, size) | 200 OK / PageResponse[PrescriptionDetailResponse] |
 | GET | /prescriptions/{prescription_id} | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | PUT | /prescriptions/{prescription_id} | Required (DOCTOR) | Path Param (prescription_id: UUID) + UpdatePrescriptionRequest | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/approve | Required (DOCTOR) | Path Param (prescription_id: UUID) | 200 OK / PrescriptionDetailResponse |
 | POST | /prescriptions/{prescription_id}/cancel | Required (DOCTOR) | Path Param (prescription_id: UUID) + CancelPrescriptionRequest | 200 OK / PrescriptionDetailResponse |
-| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest (medication_id required; display_name auto-snapshotted from Medication.name server-side, not client input) | 201 Created / PrescriptionItemDetailResponse |
-| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest (medication_id required; display_name re-snapshotted from Medication.name) | 200 OK / PrescriptionItemDetailResponse |
+| POST | /prescriptions/{prescription_id}/items | Required (DOCTOR); prescription MUST be status DRAFT | Path Param (prescription_id: UUID) + CreatePrescriptionItemRequest (medication_id required; display_name auto-snapshotted from Medication.name server-side, not client input; is_critical optional, default false) | 201 Created / PrescriptionItemDetailResponse |
+| PUT | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) + UpdatePrescriptionItemRequest (medication_id required; display_name re-snapshotted from Medication.name; is_critical optional, default false) | 200 OK / PrescriptionItemDetailResponse |
 | DELETE | /prescriptions/{prescription_id}/items/{item_id} | Required (DOCTOR); prescription MUST be status DRAFT | Path Params (prescription_id: UUID, item_id: UUID) | 200 OK / MessageResponse |
 
 ### SLICE 6: SCHEDULES & AI AGENTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | /patients/{patient_id}/schedules/generate | Required (DOCTOR/SYSTEM) | Path Param (patient_id: UUID) + GenerateScheduleRequest | 202 Accepted / AgentRunAsyncResponse |
+| POST | /patients/{patient_id}/schedules/generate | Required (DOCTOR) | Path Param (patient_id: UUID) + GenerateScheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (date) | 200 OK / ActiveScheduleResponse |
-| POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
+| GET | /patients/me/schedules/today | Required (PATIENT) | No caller-supplied identity/date; backend derives patient and local date from JWT/profile timezone | 200 OK / ActiveScheduleResponse |
+| GET | /patients/me/schedules/next | Required (PATIENT) | No caller-supplied identity/date; returns UPCOMING, NO_SCHEDULE, or NO_UPCOMING | 200 OK / NextDoseResponse |
+| POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
 | POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |
 | POST | /chat/voice | Required (PATIENT) | multipart/form-data (audio: UploadFile) | 200 OK / VoiceChatResponse |
 
+**Internal trigger path.** Beyond the two HTTP-role-gated endpoints above, schedule generation/reschedule can also be kicked off internally by a Celery task (`src/modules/agents/tasks.py`) calling the service layer directly — that path does not go through an HTTP request or a role check, so there is no `SYSTEM` role in the codebase; it is a separate, code-level trigger, not a third caller role on these endpoints.
+
 **Chat AI notes.** Both endpoints act on the authenticated caller's own record: `patient_id` is read from the access token's `sub` and is never accepted from the request body or form. The agent's tools can record dose actions and raise alerts, so a caller-supplied id would be a write path into another patient's data. Both responses use the standard envelope like every other endpoint. `/chat/voice` returns `502` when the STT vendor fails and `422` when the audio yields an empty transcript; TTS failure is fail-open — the reply still returns `200` with `audio_base64: null`.
 
-**Drug info lookup — not a separate endpoint.** The agent has one more capability reachable only through `POST /chat`/`/chat/voice`: the `search_drug_info` tool, called by the LLM mid-conversation when the patient asks about a medication. There is no dedicated HTTP route for it and none is planned — it is not part of the request/response contract above, only of the agent's internal tool-calling loop. Today it is a stub: every call returns a fixed Vietnamese fallback ("không tìm thấy thông tin đáng tin cậy, hỏi bác sĩ/dược sĩ") regardless of the query, because no retrieval pipeline exists yet (no Chroma collection, no embedding step, no citation data). Do not build a client against a `rag_result`/citation shape for this — none is produced.
+**Drug info lookup — not a separate endpoint.** The agent has two more capabilities reachable only through `POST /chat`/`/chat/voice`, both called by the LLM mid-conversation, neither with a dedicated HTTP route (not part of the request/response contract above, only of the agent's internal tool-calling loop):
+- `search_drug_info` — DB-backed lookup against the `medications` catalog (real implementation since commit `3cbd9bf`, not a stub).
+- `search_drug_formulary` — real hybrid RAG (dense + BM25, RRF-fused) over an OCR'd Dược thư Quốc gia corpus, with grounding/citation checks before the answer reaches the patient. Backed by a committed index at `data/rag_dense_index_q1_q2/` (~11.6k chunked records, `text-embedding-3-large`) and served through `src/rag_retrieval/service.py` + `src/agents/nodes/drug_rag_node.py`. See `docs/rag_ingestion_pipeline.md` for how the index was built and `docs/CHATBOT_GUARDRAIL_PLAN.md` for the grounding/safety layers wrapped around it.
+
+Do not build a client against a `rag_result`/citation shape for either tool — both are internal to the agent's tool loop and never surface a separate structured field in the chat response envelope.
 
 ### SLICE 7: ADHERENCE LOGGING & SAFETY ALERTS
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /scheduled-doses/{scheduled_dose_id}/actions | Required (PATIENT) | Path Param (scheduled_dose_id: UUID) + RecordDoseActionRequest (Header: Idempotency-Key) | 201 Created / AdherenceLogDetailResponse |
+| POST | /scheduled-doses/batch-actions | Required (PATIENT) | BatchRecordDoseActionRequest (Header: Idempotency-Key, required) | 201 Created / BatchRecordDoseActionResponse |
 | GET | /patients/{patient_id}/adherence | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to) | 200 OK / AdherenceSummaryResponse |
 | GET | /patients/{patient_id}/adherence/logs | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (from, to, page, size) | 200 OK / PageResponse[AdherenceLogDetailResponse] |
 | POST | /patients/{patient_id}/health-surveys | Required (PATIENT) | Path Param (patient_id: UUID) + SubmitHealthSurveyRequest | 201 Created / HealthSurveyDetailResponse |
@@ -103,17 +117,20 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /alerts | Required (DOCTOR/ADMIN) | Query Params (page, size, status, patientId) | 200 OK / PageResponse[AlertDetailResponse] |
 | POST | /alerts/{alert_id}/acknowledge | Required (DOCTOR) | Path Param (alert_id: UUID) | 200 OK / AlertDetailResponse |
 | POST | /alerts/{alert_id}/resolve | Required (DOCTOR) | Path Param (alert_id: UUID) + ResolveAlertRequest | 200 OK / AlertDetailResponse |
+| GET | /patients/{patient_id}/adherence-reviews | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (page, size) | 200 OK / PageResponse[AdherenceReviewDetailResponse] |
+| POST | /admin/adherence-reviews/run | Required (ADMIN) | None | 202 Accepted / {task: "adherence_review.scan"} |
 
 **Health survey notes.** `POST /patients/{id}/health-surveys` now returns **409 Conflict** on a second submission for the same `(patient_id, survey_date)` — `uq_health_surveys_patient_date` (migration `0018_health_survey_query_indexes`) enforces one survey per patient per day at the DB layer; a prior 201-on-every-retry behavior is gone. `GET /health-surveys` (list, no path param) is DOCTOR/ADMIN only: a DOCTOR sees only patients they've written at least one prescription for (same derivation as the dashboard roster — evaporates with the last prescription), an ADMIN sees the whole platform; out-of-scope narrows the result to an empty page, not 403. `GET /patients/{id}/health-surveys` and `GET /health-surveys/{survey_id}` reuse the adherence access rule (self / doctor-prescribed / active-caregiver); out-of-scope on the list returns an empty page, on the detail returns 404 (same as a nonexistent id — the endpoint must not be usable to probe which survey UUIDs are real). The list responses omit `answers_json` and the symptom list (summary only, `symptom_count`/`max_severity`); only the single-survey detail endpoint returns the full payload.
 
-### SLICE 8: DASHBOARD REALTIME (Doctor Portal)
-Backend-only slice — no agent involvement (the doctor dashboard reads adherence/alert data the same way any other client would). Implemented in `src/modules/dashboard/`.
+### SLICE 8: REALTIME EVENTS (Doctor Dashboard + Patient App)
+Backend-only slice — no agent involvement (readers just consume adherence/alert/event data the same way any other client would). Implemented in `src/modules/dashboard/`.
 
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
 | GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponse[DashboardPatientListResponse] |
 | GET | /dashboard/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / DashboardPatientDetailResponse |
 | WS | /ws/dashboard | Required (DOCTOR/ADMIN) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of WebSocketEventStream frames |
+| WS | /ws/patient | Required (PATIENT) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of the patient's own events (identifiers/status only — client reloads authoritative data via REST) |
 
 **Scope.** A doctor sees only patients they have written at least one prescription for; an ADMIN sees all. The roster returns an empty page for an out-of-scope caller rather than 403, and `/dashboard/patients/{id}` returns **404** for both "no such patient" and "not your patient" — a distinct status would confirm which UUIDs exist. Rows are ordered by open alert count descending, so the patients needing attention are on page 1.
 
@@ -121,7 +138,9 @@ Backend-only slice — no agent involvement (the doctor dashboard reads adherenc
 
 **WS /ws/dashboard.** Note this path is **not** under `/api/v1`. The token travels as a query parameter because the browser WebSocket API cannot set an `Authorization` header; keep those tokens short-lived, since query strings reach proxy and browser-history logs far more readily than headers do. Authorisation happens before `accept()` — a missing, non-access, or non-DOCTOR/ADMIN token closes with code **1008** (policy violation) rather than opening a socket that immediately dies. Frames currently published: `alert.opened` (SOS or agent-detected alert raised) and `alert.updated` (acknowledged or resolved). Publishing is fail-open: a Redis outage costs the portal its liveness, never the underlying clinical write. There is no separate `/ws/dashboard/events` route — the events *are* this connection's frames; the earlier two-row listing described one endpoint as two.
 
-**OCR removed from this contract.** The former `POST /patients/{id}/drug-label-ocr` + `GET /ocr-jobs/{id}` pair (image-of-label -> OCR -> RAG lookup) has no code behind it anywhere — no router, no `ocr_rag` module, no OCR engine wired, no Chroma collection to ground a result against. It was speculative and is dropped rather than left to imply a working feature. Re-add it here only once there is a real pipeline to document; until then, the only drug-lookup path is the `search_drug_info` chat tool described under Slice 6.
+**WS /ws/patient.** Same auth-before-`accept()` pattern as `/ws/dashboard`, but scoped to a single PATIENT and their own `sub`. Frames carry identifiers/status only (never routine/schedule payload content) — the client re-fetches authoritative data over REST once notified. Also not under `/api/v1`, for the same query-token reason as above.
+
+**Label OCR removed from this contract.** The former `POST /patients/{id}/drug-label-ocr` + `GET /ocr-jobs/{id}` pair (patient photographs a physical medication label -> OCR -> lookup) has no code behind it anywhere — no router, no live OCR engine wired to an HTTP request. It was speculative and is dropped rather than left to imply a working feature. Re-add it here only once there is a real pipeline to document. Do not confuse this with the separate, real, offline OCR pipeline (`docs/rag_ocr.md`, `docs/rag_ingestion_pipeline.md`) that built the Dược thư reference corpus behind `search_drug_formulary` — that one exists and runs, it is just not a request-triggered HTTP feature. The only chat-reachable drug-lookup paths are `search_drug_info` and `search_drug_formulary`, both described under Slice 6.
 
 ---
 
@@ -129,11 +148,11 @@ Backend-only slice — no agent involvement (the doctor dashboard reads adherenc
 * 200 OK / 201 Created: Business transactions completed successfully.
 * 202 Accepted: Asynchronous job accepted for background processing (e.g., Planning Agent, Rescheduling Agent).
 * 400 Bad Request: Structural validation constraint breaches or malformed JSON payloads (handled via FastAPI RequestValidationError / Custom Exception Handlers).
-* 401 Unauthorized: Lack of valid authentication credentials, expired Access Token, or unverified OTP signature.
+* 401 Unauthorized: Lack of valid authentication credentials, expired Access Token, or an invalid/blacklisted Refresh Token.
 * 403 Forbidden: Authenticated user lacks appropriate administrative or clinical privileges (e.g., Patient attempting Doctor-only endpoints).
 * 404 Not Found: Requested database entity does not exist (e.g., non-existent prescription ID, patient profile, or medication entry).
 * 409 Conflict: Concurrent modification state collisions, schedule version lock breaches, or duplicate Idempotency-Key executions.
 * 422 Unprocessable Entity: Syntactically valid request failing domain rules (e.g., attempting to modify a locked/APPROVED prescription item).
-* 429 Too Many Requests: Rate limit exceeded (e.g., requesting OTP verification codes more than 3 times within 15 minutes).
+* 429 Too Many Requests: Rate limit exceeded (e.g., too many login attempts or agent-run triggers within the configured window — see `src/core/rate_limit.py`).
 * 500 Internal Server Error: Unhandled backend application failures or underlying infrastructure database service downtime.
-* 503 Service Unavailable: Downstream AI Agent worker, S3 storage gateway, or external SMS/Zalo OTP vendor temporarily offline.
+* 503 Service Unavailable: Downstream AI Agent worker or Redis/Celery broker temporarily offline.

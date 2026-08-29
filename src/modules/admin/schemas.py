@@ -46,7 +46,8 @@ class CreateDoctorResponse(BaseModel):
 
     Wraps DoctorDetailResponse with a one-time temp_password field.
     Admin must relay this to the doctor; it is shown only once.
-    Doctor is forced to change it on first login (is_first_login=True).
+    Doctor is forced to change it on first login (must_change_password=True,
+    derived from users.password_changed_at IS NULL).
     """
 
     doctor: DoctorDetailResponse

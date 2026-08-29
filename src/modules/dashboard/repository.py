@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
 from sqlalchemy import Exists, func, or_, select
@@ -70,6 +70,44 @@ class DashboardRepository:
         )
 
     @staticmethod
+    def _critical_alerts_count_subquery(patient_id_col: ColumnElement):
+        """Correlated COUNT of alerts a doctor must act on now (RED_ALERT
+        severities). Kept separate from _warning_alerts_count_subquery so
+        the roster's ORDER BY can rank truly urgent patients above
+        merely-watched ones. Without this split, the WARNING tier the
+        nightly graded-adherence review introduces
+        (docs/graded-adherence-implementation.md Stage 6) could let warning
+        volume push a genuinely critical patient off page 1 if ordering used
+        only the combined open_alerts_count."""
+        return (
+            select(func.count(Alert.id))
+            .where(
+                Alert.patient_id == patient_id_col,
+                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
+                Alert.severity.in_(("CRITICAL", "HIGH")),
+            )
+            .correlate_except(Alert)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _warning_alerts_count_subquery(patient_id_col: ColumnElement):
+        """Correlated COUNT of alerts worth watching but not paging for
+        (MEDIUM severity — currently only WARNING-type ADHERENCE_REVIEW
+        alerts use this). Ranked below critical_alerts, never instead of it,
+        in the roster ORDER BY."""
+        return (
+            select(func.count(Alert.id))
+            .where(
+                Alert.patient_id == patient_id_col,
+                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
+                Alert.severity == "MEDIUM",
+            )
+            .correlate_except(Alert)
+            .scalar_subquery()
+        )
+
+    @staticmethod
     def _last_survey_date_subquery(patient_id_col: ColumnElement):
         return (
             select(func.max(HealthSurvey.survey_date))
@@ -79,18 +117,45 @@ class DashboardRepository:
         )
 
     @staticmethod
+    def _is_due_filter(overdue_minutes: int):
+        """Restricts a dose count to doses that have resolved or should have.
+
+        The roster window is a rolling `now - N days` with no upper bound, but
+        schedule_horizon_days of PENDING doses are pre-generated *ahead* of
+        now. Without this the denominator swallows the entire future horizon
+        and every rate on the portal reads far below the truth — a fully
+        adherent patient on a 7-day window against a 14-day horizon lands
+        near 33%. A dose still PENDING inside `overdue_minutes` of its time is
+        excluded for the same reason: nobody has failed anything yet.
+
+        `overdue_minutes` is settings.missed_dose_overdue_minutes, the
+        threshold MissedDoseScanService uses to flip PENDING -> MISSED, so the
+        portal and the scan agree on "overdue". Evaluated SQL-side, where
+        Postgres now() is transaction start time and therefore identical
+        across every correlated subquery in one statement.
+        """
+        return or_(
+            ScheduledDose.status != "PENDING",
+            ScheduledDose.current_scheduled_at
+            <= func.now() - timedelta(minutes=overdue_minutes),
+        )
+
+    @classmethod
     def _dose_count_subquery(
+        cls,
         patient_id_col: ColumnElement,
         range_start: datetime,
+        overdue_minutes: int,
         status: Optional[str] = None,
     ):
-        """Correlated COUNT of doses scheduled since range_start.
+        """Correlated COUNT of due doses scheduled since range_start.
 
-        status=None counts every dose in the window (the denominator).
+        status=None counts every due dose in the window (the denominator).
         """
         filters = [
             ScheduledDose.patient_id == patient_id_col,
             ScheduledDose.current_scheduled_at >= range_start,
+            cls._is_due_filter(overdue_minutes),
         ]
         if status is not None:
             filters.append(ScheduledDose.status == status)
@@ -104,6 +169,7 @@ class DashboardRepository:
     async def list_dashboard_patients(
         self,
         range_start: datetime,
+        overdue_minutes: int,
         doctor_id: Optional[uuid.UUID] = None,
         page: int = 1,
         size: int = 10,
@@ -129,9 +195,11 @@ class DashboardRepository:
         before LIMIT can apply, which is a full scan on every page request.
         """
         filters = []
-        total_doses = self._dose_count_subquery(PatientProfile.user_id, range_start)
+        total_doses = self._dose_count_subquery(
+            PatientProfile.user_id, range_start, overdue_minutes
+        )
         taken_doses = self._dose_count_subquery(
-            PatientProfile.user_id, range_start, "TAKEN"
+            PatientProfile.user_id, range_start, overdue_minutes, "TAKEN"
         )
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
@@ -148,20 +216,16 @@ class DashboardRepository:
                 .exists()
             )
         if adherence_band == "LOW":
-            # No logged doses is displayed as 0% in the dashboard, so it belongs
-            # in the low-adherence band too.
-            filters.append(
-                or_(
-                    total_doses == 0,
-                    taken_doses * 100 < total_doses * 50,
-                )
-            )
+            # Zero-dose patients have no adherence stat yet and are excluded
+            # from every band, not just LOW.
+            filters.append(total_doses > 0)
+            filters.append(taken_doses * 100 < total_doses * 50)
         elif adherence_band == "MEDIUM":
-            filters.append(
-                taken_doses * 100 >= total_doses * 50,
-            )
+            filters.append(total_doses > 0)
+            filters.append(taken_doses * 100 >= total_doses * 50)
             filters.append(taken_doses * 100 < total_doses * 70)
         elif adherence_band == "HIGH":
+            filters.append(total_doses > 0)
             filters.append(taken_doses * 100 >= total_doses * 70)
 
         count_stmt = select(func.count(PatientProfile.user_id)).join(
@@ -174,7 +238,14 @@ class DashboardRepository:
         if total_count == 0:
             return [], 0
 
+        # open_alerts (the combined count) is still what the API returns as
+        # open_alerts_count -- unchanged meaning, unchanged response shape.
+        # critical_alerts/warning_alerts exist only to drive ORDER BY: a
+        # patient with one RED_ALERT must sort above one with five WARNINGs,
+        # which a single combined count cannot express.
         open_alerts = self._open_alerts_count_subquery(PatientProfile.user_id)
+        critical_alerts = self._critical_alerts_count_subquery(PatientProfile.user_id)
+        warning_alerts = self._warning_alerts_count_subquery(PatientProfile.user_id)
         stmt = (
             select(
                 PatientProfile.user_id,
@@ -185,7 +256,7 @@ class DashboardRepository:
                 self._last_survey_date_subquery(PatientProfile.user_id),
             )
             .join(User, PatientProfile.user_id == User.id)
-            .order_by(open_alerts.desc(), PatientProfile.created_at.desc())
+            .order_by(critical_alerts.desc(), warning_alerts.desc(), PatientProfile.created_at.desc())
             .offset((page - 1) * size)
             .limit(size)
         )
@@ -229,18 +300,35 @@ class DashboardRepository:
         return (await self._db.execute(stmt)).scalar_one()
 
     async def get_dose_status_counts(
-        self, patient_id: uuid.UUID, range_start: datetime
+        self, patient_id: uuid.UUID, range_start: datetime, overdue_minutes: int
     ) -> Tuple[int, int, int, int]:
-        """(total, taken, skipped, missed) doses scheduled since range_start,
-        as one aggregate round trip using FILTER-based conditional counts."""
+        """(total, taken, skipped, missed) *due* doses scheduled since
+        range_start, as one aggregate round trip using FILTER-based
+        conditional counts. See _is_due_filter for why the future horizon and
+        in-grace doses are excluded.
+
+        An overdue-but-still-PENDING dose counts as missed: the scan lags by
+        up to missed_dose_scan_interval_minutes, and leaving it in a fourth
+        bucket would stop the four figures summing to `total` on the detail
+        card. It also makes the counts immune to racing the scan — either
+        snapshot puts the row in `missed`.
+        """
         stmt = select(
             func.count(ScheduledDose.id),
             func.count(ScheduledDose.id).filter(ScheduledDose.status == "TAKEN"),
             func.count(ScheduledDose.id).filter(ScheduledDose.status == "SKIPPED"),
-            func.count(ScheduledDose.id).filter(ScheduledDose.status == "MISSED"),
+            # No cutoff repeated: WHERE already dropped the not-yet-due rows,
+            # so a PENDING row reaching this FILTER is overdue by definition.
+            func.count(ScheduledDose.id).filter(
+                or_(
+                    ScheduledDose.status == "MISSED",
+                    ScheduledDose.status == "PENDING",
+                )
+            ),
         ).where(
             ScheduledDose.patient_id == patient_id,
             ScheduledDose.current_scheduled_at >= range_start,
+            self._is_due_filter(overdue_minutes),
         )
         row = (await self._db.execute(stmt)).one()
         return row[0], row[1], row[2], row[3]

@@ -15,6 +15,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from src.agents.tool_authorization import authorize_patient_write
 from src.modules.planning.core.backend_client import BackendAPIError, post
 
 
@@ -38,6 +39,7 @@ async def record_health_survey(
         Kết quả ghi nhận (id, status) dạng chuỗi, hoặc thông báo lỗi
     """
     try:
+        authorize_patient_write("record_health_survey", patient_id, intent="report_health_survey")
         result = await post(
             f"/patients/{patient_id}/health-surveys",
             json={

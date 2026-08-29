@@ -3,7 +3,9 @@ import type { ScheduledDoseRow } from "../../../types";
 import Icon from "./Icon";
 import { doseStatus, isDoseLocked, prettyTime, type DoseAction } from "./utils";
 
-export function doseLabel(dose: ScheduledDoseRow) { return [dose.dose_value && `${dose.dose_value} ${dose.dose_unit ?? ""}`, dose.meal_relation].filter(Boolean).join(" · ") || "Dùng theo đơn đã duyệt"; }
+function formatDoseValue(value: ScheduledDoseRow["dose_value"]) { if (value === null || value === undefined || value === "") return ""; const num = Number(value); return Number.isFinite(num) ? String(num) : String(value); }
+
+export function doseLabel(dose: ScheduledDoseRow) { return [dose.dose_value && `${formatDoseValue(dose.dose_value)} ${dose.dose_unit ?? ""}`, dose.meal_relation].filter(Boolean).join(" · ") || "Dùng theo đơn đã duyệt"; }
 
 export function NextDose({ dose, busy, onAction }: { dose: ScheduledDoseRow; busy: boolean; onAction: DoseAction }) { const locked = isDoseLocked(dose); return <div className={`next-dose ${locked ? "locked" : ""}`}><div className="next-dose-main"><span className="medicine-bubble"><Icon name="pill" size={25}/></span><div><span className="next-time"><Icon name="clock" size={17}/> {prettyTime(dose.current_scheduled_at)}</span><h2>{dose.medication_name}</h2><p>{doseLabel(dose)}</p></div></div>{locked ? <div className="dose-locked-note"><Icon name="clock" size={16}/> Có thể xác nhận khi đến giờ uống</div> : <DoseActions dose={dose} busy={busy} onAction={onAction}/>}</div>; }
 

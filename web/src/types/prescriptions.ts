@@ -21,6 +21,7 @@ export interface PrescriptionItemIn {
   start_date: string;
   end_date: string | null;
   instructions: string | null;
+  is_critical: boolean;
 }
 
 export interface PrescriptionItemDetail {
@@ -39,6 +40,7 @@ export interface PrescriptionItemDetail {
   start_date: string;
   end_date: string | null;
   instructions: string | null;
+  is_critical: boolean;
   created_at: string;
 }
 

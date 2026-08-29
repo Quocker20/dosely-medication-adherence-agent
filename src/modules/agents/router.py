@@ -1,16 +1,17 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
+from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import reset_actor_token, set_actor_token
-from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import ChatRequest, GenerateScheduleRequest, RescheduleRequest
 from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
@@ -26,9 +27,11 @@ def get_scheduling_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Sche
     )
 
 
-def get_chat_service() -> ChatService:
+def get_chat_service(db: Annotated[AsyncSession, Depends(get_db)]) -> ChatService:
     """Dependency factory providing ChatService instance."""
-    return ChatService()
+    if get_settings().app_env == "test":
+        return ChatService()
+    return ChatService(db, ChatMemoryRepository(db))
 
 
 SchedulingServiceDep = Annotated[SchedulingService, Depends(get_scheduling_service)]
@@ -103,6 +106,22 @@ async def get_my_next_dose(
     )
 
 
+@schedules_router.get("/patients/me/schedules/today")
+async def get_my_today_schedule(
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+) -> JSONResponse:
+    """Return a fresh DB view of today's schedule for the authenticated patient."""
+    patient_id = uuid.UUID(current_user["sub"])
+    result = await service.get_today_schedule_for_patient(
+        patient_id=patient_id, actor_payload=current_user
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Today's schedule fetched successfully",
+    )
+
+
 @schedules_router.post(
     "/patients/{patient_id}/schedules/reschedule",
     status_code=status.HTTP_202_ACCEPTED,
@@ -165,7 +184,13 @@ async def chat(
     """Chat với AI agent bằng chữ (Patient only, self)."""
     handle = set_actor_token(token)
     try:
-        result = await service.handle_text_chat(message=request_body.message, patient_id=current_user["sub"])
+        result = await service.handle_text_chat(
+            message=request_body.message,
+            patient_id=current_user["sub"],
+            client_date=request_body.client_date,
+            client_datetime=request_body.client_datetime,
+            conversation_id=request_body.conversation_id,
+        )
     finally:
         reset_actor_token(handle)
     return success_response(
@@ -183,6 +208,9 @@ async def chat_voice(
     service: ChatServiceDep,
     token: RawTokenDep,
     audio: UploadFile = File(...),
+    client_date: Optional[date] = Form(None, alias="clientDate"),
+    client_datetime: Optional[datetime] = Form(None, alias="clientDateTime"),
+    conversation_id: Optional[uuid.UUID] = Form(None, alias="conversationId"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
     audio_bytes = await audio.read()
@@ -193,6 +221,9 @@ async def chat_voice(
             audio_bytes=audio_bytes,
             filename=audio.filename or "audio.webm",
             patient_id=current_user["sub"],
+            client_date=client_date,
+            client_datetime=client_datetime,
+            conversation_id=conversation_id,
         )
     finally:
         reset_actor_token(handle)

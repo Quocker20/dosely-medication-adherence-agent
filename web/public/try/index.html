@@ -3,82 +3,235 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Tải app Android RemindRx (bản demo) để test thử." />
-    <title>RemindRx — Tải app Android để test</title>
+    <meta name="description" content="Tải bản Android mới nhất của RemindRx và xem lịch sử phát hành." />
+    <title>RemindRx Android — Bản phát hành</title>
     <style>
       :root {
-        color-scheme: light dark;
-        --bg: #0f172a;
-        --panel: #1e293b;
-        --text: #e2e8f0;
-        --muted: #94a3b8;
-        --accent: #38bdf8;
+        color-scheme: light;
+        --ink: #142523;
+        --muted: #61706b;
+        --paper: #f4f6f1;
+        --card: #ffffff;
+        --line: #dce3d8;
+        --blue: #2c5fa8;
+        --blue-soft: #e9f0fa;
+        --green: #31775f;
+        --green-soft: #e6f1ea;
+        --amber: #9b671e;
+        --amber-soft: #faf1dd;
+        --shadow: 0 22px 55px -35px rgba(20, 37, 35, 0.45);
       }
+
       * { box-sizing: border-box; }
+
       body {
+        min-width: 320px;
         margin: 0;
-        min-height: 100vh;
-        background: var(--bg);
-        color: var(--text);
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--paper);
+        color: var(--ink);
+        font: 16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      a { color: inherit; }
+
+      .shell { width: min(920px, calc(100% - 32px)); margin: 0 auto; }
+
+      .topbar {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 76px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font: 700 1.1rem Georgia, serif; text-decoration: none; }
+      .brand-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--blue); color: white; font: 700 1.15rem/1 system-ui; }
+      .back { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
+      .back:hover { color: var(--blue); }
+
+      main { padding: 58px 0 72px; }
+      .eyebrow { margin: 0 0 12px; color: var(--blue); font: 700 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.13em; text-transform: uppercase; }
+      h1, h2, h3, p { margin-top: 0; }
+      h1 { max-width: 720px; margin-bottom: 14px; font: 600 clamp(2.15rem, 6vw, 3.65rem)/1.08 Georgia, serif; letter-spacing: -0.035em; }
+      h2 { margin-bottom: 18px; font: 600 clamp(1.45rem, 3vw, 1.9rem)/1.2 Georgia, serif; }
+      h3 { margin-bottom: 4px; font-size: 1rem; }
+      .lede { max-width: 650px; margin-bottom: 36px; color: var(--muted); font-size: 1.06rem; }
+
+      .release-card {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        overflow: hidden;
+        border: 1px solid #cfdccd;
+        border-radius: 22px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .release-main { padding: 34px; }
+      .release-aside { display: flex; flex-direction: column; justify-content: space-between; padding: 34px; background: #edf4ef; }
+      .status { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 20px; color: var(--green); font-size: 0.78rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+      .status::before { width: 8px; height: 8px; border-radius: 50%; background: currentColor; content: ""; box-shadow: 0 0 0 4px rgba(49, 119, 95, 0.12); }
+      .version { margin: 0 0 3px; font: 600 clamp(1.8rem, 4vw, 2.45rem)/1 Georgia, serif; }
+      .release-date { margin-bottom: 23px; color: var(--muted); font-size: 0.88rem; }
+
+      .download {
+        display: inline-flex;
+        width: 100%;
+        align-items: center;
         justify-content: center;
-        padding: 32px 16px 64px;
-      }
-      main { max-width: 520px; width: 100%; }
-      h1 { font-size: 1.4rem; margin: 0 0 8px; }
-      p { line-height: 1.6; color: var(--muted); }
-      .card {
-        background: var(--panel);
-        border-radius: 16px;
-        padding: 24px;
-        margin-top: 20px;
-      }
-      .download-btn {
-        display: block;
-        text-align: center;
-        background: var(--accent);
-        color: #0f172a;
-        font-weight: 600;
+        gap: 10px;
+        padding: 15px 18px;
+        border-radius: 12px;
+        background: var(--blue);
+        color: white;
+        font-weight: 750;
         text-decoration: none;
-        padding: 14px 20px;
-        border-radius: 10px;
-        font-size: 1.05rem;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
       }
-      .download-btn:active { opacity: 0.85; }
-      ol { padding-left: 20px; line-height: 1.7; }
-      code {
-        background: rgba(148, 163, 184, 0.15);
-        padding: 2px 6px;
-        border-radius: 4px;
+
+      .download:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -14px var(--blue); }
+      .download:focus-visible, .back:focus-visible { outline: 3px solid #8db5ed; outline-offset: 3px; }
+      .download-icon { font-size: 1.2rem; line-height: 1; }
+      .release-meta { display: grid; gap: 15px; margin: 26px 0 0; }
+      .release-meta div { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 13px; border-bottom: 1px solid rgba(97, 112, 107, 0.18); }
+      .release-meta div:last-child { padding-bottom: 0; border: 0; }
+      .release-meta dt { color: var(--muted); font-size: 0.83rem; }
+      .release-meta dd { margin: 0; color: var(--ink); font-size: 0.88rem; font-weight: 700; text-align: right; }
+      .aside-title { margin-bottom: 18px; color: var(--muted); font-size: 0.8rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+      .changes { display: grid; gap: 14px; padding: 0; margin: 0; list-style: none; }
+      .changes li { position: relative; padding-left: 22px; font-size: 0.93rem; }
+      .changes li::before { position: absolute; left: 0; top: 0.38rem; width: 9px; height: 9px; border-radius: 50%; background: var(--green); content: ""; }
+      .build-note { margin: 26px 0 0; color: var(--muted); font-size: 0.8rem; }
+
+      .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin: 60px 0 18px; }
+      .section-heading p { max-width: 430px; margin: 0; color: var(--muted); font-size: 0.9rem; text-align: right; }
+      .history { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+      .history-row { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; padding: 22px 24px; border-top: 1px solid var(--line); }
+      .history-row:first-child { border-top: 0; }
+      .history-title { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+      .history-title strong { font-size: 0.98rem; }
+      .history-title span { color: var(--muted); font-size: 0.81rem; }
+      .history-row p { margin: 6px 0 0; color: var(--muted); font-size: 0.86rem; }
+      .locked { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid #ead6aa; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 0.76rem; font-weight: 800; white-space: nowrap; }
+      .locked::before { content: "🔒"; font-size: 0.82rem; }
+
+      .install-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .install-step { min-height: 164px; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+      .step-number { display: block; margin-bottom: 17px; color: var(--blue); font: 800 0.76rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; }
+      .install-step p { margin: 0; color: var(--muted); font-size: 0.87rem; }
+      .notice { margin-top: 20px; padding: 15px 18px; border-left: 3px solid var(--blue); border-radius: 0 10px 10px 0; background: var(--blue-soft); color: #38536f; font-size: 0.87rem; }
+      code { padding: 2px 5px; border-radius: 4px; background: rgba(20, 37, 35, 0.07); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+
+      footer { padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
+
+      @media (max-width: 720px) {
+        main { padding-top: 40px; }
+        .release-card { grid-template-columns: 1fr; }
+        .release-main, .release-aside { padding: 26px; }
+        .section-heading { display: block; margin-top: 48px; }
+        .section-heading p { margin-top: -6px; text-align: left; }
+        .install-grid { grid-template-columns: 1fr; }
+        .install-step { min-height: auto; }
       }
-      .warn {
-        border-left: 3px solid var(--accent);
-        padding-left: 12px;
-        margin-top: 16px;
-        font-size: 0.9rem;
+
+      @media (max-width: 480px) {
+        .shell { width: min(100% - 24px, 920px); }
+        .topbar { min-height: 64px; }
+        .back { font-size: 0; }
+        .back::after { content: "←"; font-size: 1.25rem; }
+        .history-row { grid-template-columns: 1fr; gap: 13px; padding: 20px; }
+        .locked { justify-self: start; }
       }
     </style>
   </head>
   <body>
-    <main>
-      <h1>RemindRx — Tải app Android để test</h1>
-      <p>Bản demo, cài trực tiếp trên điện thoại Android. App đã kết nối sẵn với backend thật đang chạy trên server.</p>
+    <header class="shell topbar">
+      <a class="brand" href="/" aria-label="Về trang chủ RemindRx"><span class="brand-mark">+</span>RemindRx</a>
+      <a class="back" href="/">← Về trang chủ</a>
+    </header>
 
-      <div class="card">
-        <a class="download-btn" href="/downloads/remindrx-demo.apk" download>⬇ Tải file APK</a>
-      </div>
+    <main class="shell">
+      <p class="eyebrow">Android release channel</p>
+      <h1>Bản RemindRx mới nhất, sẵn sàng để thử.</h1>
+      <p class="lede">Chỉ tải bản đang được hỗ trợ. Các bản cũ được giữ lại trong lịch sử phát hành nhưng đã khóa để tránh cài nhầm phiên bản không còn an toàn.</p>
 
-      <div class="card">
-        <p style="color: var(--text); margin-top: 0"><strong>Cách cài:</strong></p>
-        <ol>
-          <li>Tải file <code>.apk</code> ở nút trên bằng trình duyệt trên điện thoại Android.</li>
-          <li>Mở file vừa tải. Nếu Android hỏi "Cài ứng dụng không rõ nguồn gốc" (unknown sources), bấm <strong>Cho phép</strong> / <strong>Cài đặt</strong> — bình thường vì app chưa lên Google Play.</li>
-          <li>Mở app, đăng nhập bằng số điện thoại demo <code>0900000000</code>, mã PIN <code>123456</code>.</li>
-        </ol>
-      </div>
+      <article class="release-card" aria-labelledby="latest-release">
+        <section class="release-main">
+          <div class="status">Bản được khuyến nghị</div>
+          <h2 class="version" id="latest-release">v1.1.0</h2>
+          <p class="release-date">Build 3 · phát hành ngày 29/08/2026</p>
+          <!-- ?v= phải tăng theo mỗi lần phát hành: Cloudflare cache file theo URL
+               với TTL 4 giờ, nên nếu giữ nguyên đường dẫn thì người tải vẫn nhận
+               APK của bản trước cho tới khi cache hết hạn. -->
+          <a class="download" href="/downloads/remindrx-demo.apk?v=1.1.0" download>
+            <span class="download-icon" aria-hidden="true">↓</span>
+            Tải APK mới nhất
+          </a>
+          <dl class="release-meta">
+            <div><dt>Dung lượng</dt><dd>18,1 MB</dd></div>
+            <div><dt>Yêu cầu hệ điều hành</dt><dd>Android 8.0 trở lên</dd></div>
+            <div><dt>Kênh phát hành</dt><dd>Tải trực tiếp (APK)</dd></div>
+          </dl>
+        </section>
 
-      <p class="warn">Dữ liệu trong bản demo chỉ là dữ liệu mẫu — không nhập thông tin bệnh nhân thật. Cần điện thoại Android thật (không cài được trên iPhone).</p>
+        <aside class="release-aside">
+          <div>
+            <p class="aside-title">Có gì mới</p>
+            <ul class="changes">
+              <li>Kéo xuống để làm mới dữ liệu ngay trên các màn hình chính.</li>
+              <li>Làm mới giao diện bảng điều khiển, lịch sử tuân thủ, người thân, đơn thuốc và chi tiết thuốc.</li>
+              <li>Trợ lý AI trả lời bám theo đúng ngày giờ trên máy bạn.</li>
+              <li>Giải đáp về thuốc an toàn hơn, luôn dựa trên đơn đã được bác sĩ duyệt.</li>
+            </ul>
+          </div>
+          <p class="build-note">Bản dùng cho demo đề tài. Vui lòng không nhập thông tin bệnh nhân thật.</p>
+        </aside>
+      </article>
+
+      <section aria-labelledby="release-history">
+        <div class="section-heading">
+          <h2 id="release-history">Lịch sử phát hành</h2>
+          <p>Các bản dưới đây đã bị thay thế. Nút tải được khóa để mọi người luôn dùng bản mới nhất.</p>
+        </div>
+        <div class="history">
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v1.0.0 · Build 2</strong><span>Đã thay thế ngày 29/08/2026</span></div>
+              <p>Bổ sung đồng bộ ngoại tuyến, thông báo đẩy và khảo sát triệu chứng tự do.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v0.1.0-mvp · Bản MVP</strong><span>Đã thay thế ngày 29/08/2026</span></div>
+              <p>Bản đầu tiên, chưa có đồng bộ ngoại tuyến và thông báo đẩy.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>Dòng v0.0.x · Alpha</strong><span>Thử nghiệm nội bộ</span></div>
+              <p>Không còn được hỗ trợ và không tương thích với luồng demo hiện tại.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="install-guide">
+        <div class="section-heading">
+          <h2 id="install-guide">Cài đặt trong ba bước</h2>
+          <p>Chỉ cài trên điện thoại Android thật; iPhone không hỗ trợ tệp APK.</p>
+        </div>
+        <div class="install-grid">
+          <article class="install-step"><span class="step-number">01 — TẢI</span><h3>Tải tệp APK</h3><p>Dùng nút tải ở trên bằng trình duyệt trên điện thoại Android.</p></article>
+          <article class="install-step"><span class="step-number">02 — CHO PHÉP</span><h3>Mở tệp vừa tải</h3><p>Nếu Android hỏi về nguồn không xác định, chọn Cho phép để tiếp tục cài đặt.</p></article>
+          <article class="install-step"><span class="step-number">03 — ĐĂNG NHẬP</span><h3>Mở RemindRx</h3><p>Đăng nhập bằng tài khoản demo được nhóm cung cấp để bắt đầu trải nghiệm.</p></article>
+        </div>
+        <p class="notice">Đây là bản thử nghiệm. Nếu đã cài bản cũ, hãy gỡ hoặc cập nhật bằng APK mới nhất trước khi tiếp tục.</p>
+      </section>
     </main>
+
+    <footer class="shell">RemindRx · VMEC-04 · Nhóm P-216 · Android demo release</footer>
   </body>
 </html>

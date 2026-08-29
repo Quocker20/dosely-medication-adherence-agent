@@ -1,35 +1,286 @@
-interface Props {
-  onLogin: () => void;
+import { useEffect, useRef } from "react";
+
+interface Props { onLogin: () => void; }
+
+const steps = [
+  ["01", "Bác sĩ", "Kê đơn điện tử", "Chọn thuốc, liều lượng và thời điểm uống. Mọi đơn đều cần bác sĩ ký duyệt trước khi có hiệu lực."],
+  ["02", "AI Agent", "Lập lịch cá nhân hoá", "Agent tính khung giờ uống quanh giờ ăn, giờ ngủ thật của bạn — không áp một khung giờ chung cho tất cả."],
+  ["03", "Bệnh nhân", "Nhắc 1 chạm, ghi nhận ngay", "Thông báo đúng giờ, xác nhận Đã uống / Uống muộn / Bỏ qua chỉ bằng một chạm — không cần ghi chép."],
+  ["04", "Hệ thống", "Giám sát & báo động khi cần", "Bỏ thuốc 3 lần liên tiếp hoặc có triệu chứng nguy hiểm → cảnh báo người thân và bác sĩ, đa kênh trong dưới 10 giây."],
+];
+const roles = [
+  ["Bác sĩ điều trị", "Kê đơn nhanh, theo dõi tuân thủ từ xa qua dashboard, nhận cảnh báo ngay khi có sự cố — không cần chờ lịch tái khám.", "Tôi cần biết bệnh nhân có đang uống thuốc đúng không, mà không phải gọi từng người."],
+  ["Bệnh nhân", "Mạn tính, dùng từ ba loại thuốc mỗi ngày trở lên. Cần nhắc đúng giờ, giao diện đơn giản, và tra cứu thông tin thuốc dễ hiểu.", "Tôi chỉ cần một chạm để báo là đã uống rồi — không cần mở sổ ghi chép."],
+  ["Người thân / con cháu", "Thường ở xa, hoặc là người thiết lập ứng dụng ban đầu cho người cao tuổi. Chỉ cần được báo khẩn khi thật sự có vấn đề.", "Tôi không cần biết mọi cữ thuốc — chỉ cần biết ngay khi ba mẹ bỏ thuốc."],
+];
+const features = [
+  ["Kê đơn điện tử, không giấy tờ", "Autocomplete từ danh mục dược phẩm, cấu hình liều và thời điểm uống. HITL bắt buộc — bác sĩ duyệt mọi đơn."],
+  ["Dashboard tuân thủ real-time", "Tỷ lệ tuân thủ, chuỗi bỏ liều và nhãn đỏ cảnh báo hiển thị ngay khi có cập nhật."],
+  ["Lịch nhắc cá nhân hoá", "Planning Agent tính khung giờ nhắc thuốc từ đơn đã duyệt cộng với lịch sinh hoạt thật của bạn."],
+  ["Tự dời lịch khi uống trễ", "Rescheduling Agent chỉ tính lại giờ khi bạn uống muộn hoặc đổi giờ ăn, ngủ — luôn giữ khoảng cách an toàn giữa các liều."],
+  ["Tra cứu thuốc bằng ảnh", "Chụp nhãn thuốc, OCR bóc tách hoạt chất và RAG tóm tắt từ nguồn có kiểm chứng — không tự suy đoán liều dùng."],
+  ["Khảo sát & SOS một chạm", "Khảo sát tác dụng phụ cuối ngày, cùng một nút SOS gửi cảnh báo tức thì khi bạn cần trợ giúp."],
+];
+const guards = [
+  ["Bác sĩ duyệt mọi đơn thuốc.", "AI không tự kê đơn, không tự đổi liều, số cữ hay tần suất uống thuốc."],
+  ["Agent lập lịch chỉ được dời giờ.", "Không được đổi liều lượng, tần suất hay thời gian điều trị đã bác sĩ duyệt."],
+  ["Mọi thay đổi qua bộ kiểm tra bằng mã nguồn xác định.", "Không dựa vào phán đoán của mô hình ngôn ngữ trước khi lưu vào hệ thống."],
+  ["Không chắc chắn thì dừng lại.", "Khi agent phát hiện xung đột hoặc thiếu thông tin, hệ thống chuyển cho bác sĩ xem xét thay vì tự đoán."],
+];
+const metrics = [
+  ["≥70%", "Tỷ lệ tuân thủ mục tiêu"],
+  ["<30 phút", "Thời gian phản hồi nhắc thuốc"],
+  ["≥90%", "Độ chính xác cảnh báo khẩn"],
+  ["<10 giây", "Lập lịch cho đơn 5–8 thuốc"],
+  ["≥80%", "Tỷ lệ hoàn tất onboarding"],
+];
+
+const WEEKDAYS = ["CHỦ NHẬT", "THỨ HAI", "THỨ BA", "THỨ TƯ", "THỨ NĂM", "THỨ SÁU", "THỨ BẢY"];
+
+function formatToday(date: Date): string {
+  const weekday = WEEKDAYS[date.getDay()];
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${weekday} · ${day}/${month}`;
 }
 
-/**
- * Cổng vào công khai — hiện trước khi đăng nhập, dùng chung cho cả 3 role
- * (bác sĩ/admin/bệnh nhân). Vào đúng portal nào do App.tsx quyết định sau khi
- * có session, trang này không biết và không cần biết role.
- */
+function Logo() {
+  return <svg className="lp-logo" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="4" y="4" width="24" height="24" rx="9" /><path d="M12.5 19.5 19.5 12.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" /><path d="M11 18a4.2 4.2 0 0 1 0-6l1-1a4.2 4.2 0 0 1 6 6l-1 1a4.2 4.2 0 0 1-6 0Z" stroke="#fff" strokeWidth="1.6" /></svg>;
+}
+
+/** Cổng vào công khai. Các nút điều trị trong minh hoạ không thực hiện hành động. */
 export default function HomePage({ onLogin }: Props) {
-  return (
-    <div className="home-wrap">
-      <div className="home-card">
-        <div className="brand home-brand">
-          <div className="brand-mark">Rx</div>
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const targets = root.current?.querySelectorAll<HTMLElement>(".reveal") ?? [];
+    if (!("IntersectionObserver" in window)) { targets.forEach((target) => target.classList.add("in")); return; }
+    const observer = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) { entry.target.classList.add("in"); observer.unobserve(entry.target); } }), { threshold: 0.15 });
+    targets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
+  }, []);
+
+  return <div className="landing" ref={root}>
+    <div className="lp-grain" aria-hidden="true" />
+
+    <nav className="lp-nav">
+      <div className="lp-wrap lp-nav-inner">
+        <a className="lp-brand" href="#top"><Logo />RemindRx</a>
+        <div className="lp-links">
+          <a href="#how">Cách hoạt động</a>
+          <a href="#features">Tính năng</a>
+          <a href="#trust">An toàn</a>
+          <a href="#download">Bắt đầu</a>
+        </div>
+        <div className="lp-cta">
+          <button className="lp-login" onClick={onLogin}>Đăng nhập</button>
+          <a className="lp-button primary" href="#download">Dùng thử</a>
+        </div>
+      </div>
+    </nav>
+
+    <main id="top">
+      <section className="lp-sec lp-hero">
+        <div className="lp-wrap lp-hero-grid">
           <div>
-            <div className="brand-name">RemindRx</div>
-            <div className="brand-sub">Nhắc thuốc & theo dõi tuân thủ điều trị</div>
+            <h1 className="lp-rise" style={{ animationDelay: "180ms" }}>Rời phòng khám rồi,<br /><em>đơn thuốc</em> đừng rời bạn.</h1>
+            <p className="lp-lede lp-rise" style={{ animationDelay: "300ms" }}>RemindRx biến đơn thuốc đã bác sĩ duyệt thành lịch uống cá nhân hoá theo đúng giờ ăn, giờ ngủ của bạn — và báo ngay cho người thân khi có dấu hiệu bất ổn.</p>
+            <div className="lp-hero-cta lp-rise" style={{ animationDelay: "400ms" }}>
+              <a className="lp-button primary" href="#download">Dùng thử RemindRx</a>
+              <a className="lp-button ghost" href="#how">Xem cách hoạt động</a>
+            </div>
+            <p className="lp-meta lp-rise" style={{ animationDelay: "500ms" }}>Miễn phí trong giai đoạn thử nghiệm · Chạy trên trình duyệt, không cần chờ duyệt ứng dụng</p>
+          </div>
+          <div className="lp-daycard lp-rise" style={{ animationDelay: "620ms" }}>
+            <span className="lp-stamp">Đã bác sĩ duyệt</span>
+            <div className="lp-daycard-head"><b>Hôm nay của bạn</b><span>{formatToday(new Date())}</span></div>
+            <div className="lp-daystrip">
+              <div className="lp-dose taken"><i>✓</i><small>Sáng<br />7:00</small></div>
+              <div className="lp-dose taken"><i>✓</i><small>Trưa<br />12:00</small></div>
+              <div className="lp-dose now"><i>●</i><small>Tối<br />18:00</small></div>
+              <div className="lp-dose pending"><i /><small>Đêm<br />21:00</small></div>
+            </div>
+            <div className="lp-daycard-foot">Metformin 500mg đến giờ trong <b>12 phút</b></div>
           </div>
         </div>
+      </section>
 
-        <p className="home-tagline">
-          Nền tảng hỗ trợ bệnh nhân mạn tính uống thuốc đúng giờ, đúng liều — và giúp bác sĩ theo dõi
-          tuân thủ điều trị theo thời gian thực.
-        </p>
+      <section className="lp-sec">
+        <div className="lp-wrap lp-problem">
+          <div className="reveal">
+            <h2>Đơn thuốc đúng. Nhưng ai nhắc bạn uống nó, mỗi ngày, đúng giờ?</h2>
+            <p className="lp-lede">Theo báo cáo của WHO về điều trị dài hạn, bệnh nhân ở các nước phát triển chỉ tuân thủ khoảng 50% phác đồ thuốc được kê cho bệnh mạn tính<a className="lp-ref" href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5878368/" target="_blank" rel="noreferrer">1</a>. Hệ quả là hiệu quả điều trị giảm, biến chứng tăng, và tỷ lệ tái nhập viện cao hơn đáng kể.</p>
+            <ul className="lp-risks">
+              {["Tiểu đường", "Tăng huyết áp", "Tim mạch", "COPD", "Suy thận", "≥3 loại thuốc/ngày"].map((risk) => <li key={risk}>{risk}</li>)}
+            </ul>
+          </div>
+          <div className="lp-stat reveal" style={{ transitionDelay: "120ms" }}>
+            <b>~50%</b>
+            <span>bệnh nhân mạn tính không tuân thủ đúng phác đồ — nhóm dùng đa thuốc là rủi ro cao nhất.</span>
+          </div>
+        </div>
+      </section>
 
-        <button className="btn primary home-cta" onClick={onLogin}>
-          Đăng nhập
-        </button>
+      <section className="lp-sec">
+        <div className="lp-wrap">
+          <div className="lp-head reveal">
+            <div>
+              <h2>Nhắc đúng giờ đã là chuyện bình thường. Vòng lặp khép kín thì không.</h2>
+            </div>
+            <p className="lp-lede">Nhắc nhở một mình không tạo ra vòng lặp giữa toa thuốc đã bác sĩ duyệt, lịch trình cá nhân hoá và cảnh báo tới người thân khi có sự cố — đó là phần RemindRx đặt cược vào.</p>
+          </div>
+          <div className="lp-compare reveal">
+            <div>
+              <h3>Cái đã phổ biến</h3>
+              <strong>93%</strong>
+              <p>người dùng nói nhắc thuốc giúp họ uống đúng giờ hơn — khảo sát Medisafe trên nhóm bệnh nhân khó tiếp cận y tế.</p>
+            </div>
+            <div className="add">
+              <h3>Cái RemindRx thêm vào</h3>
+              <ul>
+                <li>Toa thuốc do bác sĩ duyệt — AI không tự kê đơn hay đổi liều</li>
+                <li>Lịch nhắc tính từ giờ ăn, giờ ngủ thật</li>
+                <li>Bỏ thuốc 3 lần liên tiếp → cảnh báo người thân &amp; bác sĩ trong &lt;10 giây</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
 
-        <p className="rail-note home-foot">Mọi thay đổi phác đồ đều cần bác sĩ duyệt (HITL).</p>
+      <section id="how" className="lp-sec">
+        <div className="lp-wrap">
+          <div className="lp-head reveal">
+            <div>
+              <h2>Một đường nối liền từ toa thuốc đến từng viên bạn uống.</h2>
+            </div>
+            <p className="lp-lede">Bốn bước, một agent theo dõi xuyên suốt — không đứt quãng sau khi bạn rời phòng khám.</p>
+          </div>
+          <div className="lp-steps">
+            {steps.map(([number, actor, title, detail], index) => <article className="lp-step reveal" key={number} style={{ transitionDelay: `${index * 90}ms` }}>
+              <span>{actor}</span>
+              <b>{number}</b>
+              <h3>{title}</h3>
+              <p>{detail}</p>
+            </article>)}
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-sec">
+        <div className="lp-wrap">
+          <div className="lp-head reveal">
+            <div>
+              <h2>Mỗi người một màn hình, cùng một dữ liệu.</h2>
+            </div>
+            <p className="lp-lede">RemindRx là cầu nối giữa ba vai trò quanh một bệnh nhân — không ai phải gọi điện hỏi lại ai.</p>
+          </div>
+          <div className="lp-roles">
+            {roles.map(([title, detail, quote], index) => <article className="lp-role reveal" key={title} style={{ transitionDelay: `${index * 110}ms` }}>
+              <i>+</i>
+              <h3>{title}</h3>
+              <p>{detail}</p>
+              <em>“{quote}”</em>
+            </article>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="features" className="lp-sec">
+        <div className="lp-wrap">
+          <div className="lp-head reveal">
+            <div>
+              <h2>Bốn phân hệ, một hệ thống liền mạch.</h2>
+            </div>
+            <p className="lp-lede">Từ toa thuốc của bác sĩ đến cảnh báo cho người thân — không có khoảng trống dữ liệu ở giữa.</p>
+          </div>
+          <div className="lp-features reveal">
+            {features.map(([title, detail]) => <article key={title}><h3>{title}</h3><p>{detail}</p></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="trust" className="lp-sec lp-trust">
+        <div className="lp-wrap lp-trust-grid">
+          <div className="reveal">
+            <span className="lp-eyebrow">An toàn y khoa</span>
+            <h2>AI hỗ trợ.<br />Bác sĩ luôn là người quyết định.</h2>
+            <p className="lp-lede">RemindRx được thiết kế với giới hạn cứng cho AI Agent — không phải lời hứa, mà là ràng buộc trong từng bước xử lý.</p>
+          </div>
+          <div className="reveal" style={{ transitionDelay: "120ms" }}>
+            {guards.map(([title, detail], index) => <div className="lp-guard" key={title}>
+              <i>{index + 1}</i>
+              <p><b>{title}</b><span>{detail}</span></p>
+            </div>)}
+            <div className="lp-note"><b>Một giới hạn chúng tôi chọn không né tránh:</b> MVP chưa tự động cảnh báo tương tác thuốc chéo (DDI). Chúng tôi ưu tiên kiểm chứng kỹ nguồn dữ liệu trước khi đưa tính năng này vào một hệ thống y tế.</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-sec">
+        <div className="lp-wrap">
+          <div className="lp-head reveal">
+            <div>
+              <h2>Mục tiêu vận hành, không phải lời quảng cáo.</h2>
+            </div>
+            <p className="lp-lede">Mức kỳ vọng để giữ mục tiêu thực tế cho một pilot quy mô nhỏ — không phải con số tự đặt ra.</p>
+          </div>
+          <div className="lp-stats reveal">
+            {metrics.map(([value, label]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="download" className="lp-sec">
+        <div className="lp-wrap lp-download">
+          <div className="reveal">
+            <h2>RemindRx chạy ngay trên trình duyệt.</h2>
+            <p className="lp-lede">Không có ứng dụng nào để chờ duyệt trên kho ứng dụng — mở một lần, thêm vào màn hình chính, dùng như một ứng dụng thật.</p>
+            <div className="lp-stores">
+              <button type="button" onClick={() => window.location.assign("/try/")}><small>TẢI ỨNG DỤNG</small>Android</button>
+              <button onClick={onLogin}><small>THÊM VÀO</small>Màn hình chính (iOS)</button>
+            </div>
+          </div>
+          <div className="lp-phone reveal" style={{ transitionDelay: "120ms" }}>
+            <div>
+              <article>
+                <header><i>+</i><b>RemindRx</b><small>18:00</small></header>
+                <p>Đến giờ uống <strong>Metformin 500mg</strong> — sau bữa tối.</p>
+                <footer><button>Đã uống</button><button>Uống muộn</button><button>Bỏ qua</button></footer>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer className="lp-footer">
+      <div className="lp-wrap">
+        <div className="lp-footer-grid">
+          <div>
+            <div className="lp-brand"><Logo />RemindRx</div>
+            <p>Cầu nối kỹ thuật số liên tục giữa bác sĩ và bệnh nhân, sau khi rời phòng khám.</p>
+          </div>
+          <div>
+            <h4>Sản phẩm</h4>
+            <ul>
+              <li><a href="#how">Cách hoạt động</a></li>
+              <li><a href="#features">Tính năng</a></li>
+              <li><a href="#trust">An toàn y khoa</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Dự án</h4>
+            <ul>
+              <li>Mã đề tài VMEC-04</li>
+              <li>Nhóm P-216</li>
+              <li>AI20K Build Phase Cohort 3</li>
+            </ul>
+          </div>
+        </div>
+        <div className="lp-disclaimer">
+          <span>RemindRx cung cấp thông tin tham khảo, không thay thế tư vấn y tế trực tiếp. Trong tình huống khẩn cấp, hãy gọi <strong>115</strong>.</span>
+          <span>© 2026 RemindRx</span>
+        </div>
       </div>
-    </div>
-  );
+    </footer>
+  </div>;
 }

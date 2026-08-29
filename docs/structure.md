@@ -1,5 +1,10 @@
 # ADHE REMIND — Backend Architecture & Project Structure Guide
 
+> Note: "ADHE REMIND" only survives today as the internal `app_name` default in
+> `src/core/config.py:16` (asserted by `tests/test_api/test_core.py:18`). The actual
+> product/repo name everywhere else (README, package names, Docker container names) is
+> **RemindRx**.
+
 This document defines the modular domain-driven architecture for the **ADHE REMIND** medication adherence platform backend.
 
 ---
@@ -8,17 +13,38 @@ This document defines the modular domain-driven architecture for the **ADHE REMI
 
 ```
 src/
-├── agents/                 # 🧠 LangGraph Agent
-│   ├── graph.py            # State graph (nodes + edges)
+├── agents/                 # 🧠 LangGraph Agent (chat graph)
+│   ├── graph.py            # State graph (nodes + edges) — safety_guard first, then classify_intent + branches/ReAct loop
 │   ├── state.py            # State schema (TypedDict)
-│   ├── nodes/              # Node functions
+│   ├── planning_graph.py   # A SEPARATE second LangGraph — schedule/reschedule pipeline, independent of the chat graph above
+│   ├── planning_state.py   # State schema for planning_graph.py
+│   ├── audit.py            # Agent-run audit helpers
+│   ├── medication_policy.py    # Deterministic (no-LLM) block on dose-change/stop/coadminister/prescribe requests
+│   ├── patient_addressing.py   # Vietnamese respectful-address helpers
+│   ├── patient_presentation.py # Patient-facing text formatting
+│   ├── prescription_consistency.py # Code-level validator for prescription/schedule consistency
+│   ├── nodes/              # Node functions — includes both chat nodes (classify_intent, safety_guard, drug_rag, rescheduling, ...)
+│   │                       #   and the `planning_*_node.py` pipeline for planning_graph.py (input_gate, normalize,
+│   │                       #   generate_candidate, lock_and_revalidate, apply_grouping, persist, audit)
 │   └── tools/              # Agent tools (@tool)
+│
+├── rag_ingestion/          # 📥 Offline OCR/embedding pipeline for the drug-formulary RAG corpus
+│   ├── pipeline.py
+│   └── taxonomy.py
+│
+├── rag_retrieval/          # 🔎 Live drug-formulary RAG (hybrid dense+BM25, grounding/citation)
+│   ├── service.py          # DrugRAG — retrieval + grounding
+│   ├── safe_service.py     # SafeDrugRAG — wraps service.py with the full guardrail chain
+│   ├── dense_index.py
+│   ├── conversation_store.py
+│   ├── input_guardrail.py  # Requires a drug name before retrieval — no broad semantic search
+│   └── language_guardrail.py
 │
 ├── core/                   # ⚙️ Infrastructure & Shared Platform Capabilities
 │   ├── config.py           # Pydantic BaseSettings loading .env
 │   ├── database.py         # Async SQLAlchemy 2.0 Engine & AsyncSession
 │   ├── redis.py            # Async Redis connection pool & caching client
-│   ├── security.py         # Phone + OTP auth, JWT encode/decode, RBAC guards
+│   ├── security.py         # Phone + PIN auth, JWT encode/decode, RBAC guards
 │   ├── response.py         # Standardized API response envelope format
 │   └── celery_app.py       # Celery task queue & beat scheduler instance
 │
@@ -57,7 +83,8 @@ src/
 │   │
 │   ├── agents/             # 🧠 Slice 6: Intake Scheduler & patient chat endpoints
 │   │   ├── models.py       # (AgentRun, ScheduledDose)
-│   │   ├── planner.py      # Deterministic dose expansion (pure functions, no DB/IO)
+│   │   ├── planner.py      # Deterministic dose expansion (pure functions, no DB/IO) — the real "tầng 1" solver
+│   │   ├── grouping.py     # Groups ScheduleRow entries for notification batching
 │   │   ├── repository.py
 │   │   ├── router.py
 │   │   ├── service.py      # SchedulingService + ChatService
@@ -78,7 +105,7 @@ src/
 │   │   └── schemas.py
 │   │
 │   └── planning/           # 🧪 Shared clinical helpers for the agent layer
-│       └── core/           # backend_client, clinical, llm, speech, timekit, prescription_validator
+│       └── core/           # backend_client.py, llm.py, speech.py (only these 3 exist — no clinical.py/timekit.py/prescription_validator.py)
 │
 ├── api/                    # 🌐 API Routing & Dependency Injection
 │   ├── deps.py             # Global FastAPI dependencies (get_db, get_current_user, RBAC)
