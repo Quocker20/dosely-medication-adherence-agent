@@ -414,12 +414,14 @@ class PatientViewModel @Inject constructor(
         _state.update { it.copy(sosStatus = SosSubmissionStatus.IDLE, sosError = null) }
     }
 
-    fun loadMedicationDetail(medicationId: String?) {
+    fun loadMedicationDetail(medicationId: String?, forceRefresh: Boolean = false) {
         if (medicationId.isNullOrBlank()) {
             _state.update { it.copy(medicationDetailError = "Thuốc này chưa có mã danh mục để tra cứu.") }
             return
         }
-        if (_state.value.medicationDetailId == medicationId && _state.value.medicationDetail != null) return
+        if (!forceRefresh && _state.value.medicationDetailId == medicationId && _state.value.medicationDetail != null) {
+            return
+        }
         launchInSession { revision ->
             updateForSession(revision) {
                 it.copy(
