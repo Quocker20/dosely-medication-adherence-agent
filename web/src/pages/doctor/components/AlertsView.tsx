@@ -83,7 +83,18 @@ export default function AlertsView({
               </div>
 
               <div className="alert-body">
-                <p className="alert-sub">{alert.message ?? "Không có mô tả kèm theo."}</p>
+                {alert.triggered_by_type === "ADHERENCE_REVIEW" ? (
+                  <div className="chan" style={{ alignItems: "flex-start", gap: 8 }}>
+                    <span className="pill accent" style={{ padding: "1px 6px", fontSize: "11px", flexShrink: 0 }}>
+                      AI
+                    </span>
+                    <p style={{ margin: 0, fontSize: "13px", color: "var(--text)" }}>
+                      {alert.message ?? "Không có mô tả kèm theo."}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="alert-sub">{alert.message ?? "Không có mô tả kèm theo."}</p>
+                )}
               </div>
 
               <div className="alert-foot">
