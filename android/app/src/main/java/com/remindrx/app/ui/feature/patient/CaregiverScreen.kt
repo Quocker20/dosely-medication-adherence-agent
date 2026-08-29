@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.ui.components.PrimaryButton
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.theme.LocalRemindRxColors
 
 data class CaregiverUi(
@@ -100,138 +101,140 @@ fun CaregiverScreen(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
-                }
-                Text("Người chăm sóc", style = MaterialTheme.typography.headlineMedium)
-            }
-        }
-
-        item {
-            Text(
-                "Liên kết tài khoản người thân bằng số điện thoại. Kênh mặc định là thông báo trong ứng dụng.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = extras.inkMuted,
-            )
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = extras.surfaceAlt),
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Thêm người chăm sóc", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = {
-                            phone = it.take(16)
-                            onInputChanged()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Số điện thoại") },
-                        placeholder = { Text("Ví dụ: 0901234567") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = relationship,
-                        onValueChange = {
-                            relationship = it.take(50)
-                            onInputChanged()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Mối quan hệ (không bắt buộc)") },
-                        placeholder = { Text("Ví dụ: Con gái") },
-                        singleLine = true,
-                    )
-                    PrimaryButton(
-                        text = if (isAdding) "Đang liên kết…" else "Thêm người chăm sóc",
-                        onClick = {
-                            onAdd(
-                                normalizedPhone,
-                                relationship.trim().takeIf(String::isNotEmpty),
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = canAdd,
-                    )
+    RemindRxPullRefresh(isRefreshing = isLoading, onRefresh = onRetry) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                    }
+                    Text("Người chăm sóc", style = MaterialTheme.typography.headlineMedium)
                 }
             }
-        }
 
-        createdTemporaryPin?.let { pin ->
+            item {
+                Text(
+                    "Liên kết tài khoản người thân bằng số điện thoại. Kênh mặc định là thông báo trong ứng dụng.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = extras.inkMuted,
+                )
+            }
+
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = extras.warningTint),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = extras.surfaceAlt),
                 ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("Mã PIN tạm thời", style = MaterialTheme.typography.titleMedium, color = extras.warning)
-                        Text(
-                            pin,
-                            style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.padding(top = 6.dp),
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Thêm người chăm sóc", style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = {
+                                phone = it.take(16)
+                                onInputChanged()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Số điện thoại") },
+                            placeholder = { Text("Ví dụ: 0901234567") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
                         )
-                        Text(
-                            "Chỉ chia sẻ mã này trực tiếp với người chăm sóc. Mã chỉ xuất hiện khi hệ thống vừa tạo tài khoản mới.",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = extras.inkMuted,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(top = 6.dp),
+                        OutlinedTextField(
+                            value = relationship,
+                            onValueChange = {
+                                relationship = it.take(50)
+                                onInputChanged()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Mối quan hệ (không bắt buộc)") },
+                            placeholder = { Text("Ví dụ: Con gái") },
+                            singleLine = true,
+                        )
+                        PrimaryButton(
+                            text = if (isAdding) "Đang liên kết…" else "Thêm người chăm sóc",
+                            onClick = {
+                                onAdd(
+                                    normalizedPhone,
+                                    relationship.trim().takeIf(String::isNotEmpty),
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = canAdd,
                         )
                     }
                 }
             }
-        }
 
-        error?.let { message ->
+            createdTemporaryPin?.let { pin ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = extras.warningTint),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text("Mã PIN tạm thời", style = MaterialTheme.typography.titleMedium, color = extras.warning)
+                            Text(
+                                pin,
+                                style = MaterialTheme.typography.headlineMedium,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                            Text(
+                                "Chỉ chia sẻ mã này trực tiếp với người chăm sóc. Mã chỉ xuất hiện khi hệ thống vừa tạo tài khoản mới.",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = extras.inkMuted,
+                                fontWeight = FontWeight.Normal,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            error?.let { message ->
+                item {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(message, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
+                        TextButton(onClick = onRetry) { Text("Thử tải lại") }
+                    }
+                }
+            }
+
             item {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(message, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
-                    TextButton(onClick = onRetry) { Text("Thử tải lại") }
+                Text("Đã liên kết", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+            }
+
+            when {
+                isLoading -> item {
+                    Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
-            }
-        }
 
-        item {
-            Text("Đã liên kết", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        when {
-            isLoading -> item {
-                Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
+                caregivers.isEmpty() -> item {
+                    Text(
+                        "Chưa có người chăm sóc nào được liên kết.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = extras.inkMuted,
+                        modifier = Modifier.padding(vertical = 14.dp),
+                    )
                 }
-            }
 
-            caregivers.isEmpty() -> item {
-                Text(
-                    "Chưa có người chăm sóc nào được liên kết.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = extras.inkMuted,
-                    modifier = Modifier.padding(vertical = 14.dp),
-                )
-            }
-
-            else -> items(caregivers, key = CaregiverUi::linkId) { caregiver ->
-                CaregiverRow(
-                    caregiver = caregiver,
-                    isDeleting = deletingLinkId == caregiver.linkId,
-                    onDelete = { pendingDelete = caregiver },
-                )
+                else -> items(caregivers, key = CaregiverUi::linkId) { caregiver ->
+                    CaregiverRow(
+                        caregiver = caregiver,
+                        isDeleting = deletingLinkId == caregiver.linkId,
+                        onDelete = { pendingDelete = caregiver },
+                    )
+                }
             }
         }
     }

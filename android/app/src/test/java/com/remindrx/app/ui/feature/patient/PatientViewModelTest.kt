@@ -200,6 +200,29 @@ class PatientViewModelTest {
         assertEquals(0, repository.loadHomeCalls)
     }
 
+    @Test
+    fun `medication detail is cached until force refresh is requested`() {
+        val repository = FakePatientRepository().apply {
+            medicationDetailResponses = mutableListOf(
+                medicationDetail("med-1", "Metformin"),
+                medicationDetail("med-1", "Metformin XR"),
+            )
+        }
+        val viewModel = PatientViewModel(repository)
+        viewModel.startSession("patient-1")
+
+        viewModel.loadMedicationDetail("med-1")
+        viewModel.loadMedicationDetail("med-1")
+
+        assertEquals(1, repository.getMedicationDetailCalls)
+        assertEquals("Metformin", viewModel.state.value.medicationDetail?.name)
+
+        viewModel.loadMedicationDetail("med-1", forceRefresh = true)
+
+        assertEquals(2, repository.getMedicationDetailCalls)
+        assertEquals("Metformin XR", viewModel.state.value.medicationDetail?.name)
+    }
+
     private fun verifyOnboardingRoutineIsKept(
         status: ScheduleUpdateStatus,
         backendError: String,
@@ -258,6 +281,8 @@ private class FakePatientRepository : PatientRepository {
     var homeResponse: PatientHome = patientHome(routineResponse)
     var pendingSyncCountFlow = MutableStateFlow(0)
     var sosResponse: Alert? = null
+    var getMedicationDetailCalls = 0
+    var medicationDetailResponses = mutableListOf<MedicationDetail>()
 
     override suspend fun getRoutine(): List<RoutineItem> {
         getRoutineCalls += 1
@@ -307,8 +332,10 @@ private class FakePatientRepository : PatientRepository {
     override suspend fun createSos(message: String?, shareLocation: Boolean): Alert =
         sosResponse ?: error("Not used")
 
-    override suspend fun getMedicationDetail(medicationId: String): MedicationDetail =
-        error("Not used")
+    override suspend fun getMedicationDetail(medicationId: String): MedicationDetail {
+        getMedicationDetailCalls += 1
+        return medicationDetailResponses.removeFirstOrNull() ?: error("Not used")
+    }
 
     override suspend fun getCaregivers(): List<CaregiverLink> = error("Not used")
 
@@ -362,4 +389,16 @@ private fun patientHome(
         skippedDoses = 1,
         missedDoses = 1,
     ),
+)
+
+private fun medicationDetail(id: String, name: String): MedicationDetail = MedicationDetail(
+    id = id,
+    name = name,
+    composition = null,
+    manufacturer = null,
+    uses = null,
+    sideEffects = null,
+    imageUrl = null,
+    sourceName = "Demo",
+    isActive = true,
 )
