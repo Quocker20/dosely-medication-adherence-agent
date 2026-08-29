@@ -268,9 +268,11 @@ In `src/modules/agents/service.py`:
 - **Keep** `mark_overdue_pending_as_missed` (line 512) at its 15-minute
   cadence, untouched. Without it doses sit `PENDING` forever, and
   `apply_dose_action_cas` — which only guards `status='PENDING' AND
-  current_scheduled_at <= now()` — would let a patient mark a three-week-old
-  dose as `TAKEN`. That is silent retroactive-adherence corruption, not a
-  cosmetic issue.
+  current_scheduled_at <= now() + 20 minutes` (the 20-minute
+  `_EARLY_ACTION_GRACE_MINUTES` window absorbs client clock drift and the
+  patient app's own early-unlock UI, not old doses) — would let a patient
+  mark a three-week-old dose as `TAKEN`. That is silent retroactive-adherence
+  corruption, not a cosmetic issue.
 - **Narrow** the streak block (lines 516–552) to critical doses only.
 
 Add to `ScheduledDoseRepository`:
