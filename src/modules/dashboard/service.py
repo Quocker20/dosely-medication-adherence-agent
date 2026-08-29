@@ -33,6 +33,16 @@ def _adherence_rate(taken: int, total: int) -> float:
     return round((taken / total) * 100.0, 2) if total > 0 else 0.0
 
 
+def _with_patient_name(alert: Any, patient_name: str) -> AlertDetailResponse:
+    """AlertDetailResponse.patient_name isn't on the Alert ORM model itself
+    (see its schema comment) — this page already knows the one patient every
+    row in `alerts` belongs to, so no extra query like AlertService.list_alerts
+    needs for its platform-wide, multi-patient page."""
+    response = AlertDetailResponse.model_validate(alert)
+    response.patient_name = patient_name
+    return response
+
+
 class DashboardService:
     """Read-only aggregation for the doctor portal (slice 8).
 
@@ -181,7 +191,10 @@ class DashboardService:
                     missed_doses=missed,
                     window_days=settings.dashboard_adherence_window_days,
                 ),
-                recent_alerts=[AlertDetailResponse.model_validate(a) for a in alerts],
+                # All of these alerts belong to the same already-resolved
+                # patient — no extra lookup needed, unlike AlertService.list_alerts
+                # which spans many patients.
+                recent_alerts=[_with_patient_name(a, name) for a in alerts],
             )
 
         return await cached_model(

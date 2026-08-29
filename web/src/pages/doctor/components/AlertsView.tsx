@@ -66,7 +66,7 @@ export default function AlertsView({
                 <div style={{ minWidth: 0 }}>
                   <div className="alert-title">
                     {alertTriggerLabel(alert.triggered_by_type)} —{" "}
-                    {patient ? patientDisplayName(patient.patient_name) : alert.patient_id}
+                    {patientDisplayName(alert.patient_name ?? patient?.patient_name ?? null)}
                   </div>
                   <div className="alert-sub">
                     mở lúc {formatDateTime(alert.created_at)} · <span className="mono">{alert.id.slice(0, 8)}</span>
