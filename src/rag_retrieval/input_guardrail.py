@@ -48,6 +48,11 @@ _DRUG_MARKERS = (
     "lieu dung",
     "ham luong",
     "bao che",
+    "cong dung",
+    "tac dung",
+    "dung de lam gi",
+    "luu y",
+    "bua an",
 )
 _AMBIGUOUS_DRUG_REFERENCES = (
     "thuoc nay",

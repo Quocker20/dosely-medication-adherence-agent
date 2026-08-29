@@ -68,7 +68,8 @@ def _build_system_message(
 async def agent_node(state: AgentState) -> dict:
     """Gọi LLM với tool-calling bật lên. LLM tự quyết định gọi tool nào,
     hay đã đủ thông tin để trả lời trực tiếp."""
-    llm_with_tools = get_llm().bind_tools(CHAT_TOOLS)
+    llm = get_llm()
+    llm_with_tools = llm.bind_tools(CHAT_TOOLS) if CHAT_TOOLS else llm
 
     system_message = _build_system_message(
         state.get("patient_id", ""), state.get("patient_address", "bạn")

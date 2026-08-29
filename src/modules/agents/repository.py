@@ -8,11 +8,47 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from src.modules.agents.models import AgentRun, ScheduledDose
+from src.modules.agents.models import AgentRun, ChatConversation, ChatMessage, ScheduledDose
 from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
+
+
+class ChatMemoryRepository:
+    """Durable chat history scoped to the authenticated patient."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_or_create(self, patient_id: uuid.UUID, conversation_id: uuid.UUID | None) -> ChatConversation:
+        if conversation_id:
+            row = await self._db.get(ChatConversation, conversation_id)
+            if row is not None and row.patient_id != patient_id:
+                raise PermissionError("Conversation does not belong to the authenticated patient")
+            if row is None:
+                row = ChatConversation(id=conversation_id, patient_id=patient_id)
+                self._db.add(row)
+                await self._db.flush()
+            return row
+        row = ChatConversation(patient_id=patient_id)
+        self._db.add(row)
+        await self._db.flush()
+        return row
+
+    async def recent_messages(self, conversation_id: uuid.UUID, limit: int = 10) -> list[ChatMessage]:
+        rows = (await self._db.scalars(
+            select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
+            .order_by(ChatMessage.created_at.desc()).limit(limit)
+        )).all()
+        return list(reversed(rows))
+
+    async def append_exchange(self, conversation_id: uuid.UUID, question: str, answer: str, intent: str | None) -> None:
+        self._db.add_all([
+            ChatMessage(conversation_id=conversation_id, role="user", content=question, intent=intent),
+            ChatMessage(conversation_id=conversation_id, role="assistant", content=answer, intent=intent),
+        ])
+        await self._db.execute(update(ChatConversation).where(ChatConversation.id == conversation_id).values(updated_at=func.now()))
 
 
 class AgentRunRepository:

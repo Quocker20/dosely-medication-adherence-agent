@@ -86,7 +86,8 @@ class AssistantViewModel @Inject constructor(
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val result = runCatching { repository.sendText(question) }
+            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
+            val result = runCatching { repository.sendText(question, conversationId) }
             if (!isCurrentSession(revision)) return@launch
             result
                 .onSuccess(::appendAssistantMessage)
@@ -148,7 +149,8 @@ class AssistantViewModel @Inject constructor(
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val result = runCatching { repository.sendVoice(file, "audio/mp4") }
+            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
+            val result = runCatching { repository.sendVoice(file, "audio/mp4", conversationId) }
             if (!isCurrentSession(revision)) {
                 file.delete()
                 return@launch

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from eval.hybrid_chat_eval import _intent_metrics, _schedule_case
+from eval.hybrid_chat_eval import _intent_metrics, _remove_blackhole_proxy, _schedule_case
 
 CASES = json.loads(
     (Path(__file__).resolve().parents[2] / "eval" / "hybrid_chat_golden_cases.json").read_text(
@@ -43,3 +43,12 @@ def test_intent_metrics_compute_accuracy_precision_recall_and_f1():
     assert 0 <= metrics["macro_precision"] <= 1
     assert 0 <= metrics["macro_recall"] <= 1
     assert 0 <= metrics["macro_f1"] <= 1
+
+
+def test_evaluator_removes_only_known_blackhole_proxy(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTPS_PROXY", "http://corporate-proxy.example:8080")
+    removed = _remove_blackhole_proxy()
+    assert "HTTP_PROXY" in removed
+    assert "HTTP_PROXY" not in __import__("os").environ
+    assert __import__("os").environ["HTTPS_PROXY"] == "http://corporate-proxy.example:8080"

@@ -43,7 +43,7 @@ async def test_chat_api_boundary_scrubs_citations_from_any_graph_branch():
         ),
         patch("src.modules.agents.service.agent.ainvoke", new=invoke),
     ):
-        response = await ChatService._run_agent(
+        response, _ = await ChatService()._run_agent(
             "Paracetamol có tác dụng gì?", "patient-123", date(2026, 8, 29)
         )
 

@@ -54,15 +54,16 @@ export const alertsApi = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
     }),
 
-  patientChat: (message: string) =>
-    request<{ response: string }>("/chat", {
+  patientChat: (message: string, conversationId?: string) =>
+    request<{ response: string; conversationId?: string }>("/chat", {
       method: "POST",
-      body: { message },
+      body: { message, conversationId },
     }),
 
-  patientChatVoice: (audio: Blob) => {
+  patientChatVoice: (audio: Blob, conversationId?: string) => {
     const formData = new FormData();
     formData.append("audio", audio, "voice-message.webm");
+    if (conversationId) formData.append("conversationId", conversationId);
     return request<VoiceChatResponse>("/chat/voice", {
       method: "POST",
       body: formData,

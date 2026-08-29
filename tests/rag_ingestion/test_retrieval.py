@@ -117,6 +117,32 @@ def test_unique_concatenated_prefix_resolves_incomplete_drug_name() -> None:
     )
 
 
+def test_common_query_word_does_not_resolve_compound_drug_heading() -> None:
+    collection = FakeCollection()
+    collection.ids.append("compound")
+    collection.documents.append("Thuốc: ESTROGEN LIÊN HỢP\nMục: Cảnh báo")
+    collection.metadatas.append({
+        "drug_name": "ESTROGEN LIÊN HỢP", "normalized_drug_name": "estrogenlienhop",
+        "section": "warnings", "section_label": "Cảnh báo", "page_start": 1,
+        "page_end": 1, "review_status": "approved",
+    })
+    rag = DrugRAG(collection=collection, client=SimpleNamespace(embeddings=FakeEmbeddings()))
+    assert rag.infer_drug("Metformin có lưu ý gì liên quan đến bữa ăn?") == (None, None)
+
+
+def test_international_amoxicillin_spelling_resolves_formulary_heading() -> None:
+    collection = FakeCollection()
+    collection.ids.append("amoxicilin")
+    collection.documents.append("Thuốc: AMOXICILIN\nMục: Chống chỉ định")
+    collection.metadatas.append({
+        "drug_name": "AMOXICILIN", "normalized_drug_name": "amoxicilin",
+        "section": "contraindications", "section_label": "Chống chỉ định",
+        "page_start": 1, "page_end": 1, "review_status": "approved",
+    })
+    rag = DrugRAG(collection=collection, client=SimpleNamespace(embeddings=FakeEmbeddings()))
+    assert rag.infer_drug("Amoxicillin chống chỉ định gì?") == ("amoxicilin", "AMOXICILIN")
+
+
 def test_conversation_reference_selects_current_or_previous_drug_topic() -> None:
     assert contextual_drug_offset("Thuốc vừa nãy là thuốc gì?") == -1
     assert contextual_drug_offset("Thuốc trước thuốc vừa nãy hỏi là gì?") == -2
