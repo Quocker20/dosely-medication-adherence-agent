@@ -265,6 +265,8 @@ fun RemindRxApp() {
                             navController.navigate(Routes.medicationDetail(itemId))
                         }
                     },
+                    isRefreshing = patientState.isLoading,
+                    onRefresh = patientViewModel::refresh,
                 )
             }
             composable(
@@ -286,6 +288,12 @@ fun RemindRxApp() {
                     isLoading = patientState.isLoadingMedicationDetail,
                     error = patientState.medicationDetailError,
                     onRetry = { patientViewModel.loadMedicationDetail(medication?.medicationId) },
+                    onRefresh = {
+                        patientViewModel.loadMedicationDetail(
+                            medication?.medicationId,
+                            forceRefresh = true,
+                        )
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }

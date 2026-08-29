@@ -48,6 +48,7 @@ import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.MealRelation
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.PrimaryButton
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.components.TodayDoseCard
 import com.remindrx.app.ui.theme.LocalRemindRxColors
@@ -77,97 +78,99 @@ fun DashboardScreen(
     val insights = remember(doses, nextDose) { buildInsights(doses, nextDose) }
     val medicineCount = doses.map(DoseToday::medicationName).distinct().size
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
-    ) {
-        item { DashboardHeader() }
-        item { AdherenceCard(takenCount = takenCount, totalCount = doses.size, adherenceRate = adherenceRate) }
+    RemindRxPullRefresh(isRefreshing = isLoading, onRefresh = onRetry) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
+        ) {
+            item { DashboardHeader() }
+            item { AdherenceCard(takenCount = takenCount, totalCount = doses.size, adherenceRate = adherenceRate) }
 
-        if (isLoading) {
-            item {
-                Text(
-                    "Đang đồng bộ lịch với bác sĩ…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = extras.inkMuted,
-                    modifier = Modifier.padding(vertical = 10.dp),
-                )
+            if (isLoading) {
+                item {
+                    Text(
+                        "Đang đồng bộ lịch với bác sĩ…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = extras.inkMuted,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    )
+                }
             }
-        }
-        if (error != null) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = extras.dangerTint),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
-                        PrimaryButton("Thử đồng bộ lại", onClick = onRetry, modifier = Modifier.padding(top = 10.dp))
+            if (error != null) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = extras.dangerTint),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(error, style = MaterialTheme.typography.bodyMedium, color = extras.danger)
+                            PrimaryButton("Thử đồng bộ lại", onClick = onRetry, modifier = Modifier.padding(top = 10.dp))
+                        }
                     }
                 }
             }
-        }
 
-        item { SectionTitle("Liều tiếp theo", modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) }
-        item {
-            if (nextDose != null) {
-                NextDoseCard(
-                    dose = nextDose,
-                    onClick = { onOpenDose(nextDose.id) },
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+            item { SectionTitle("Liều tiếp theo", modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) }
+            item {
+                if (nextDose != null) {
+                    NextDoseCard(
+                        dose = nextDose,
+                        onClick = { onOpenDose(nextDose.id) },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                } else {
+                    CompletedTodayCard(
+                        hasScheduledDoses = doses.isNotEmpty(),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+            }
+
+            item { SectionTitle("Cảnh báo & gợi ý", modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)) }
+            items(insights) { insight ->
+                InsightCard(insight = insight, modifier = Modifier.padding(bottom = 8.dp))
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    SectionTitle("Thuốc hôm nay")
+                    Text(
+                        "$medicineCount loại · ${doses.size} cữ",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = extras.inkMuted,
+                        fontWeight = FontWeight.Normal,
+                    )
+                }
+            }
+
+            if (doses.isEmpty()) {
+                item { EmptyScheduleCard() }
             } else {
-                CompletedTodayCard(
-                    hasScheduledDoses = doses.isNotEmpty(),
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
-        }
-
-        item { SectionTitle("Cảnh báo & gợi ý", modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)) }
-        items(insights) { insight ->
-            InsightCard(insight = insight, modifier = Modifier.padding(bottom = 8.dp))
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                SectionTitle("Thuốc hôm nay")
-                Text(
-                    "$medicineCount loại · ${doses.size} cữ",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = extras.inkMuted,
-                    fontWeight = FontWeight.Normal,
-                )
-            }
-        }
-
-        if (doses.isEmpty()) {
-            item { EmptyScheduleCard() }
-        } else {
-            DosePeriod.entries.forEach { period ->
-                val periodDoses = doses.filter { it.period == period }
-                if (periodDoses.isNotEmpty()) {
-                    item {
-                        Text(
-                            period.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                        )
-                    }
-                    items(periodDoses, key = { it.id }) { dose ->
-                        TodayDoseCard(
-                            dose = dose,
-                            onTaken = { onDoseAction(dose.id, "TAKEN", "") },
-                            onLate = { onDoseAction(dose.id, "LATE", "") },
-                            onSkip = { skipTargetId = dose.id },
-                            onOpen = { onOpenDose(dose.id) },
-                            modifier = Modifier.padding(bottom = 10.dp),
-                        )
+                DosePeriod.entries.forEach { period ->
+                    val periodDoses = doses.filter { it.period == period }
+                    if (periodDoses.isNotEmpty()) {
+                        item {
+                            Text(
+                                period.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                            )
+                        }
+                        items(periodDoses, key = { it.id }) { dose ->
+                            TodayDoseCard(
+                                dose = dose,
+                                onTaken = { onDoseAction(dose.id, "TAKEN", "") },
+                                onLate = { onDoseAction(dose.id, "LATE", "") },
+                                onSkip = { skipTargetId = dose.id },
+                                onOpen = { onOpenDose(dose.id) },
+                                modifier = Modifier.padding(bottom = 10.dp),
+                            )
+                        }
                     }
                 }
             }
