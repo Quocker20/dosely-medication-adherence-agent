@@ -18,6 +18,7 @@ LLM phân loại lỗi -> mặc định "general" (fail-open về phía an toàn
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from langchain_core.messages import HumanMessage
@@ -74,17 +75,42 @@ _DRUG_INFO_MARKERS = (
     "side effect", "contraindication", "interaction", "how to take", "storage",
 )
 
-_CLASSIFY_SYSTEM_PROMPT = """Phân loại tin nhắn của bệnh nhân vào ĐÚNG 1 nhãn:
+_SCHEDULED_DRUG_CONTEXT_MARKERS = (
+    "lúc đói", "khi đói", "trước ăn", "sau ăn", "cùng bữa", "sau bữa",
+    "đau bụng", "buồn nôn", "chóng mặt", "dị ứng", "nổi mẩn", "tiêu chảy",
+    "có sai không", "có đúng không", "ảnh hưởng", "do thuốc",
+)
+
+_CLASSIFY_SYSTEM_PROMPT = """Bạn là bộ phân tích mục đích câu hỏi của bệnh nhân.
+Không trả lời câu hỏi y tế. Phân tích NGHĨA của cả câu, không chọn intent chỉ
+vì nhìn thấy một từ như "cữ", "giờ", "thuốc" hay "đau".
+
+Trả về cấu trúc gồm intent, topics, reference_type, drug_name, schedule_time,
+date_reference, symptoms, requested_action, needs_clarification và confidence.
+
+Các intent:
 
 - "report_meal_shift": bệnh nhân báo một bữa ăn hôm nay bị lệch giờ (ăn sớm/muộn hơn thường lệ)
-- "ask_schedule": hỏi về lịch uống thuốc, đã uống thuốc chưa, cữ tiếp theo lúc nào
+- "ask_schedule": mục tiêu chính là xem toàn bộ lịch/các cữ hoặc trạng thái đã uống
 - "ask_my_medications": hỏi danh sách thuốc bản thân đang được kê/đang sử dụng
 - "explain_my_medications": yêu cầu giải thích cách dùng các thuốc của bản thân
 - "ask_next_dose": hỏi cữ/liều tiếp theo của bản thân
-- "ask_drug_info": hỏi thông tin về một loại thuốc (công dụng, cách dùng...)
-- "general": mọi trường hợp khác (chào hỏi, hỏi chung, yêu cầu đổi liều/ngưng thuốc, v.v.)
+- "ask_drug_info": hỏi thông tin về một thuốc được nêu tên trực tiếp
+- "ask_scheduled_drug_info": dùng giờ/cữ để XÁC ĐỊNH THUỐC, còn mục tiêu chính
+  là hỏi công dụng, cách dùng, liên quan bữa ăn, tác dụng phụ hoặc triệu chứng
+- "general": mọi trường hợp khác
 
-Chỉ trả về đúng nhãn, không giải thích."""
+Quy tắc phân biệt bắt buộc:
+1. Hỏi "lịch/các cữ hôm nay" -> ask_schedule.
+2. Hỏi "cữ tiếp theo" -> ask_next_dose.
+3. Nếu giờ/cữ chỉ giúp tìm thuốc, còn câu hỏi là thuốc có tác dụng gì, gây triệu
+   chứng gì, uống đói/no có đúng chỉ dẫn không -> ask_scheduled_drug_info.
+4. Intent phản ánh thông tin cần có trong CÂU TRẢ LỜI, không phải dữ kiện phụ.
+5. Không tự suy ra tên thuốc từ giờ; để reference_type=schedule_time cho backend xác minh.
+
+Ví dụ câu "Tôi đau bụng, chắc do uống lúc đói; thuốc cữ 7h30 dùng vậy có sai
+không?" phải là ask_scheduled_drug_info, topics=[administration, adverse_effect],
+reference_type=schedule_time, schedule_time=07:30, symptoms=[đau bụng]."""
 
 
 class IntentClassification(BaseModel):
@@ -95,9 +121,53 @@ class IntentClassification(BaseModel):
         "explain_my_medications",
         "ask_next_dose",
         "ask_drug_info",
+        "ask_scheduled_drug_info",
         "general",
     ] = Field(
         description="Nhãn ý định của tin nhắn — xem hướng dẫn."
+    )
+    topics: list[Literal[
+        "schedule", "indication", "administration", "adverse_effect",
+        "interaction", "contraindication", "missed_dose", "storage",
+        "treatment_change", "other",
+    ]] = Field(default_factory=list)
+    reference_type: Literal[
+        "none", "drug_name", "schedule_time", "current_medications", "next_dose"
+    ] = "none"
+    drug_name: str | None = None
+    schedule_time: str | None = None
+    date_reference: str | None = None
+    symptoms: list[str] = Field(default_factory=list)
+    requested_action: Literal[
+        "view_schedule", "identify_drug", "explain", "check_instructions",
+        "report_event", "change_treatment", "other",
+    ] = "other"
+    needs_clarification: bool = False
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+def _validated_intent(analysis: IntentClassification) -> str:
+    """Reject a schedule route when time is only a reference to a drug."""
+    medication_topics = {
+        "indication", "administration", "adverse_effect", "interaction", "contraindication"
+    }
+    if (
+        analysis.reference_type == "schedule_time"
+        and analysis.schedule_time
+        and medication_topics.intersection(analysis.topics)
+    ):
+        return "ask_scheduled_drug_info"
+    return analysis.intent
+
+
+def _fallback_scheduled_drug_intent(normalized: str) -> bool:
+    """Fallback only when LLM semantic parsing is unavailable."""
+    has_reference = bool(
+        re.search(r"\b(?:cữ|liều|thuốc)\b.{0,30}\b\d{1,2}(?::|h)\d{0,2}\b", normalized)
+        or re.search(r"\b\d{1,2}(?::|h)\d{0,2}\b.{0,30}\b(?:cữ|liều|thuốc)\b", normalized)
+    )
+    return has_reference and any(
+        marker in normalized for marker in (*_DRUG_INFO_MARKERS, *_SCHEDULED_DRUG_CONTEXT_MARKERS)
     )
 
 
@@ -111,6 +181,7 @@ def _last_human_text(state: AgentState) -> str:
 async def classify_intent_node(state: AgentState) -> dict:
     text = _last_human_text(state)
     normalized = " ".join(text.casefold().split())
+    requires_semantic_analysis = _fallback_scheduled_drug_intent(normalized)
     if any(phrase in normalized for phrase in _EXPLAIN_MY_MEDICATION_PHRASES):
         return {"intent": "explain_my_medications"}
     if any(phrase in normalized for phrase in _NEXT_DOSE_PHRASES):
@@ -135,7 +206,7 @@ async def classify_intent_node(state: AgentState) -> dict:
     # Route formulary-shaped questions to SafeDrugRAG without depending on an
     # LLM classifier. Its input guard resolves the exact drug name or asks the
     # user to provide one; it never performs an unscoped retrieval.
-    if any(marker in normalized for marker in _DRUG_INFO_MARKERS):
+    if not requires_semantic_analysis and any(marker in normalized for marker in _DRUG_INFO_MARKERS):
         return {"intent": "ask_drug_info"}
     try:
         llm = get_llm(temperature=0).with_structured_output(IntentClassification)
@@ -145,7 +216,17 @@ async def classify_intent_node(state: AgentState) -> dict:
                 {"role": "user", "content": text},
             ]
         )
-        intent = result.intent
+        intent = _validated_intent(result)
+        return {"intent": intent, "intent_analysis": result.model_dump()}
     except Exception:  # noqa: BLE001 — lỗi phân loại -> "general", để agent_node xử lý an toàn
-        intent = "general"
-    return {"intent": intent}
+        if _fallback_scheduled_drug_intent(normalized):
+            return {
+                "intent": "ask_scheduled_drug_info",
+                "intent_analysis": {
+                    "intent": "ask_scheduled_drug_info",
+                    "reference_type": "schedule_time",
+                    "confidence": 0.0,
+                    "parser": "deterministic_fallback",
+                },
+            }
+        return {"intent": "general", "intent_analysis": {"parser": "failed"}}

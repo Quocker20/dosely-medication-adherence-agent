@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.graph import agent
 from src.agents.nodes.classify_intent_node import IntentClassification
 from src.agents.nodes.rescheduling_node import MealShiftExtraction
+from src.agents.nodes.scope_guard_node import ScopeClassification
 
 
 def _not_severe():
@@ -32,10 +33,24 @@ def _classified_as(intent: str):
     )
 
 
+def _in_scope():
+    return patch(
+        "src.agents.nodes.scope_guard_node.get_llm",
+        **{
+            "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                return_value=ScopeClassification(
+                    category="medication", reason="test", confidence=1.0
+                )
+            )
+        },
+    )
+
+
 def _reaches_agent(intent: str = "general"):
     """Cả safety_guard lẫn classify_intent đều pass-through, luồng tới agent_node."""
     stack = ExitStack()
     stack.enter_context(_not_severe())
+    stack.enter_context(_in_scope())
     stack.enter_context(_classified_as(intent))
     return stack
 
@@ -219,6 +234,33 @@ async def test_drug_recommendation_is_blocked_before_classify_chat_and_rag():
 
 
 @pytest.mark.asyncio
+async def test_out_of_scope_question_stops_before_intent_and_chat_llm():
+    with (
+        _not_severe(),
+        patch(
+            "src.agents.nodes.scope_guard_node.get_llm",
+            **{
+                "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                    return_value=ScopeClassification(
+                        category="out_of_scope", reason="thể thao", confidence=1.0
+                    )
+                )
+            },
+        ),
+        patch("src.agents.nodes.classify_intent_node.get_llm") as classifier_llm,
+        patch("src.agents.nodes.chat_node.get_llm") as chat_llm,
+    ):
+        result = await agent.ainvoke({
+            "messages": [HumanMessage(content="World Cup 2026 kết thúc ngày bao nhiêu?")],
+            "patient_id": "patient-123",
+        })
+    classifier_llm.assert_not_called()
+    chat_llm.assert_not_called()
+    assert result["scope_blocked"] is True
+    assert "ngoài phạm vi" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
 async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
     """classify_intent -> report_meal_shift -> rescheduling_node, agent_node
     (chat LLM tự do) không bao giờ được gọi."""
@@ -271,6 +313,8 @@ def test_rag_node_is_only_reachable_after_safety_guard():
     assert start_targets == {"safety_guard"}
     classify_targets = {edge.target for edge in graph.edges if edge.source == "classify_intent"}
     assert "drug_rag" in classify_targets
+    safety_targets = {edge.target for edge in graph.edges if edge.source == "safety_guard"}
+    assert "scope_guard" in safety_targets
 
 
 def test_chat_system_prompt_guides_profile_based_addressing():

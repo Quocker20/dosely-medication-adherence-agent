@@ -11,13 +11,19 @@ from src.agents.nodes.explain_my_medications_node import explain_my_medications_
 from src.agents.nodes.next_dose_node import next_dose_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.safety_guard_node import safety_guard_node
+from src.agents.nodes.scope_guard_node import scope_guard_node
+from src.agents.nodes.scheduled_drug_info_node import scheduled_drug_info_node
 from src.agents.nodes.today_schedule_node import today_schedule_node
 from src.agents.state import AgentState
 from src.agents.tools import CHAT_TOOLS
 
 
 def _route_after_safety_guard(state: AgentState) -> str:
-    return "end" if state.get("escalated") or state.get("safety_blocked") else "classify_intent"
+    return "end" if state.get("escalated") or state.get("safety_blocked") else "scope_guard"
+
+
+def _route_after_scope_guard(state: AgentState) -> str:
+    return "end" if state.get("scope_blocked") else "classify_intent"
 
 
 def _route_after_classify_intent(state: AgentState) -> str:
@@ -25,6 +31,8 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "rescheduling"
     if state.get("intent") == "ask_drug_info":
         return "drug_rag"
+    if state.get("intent") == "ask_scheduled_drug_info":
+        return "scheduled_drug_info"
     if state.get("intent") == "ask_my_medications":
         return "current_medications"
     if state.get("intent") == "explain_my_medications":
@@ -40,9 +48,11 @@ def build_graph() -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("safety_guard", safety_guard_node)
+    graph.add_node("scope_guard", scope_guard_node)
     graph.add_node("classify_intent", classify_intent_node)
     graph.add_node("rescheduling", rescheduling_node)
     graph.add_node("drug_rag", drug_rag_node)
+    graph.add_node("scheduled_drug_info", scheduled_drug_info_node)
     graph.add_node("current_medications", current_medications_node)
     graph.add_node("explain_my_medications", explain_my_medications_node)
     graph.add_node("next_dose", next_dose_node)
@@ -54,7 +64,10 @@ def build_graph() -> CompiledStateGraph:
     # hoạch tầng 2 §1.3 + §6). Escalate -> dừng ngay với câu trả lời cố định.
     graph.set_entry_point("safety_guard")
     graph.add_conditional_edges(
-        "safety_guard", _route_after_safety_guard, {"classify_intent": "classify_intent", "end": END}
+        "safety_guard", _route_after_safety_guard, {"scope_guard": "scope_guard", "end": END}
+    )
+    graph.add_conditional_edges(
+        "scope_guard", _route_after_scope_guard, {"classify_intent": "classify_intent", "end": END}
     )
 
     # meal shift có route riêng, tách khỏi ReAct loop.
@@ -64,6 +77,7 @@ def build_graph() -> CompiledStateGraph:
         {
             "rescheduling": "rescheduling",
             "drug_rag": "drug_rag",
+            "scheduled_drug_info": "scheduled_drug_info",
             "current_medications": "current_medications",
             "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose",
@@ -73,6 +87,7 @@ def build_graph() -> CompiledStateGraph:
     )
     graph.add_edge("rescheduling", END)
     graph.add_edge("drug_rag", END)
+    graph.add_edge("scheduled_drug_info", END)
     graph.add_edge("current_medications", END)
     graph.add_edge("explain_my_medications", END)
     graph.add_edge("next_dose", END)
