@@ -33,7 +33,7 @@ from src.modules.adherence_review.repository import (
     SlotBreakdown,
     SymptomEvidence,
 )
-from src.modules.adherence_review.service import Action, Severity
+from src.modules.adherence_review.enums import Action, Severity
 from src.modules.planning.core.llm import get_llm
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,11 @@ class RemedyAnalysis(BaseModel):
     message_patient: Optional[str] = Field(default=None, max_length=240)
 
 
-_FALLBACK = RemedyAnalysis(
+# Public (not module-private): Stage 6's orchestrator reuses this exact same
+# shape for patients dropped by the max-LLM-calls cap (5.2/6.5) -- a capped
+# patient still gets a review row and the rule-decided action, just without
+# an attempted classification, identical to a timeout/error outcome.
+FALLBACK_REMEDY_ANALYSIS = RemedyAnalysis(
     remedy_class=RemedyClass.UNCLEAR,
     confidence="low",
     reasoning_doctor=None,
@@ -197,7 +201,7 @@ async def classify_remedy(
             patient_id,
             exc_info=True,
         )
-        return _FALLBACK
+        return FALLBACK_REMEDY_ANALYSIS
 
     analysis = result if isinstance(result, RemedyAnalysis) else RemedyAnalysis.model_validate(result)
     if analysis.message_patient and _contains_prescribing_language(analysis.message_patient):

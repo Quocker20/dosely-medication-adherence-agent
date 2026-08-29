@@ -24,8 +24,8 @@ plan's prose underspecifies them:
    (PATIENT_NOTIFICATION and DOCTOR_WARNING), but `adherence_reviews
    .action_taken` is a single column (migration 0022). resolve_action
    therefore returns the full action set; collapsing it to one column value
-   for storage is Stage 6's job (see AdherenceEscalationService.primary_action
-   below), not something decided here. Both `alert_id` and
+   for storage is Stage 6's job (see primary_action below), not something
+   decided here. Both `alert_id` and
    `notification_delivery_id` on that row are independently nullable, so a
    single review row can legitimately reference both a notification and an
    alert created the same night.
@@ -41,31 +41,40 @@ separate special case needed.
 """
 from __future__ import annotations
 
+import logging
+import math
+import uuid
 from dataclasses import dataclass
-from datetime import date, timedelta
-from enum import Enum
-from typing import FrozenSet, Optional
+from datetime import UTC, date, datetime, time as dtime, timedelta
+from typing import Any, Dict, FrozenSet, Optional
+from zoneinfo import ZoneInfo
 
-from src.core.config import Settings
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.common.schemas import PageResponse
+from src.core.cache import invalidate_prefix
+from src.core.config import Settings, get_settings
+from src.core.redis import publish_dashboard_event
+from src.modules.adherence.repository import AlertRepository, NotificationRepository
+from src.modules.adherence.schemas import AlertDetailResponse
+from src.modules.adherence_review.enums import Action, Severity
+from src.modules.adherence_review.llm import (
+    FALLBACK_REMEDY_ANALYSIS,
+    RemedyAnalysis,
+    RemedyContext,
+    classify_remedy,
+    enforce_patient_message_gate,
+)
 from src.modules.adherence_review.repository import (
+    AdherenceIndicatorRepository,
+    AdherenceReviewRepository,
     PriorReview,
     SeverityIndicators,
     TrendIndicators,
+    compute_window_bounds,
 )
-
-
-class Severity(str, Enum):
-    NONE = "NONE"
-    MILD = "MILD"
-    MODERATE = "MODERATE"
-    SEVERE = "SEVERE"
-
-
-class Action(str, Enum):
-    NONE = "NONE"
-    PATIENT_NOTIFICATION = "PATIENT_NOTIFICATION"
-    DOCTOR_WARNING = "DOCTOR_WARNING"
-    DOCTOR_ALERT = "DOCTOR_ALERT"
+from src.modules.adherence_review.schemas import AdherenceReviewDetailResponse
 
 
 # Matches the DB CHECK constraint's allowed action_taken values
@@ -249,3 +258,357 @@ def resolve_action(
         if _passes_cooldown(days_in_severity, column_start, _cooldown_days_for(action, cfg))
     )
     return EscalationResult(days_in_severity=days_in_severity, actions=fired)
+
+
+logger = logging.getLogger(__name__)
+
+
+def _next_daytime_slot(now_utc: datetime, timezone_name: str, send_from_hour: int, send_to_hour: int) -> datetime:
+    """Next UTC instant inside [send_from_hour, send_to_hour) local time.
+
+    If `now` already falls inside the window, returns `now` unchanged
+    (delivery fires immediately). Otherwise returns send_from_hour local on
+    the earliest day that is still ahead of `now` -- today if the window
+    hasn't opened yet, tomorrow if it has already closed. The nightly job
+    runs well before send_from_hour by design (05:00 vs. an 08:00 window),
+    so the common case is always "today at send_from_hour local"."""
+    tz = ZoneInfo(timezone_name)
+    local_now = now_utc.astimezone(tz)
+    if send_from_hour <= local_now.hour < send_to_hour:
+        return now_utc
+    candidate_date = local_now.date() if local_now.hour < send_from_hour else local_now.date() + timedelta(days=1)
+    candidate_local = datetime.combine(candidate_date, dtime(hour=send_from_hour), tzinfo=tz)
+    return candidate_local.astimezone(UTC)
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """One patient's Phase B outcome, carried into Phase C."""
+
+    patient_id: uuid.UUID
+    severity: Severity
+    escalation: EscalationResult
+    indicators: SeverityIndicators
+    timezone: str
+
+
+class AdherenceReviewService:
+    """Orchestrates one nightly graded-adherence review run (Stage 6):
+
+        Phase A (one REPEATABLE READ transaction) -> six indicator reads, commit, close
+        Phase B (no DB at all)                     -> compute_severity / resolve_action, then LLM calls for the gated set
+        Phase C (one transaction PER PATIENT)       -> insert review + alert/notification
+
+    Phase C is per-patient, not one giant transaction, so a single patient's
+    idempotency collision or constraint violation cannot roll back the
+    whole night's work for every other patient (plan 6.2).
+    """
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        indicator_repository: AdherenceIndicatorRepository,
+        review_repository: AdherenceReviewRepository,
+        alert_repository: AlertRepository,
+        notification_repository: NotificationRepository,
+    ) -> None:
+        self._db = db
+        self._indicators = indicator_repository
+        self._reviews = review_repository
+        self._alerts = alert_repository
+        self._notifications = notification_repository
+
+    async def run_nightly_review(self, review_date: date) -> Dict[str, int]:
+        """Entry point for tasks.py:scan_adherence_review. `review_date` is
+        the deployment-local calendar date the run is FOR (today, at the
+        moment the Beat job fires) -- the window analyzed is the
+        window_days before it, never including it."""
+        settings = get_settings()
+        if not settings.adherence_review_enabled:
+            logger.info("Adherence review disabled via settings; skipping run for %s", review_date)
+            return {"skipped": 1}
+
+        candidates, indicator_cache = await self._phase_a_and_b(review_date, settings)
+
+        stats = {
+            "candidates": len(candidates),
+            "llm_calls": 0,
+            "llm_dropped_by_cap": 0,
+            "reviewed": 0,
+            "silenced": 0,
+            "replayed": 0,
+        }
+
+        # Sort by severity descending before capping LLM calls, so a loose
+        # threshold drops the LEAST severe patients first, never the most
+        # severe (plan 6.5).
+        severity_rank = {Severity.MILD: 1, Severity.MODERATE: 2, Severity.SEVERE: 3}
+        ordered = sorted(candidates, key=lambda c: severity_rank[c.severity], reverse=True)
+        llm_eligible_ids = {c.patient_id for c in ordered[: settings.adherence_review_max_llm_calls]}
+        stats["llm_dropped_by_cap"] = len(ordered) - len(llm_eligible_ids)
+        if stats["llm_dropped_by_cap"] > 0:
+            logger.warning(
+                "Adherence review: max_llm_calls cap dropped %d of %d candidates for %s",
+                stats["llm_dropped_by_cap"], len(ordered), review_date,
+            )
+
+        for candidate in ordered:
+            # A silenced (improving) candidate still needs its review row
+            # persisted with action_taken=NONE, even though nothing fires
+            # tonight -- resolve_action's own is_fresh check depends on
+            # finding *some* row dated exactly "yesterday" for this patient.
+            # Skipping persistence here would make tomorrow night see no
+            # prior row at all, treat the patient as a brand-new entry, and
+            # incorrectly reset the ladder instead of continuing the
+            # (silenced) streak. Only the LLM call is skipped: there is no
+            # doctor/patient message to enrich for a night nothing fires,
+            # and it would burn LLM budget for zero benefit.
+            if candidate.escalation.actions and candidate.patient_id in llm_eligible_ids:
+                context = indicator_cache[candidate.patient_id]
+                analysis = await classify_remedy(candidate.patient_id, context, settings)
+                stats["llm_calls"] += 1
+            else:
+                analysis = FALLBACK_REMEDY_ANALYSIS
+                if not candidate.escalation.actions:
+                    stats["silenced"] += 1
+            analysis = enforce_patient_message_gate(analysis, candidate.escalation.actions)
+
+            replayed = await self._persist_one(review_date, candidate, analysis, settings)
+            if replayed:
+                stats["replayed"] += 1
+            else:
+                stats["reviewed"] += 1
+
+        return stats
+
+    async def _phase_a_and_b_read(
+        self, review_date: date, settings: Settings
+    ) -> tuple[
+        list[SeverityIndicators],
+        Dict[uuid.UUID, TrendIndicators],
+        Dict[uuid.UUID, list],
+        Dict[uuid.UUID, list],
+        Dict[uuid.UUID, list],
+        Dict[uuid.UUID, PriorReview],
+        Dict[uuid.UUID, Any],
+    ]:
+        window_start, window_end = compute_window_bounds(
+            review_date, settings.adherence_review_window_days, settings.adherence_review_timezone
+        )
+        prior_window_start = window_start - (window_end - window_start)
+
+        async with self._db.begin():
+            severity_rows = await self._indicators.get_severity_indicators(
+                window_start, window_end, settings.missed_dose_overdue_minutes
+            )
+            trend_map = await self._indicators.get_trend_indicators(
+                prior_window_start, window_start, settings.missed_dose_overdue_minutes
+            )
+            slot_map = await self._indicators.get_slot_breakdown(
+                window_start, window_end, settings.missed_dose_overdue_minutes
+            )
+            medication_map = await self._indicators.get_medication_breakdown(
+                window_start, window_end, settings.missed_dose_overdue_minutes
+            )
+            symptom_map = await self._indicators.get_symptom_evidence(
+                window_start.date(), window_end.date()
+            )
+            # Escalation only ever treats a prior review as "continuing" when
+            # it is exactly yesterday (resolve_action's own is_fresh check) --
+            # so a one-day lookback is sufficient regardless of how far back
+            # a patient's actual review history goes.
+            prior_reviews = await self._indicators.get_prior_reviews(review_date - timedelta(days=1))
+            patient_ids = [row.patient_id for row in severity_rows]
+            roster = await self._indicators.get_patient_roster(patient_ids)
+
+        return severity_rows, trend_map, slot_map, medication_map, symptom_map, prior_reviews, roster
+
+    async def _phase_a_and_b(
+        self, review_date: date, settings: Settings
+    ) -> tuple[list[_Candidate], Dict[uuid.UUID, RemedyContext]]:
+        (
+            severity_rows, trend_map, slot_map, medication_map, symptom_map, prior_reviews, roster,
+        ) = await self._phase_a_and_b_read(review_date, settings)
+
+        candidates: list[_Candidate] = []
+        contexts: Dict[uuid.UUID, RemedyContext] = {}
+        for ind in severity_rows:
+            trend_delta = compute_trend_delta(ind, trend_map.get(ind.patient_id))
+            severity = compute_severity(ind, trend_delta, settings)
+            if severity == Severity.NONE:
+                continue
+
+            prior = prior_reviews.get(ind.patient_id)
+            escalation = resolve_action(severity, prior, review_date, settings)
+
+            entry = roster.get(ind.patient_id)
+            timezone_name = entry.timezone if entry is not None else settings.adherence_review_timezone
+
+            candidates.append(
+                _Candidate(
+                    patient_id=ind.patient_id,
+                    severity=severity,
+                    escalation=escalation,
+                    indicators=ind,
+                    timezone=timezone_name,
+                )
+            )
+            contexts[ind.patient_id] = RemedyContext(
+                severity=severity,
+                skipped_count=ind.skipped,
+                missed_count=ind.missed,
+                trend_delta=trend_delta,
+                slot_breakdown=slot_map.get(ind.patient_id, []),
+                medication_breakdown=medication_map.get(ind.patient_id, []),
+                symptom_evidence=symptom_map.get(ind.patient_id, []),
+            )
+        return candidates, contexts
+
+    async def _persist_one(
+        self,
+        review_date: date,
+        candidate: _Candidate,
+        analysis: RemedyAnalysis,
+        settings: Settings,
+    ) -> bool:
+        """Returns True if this was an idempotent replay (row already
+        existed), False if a new review was written this call."""
+        idempotency_key = f"adherence-review:{candidate.patient_id}:{review_date.isoformat()}"
+        window_start_date = review_date - timedelta(days=settings.adherence_review_window_days)
+        window_end_date = review_date - timedelta(days=1)
+        ind = candidate.indicators
+
+        alert = None
+        notification = None
+        try:
+            async with self._db.begin():
+                # Inserted FIRST and before either side effect: a duplicate
+                # run collides on uq_adherence_reviews_patient_date right
+                # here, before any alert or notification is ever created for
+                # the replay (plan's race-condition table, Stage 6 risk
+                # register).
+                review = await self._reviews.insert_review(
+                    {
+                        "patient_id": candidate.patient_id,
+                        "review_date": review_date,
+                        "window_start": window_start_date,
+                        "window_end": window_end_date,
+                        "severity": candidate.severity.value,
+                        "days_in_severity": candidate.escalation.days_in_severity,
+                        "remedy_class": analysis.remedy_class.value,
+                        "action_taken": primary_action(candidate.escalation.actions).value,
+                        "indicators": {
+                            "total": ind.total,
+                            "taken": ind.taken,
+                            "skipped": ind.skipped,
+                            "missed": ind.missed,
+                            "critical_missed": ind.critical_missed,
+                        },
+                        "llm_reasoning": analysis.reasoning_doctor,
+                        "llm_confidence": analysis.confidence,
+                    }
+                )
+
+                if Action.DOCTOR_ALERT in candidate.escalation.actions:
+                    alert = await self._alerts.create_alert(
+                        patient_id=candidate.patient_id,
+                        triggered_by_type="ADHERENCE_REVIEW",
+                        alert_type="RED_ALERT",
+                        severity="HIGH",
+                        message=analysis.reasoning_doctor,
+                        idempotency_key=idempotency_key,
+                    )
+                elif Action.DOCTOR_WARNING in candidate.escalation.actions:
+                    alert = await self._alerts.create_alert(
+                        patient_id=candidate.patient_id,
+                        triggered_by_type="ADHERENCE_REVIEW",
+                        alert_type="WARNING",
+                        severity="MEDIUM",
+                        message=analysis.reasoning_doctor,
+                        idempotency_key=idempotency_key,
+                    )
+
+                if Action.PATIENT_NOTIFICATION in candidate.escalation.actions and analysis.message_patient:
+                    scheduled_at = _next_daytime_slot(
+                        datetime.now(UTC),
+                        candidate.timezone,
+                        settings.adherence_review_patient_send_from,
+                        settings.adherence_review_patient_send_to,
+                    )
+                    notification = await self._notifications.create_grouped_delivery(
+                        recipient_user_id=candidate.patient_id,
+                        channel="APP_NOTIFICATION",
+                        template_code="ADHERENCE_SUGGESTION",
+                        scheduled_at=scheduled_at,
+                        title="Nhắc nhở tuân thủ dùng thuốc",
+                        body=analysis.message_patient,
+                        scheduled_dose_ids=[],
+                        idempotency_key=idempotency_key,
+                    )
+
+                if alert is not None or notification is not None:
+                    await self._reviews.link_alert_and_notification(
+                        review.id,
+                        alert_id=alert.id if alert is not None else None,
+                        notification_delivery_id=notification.id if notification is not None else None,
+                    )
+        except IntegrityError:
+            logger.info(
+                "Adherence review already exists for patient %s on %s (idempotent replay)",
+                candidate.patient_id, review_date,
+            )
+            return True
+
+        # After the commit, never inside it -- same placement as every other
+        # write path in this codebase (AlertService.trigger_sos,
+        # AdherenceLogService.record_dose_action). publish_dashboard_event
+        # is fail-open; a Redis outage costs the portal its liveness, never
+        # the clinical write that already committed.
+        if alert is not None:
+            await publish_dashboard_event(
+                "alert.opened", AlertDetailResponse.model_validate(alert).model_dump(mode="json")
+            )
+        if alert is not None or notification is not None:
+            # A new alert changes open_alerts_count; a new notification
+            # changes last_survey_date's sibling stat on the roster -- both
+            # cached under the same "dash:patients" prefix.
+            await invalidate_prefix("dash:patients")
+        if notification is not None:
+            # Imported lazily, matching NotificationDispatchService's own
+            # pattern (src/modules/adherence/notification_service.py) --
+            # avoids a module-load-time dependency between adherence_review
+            # and agents.tasks.
+            from src.modules.agents.tasks import send_notification_task
+
+            send_notification_task.delay(str(notification.id))
+
+        return False
+
+
+class AdherenceReviewQueryService:
+    """Read-only access to a patient's review history (GET
+    /patients/{id}/adherence-reviews) -- kept separate from
+    AdherenceReviewService so the read path doesn't need to construct the
+    three write-side repositories the nightly orchestrator requires."""
+
+    def __init__(self, db: AsyncSession, review_repository: AdherenceReviewRepository) -> None:
+        self._db = db
+        self._reviews = review_repository
+
+    async def list_patient_reviews(
+        self, patient_id: uuid.UUID, actor_payload: dict, page: int = 1, size: int = 10
+    ) -> PageResponse[AdherenceReviewDetailResponse]:
+        """PATIENT/DOCTOR/CAREGIVER, same access derivation as adherence
+        logs and health surveys. Out-of-scope returns an empty page, not a
+        404 -- avoids leaking which patient UUIDs exist."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        rows, total_count = await self._reviews.list_for_patient(patient_id, actor_id, page=page, size=size)
+
+        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        last = page >= total_pages if total_pages > 0 else True
+        content = [AdherenceReviewDetailResponse.model_validate(row) for row in rows]
+
+        return PageResponse(
+            content=content, page_no=page, page_size=size,
+            total_elements=total_count, total_pages=total_pages, last=last,
+        )

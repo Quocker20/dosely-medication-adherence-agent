@@ -27,17 +27,19 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from src.modules.adherence.models import HealthSurvey, SymptomReport
 from src.modules.adherence_review.models import AdherenceReview
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
-from src.modules.patients.models import PatientProfile
+from src.modules.patients.models import CaregiverLink, PatientProfile
+from src.modules.prescriptions.models import Prescription
 from src.modules.prescriptions.models import PrescriptionItem
 
 
@@ -375,3 +377,107 @@ class AdherenceIndicatorRepository:
             row.user_id: PatientRosterEntry(name=row.name, timezone=row.timezone, status=row.status)
             for row in result.all()
         }
+
+
+def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
+    """Role-agnostic access predicate, duplicated per structure.md's
+    vertical-slice isolation rather than imported — mirrors
+    AdherenceLogRepository._access_filter exactly: self-owned,
+    doctor-prescribed, or active-caregiver-linked are independent facts
+    checked together."""
+
+    def _has_prescribed_filter() -> Exists:
+        return (
+            select(Prescription.id)
+            .where(Prescription.doctor_id == actor_id, Prescription.patient_id == patient_id_col)
+            .exists()
+        )
+
+    def _has_active_caregiver_filter() -> Exists:
+        return (
+            select(CaregiverLink.id)
+            .where(
+                CaregiverLink.caregiver_user_id == actor_id,
+                CaregiverLink.patient_id == patient_id_col,
+                CaregiverLink.status == "ACTIVE",
+            )
+            .exists()
+        )
+
+    return or_(
+        patient_id_col == actor_id,
+        _has_prescribed_filter(),
+        _has_active_caregiver_filter(),
+    )
+
+
+class AdherenceReviewRepository:
+    """Statement-only access to adherence_reviews rows: writes for the
+    nightly orchestrator (Stage 6), access-scoped reads for the patient
+    detail endpoint. Never commits/rolls back — the caller (service layer)
+    owns the transaction."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def insert_review(self, fields: Dict[str, Any]) -> AdherenceReview:
+        """Insert with alert_id/notification_delivery_id left unset (both
+        nullable FKs, default NULL) -- the caller fills them in afterward via
+        link_alert_and_notification, once the alert/notification rows this
+        review references actually exist. Inserting the review FIRST, before
+        either of those, is what makes uq_adherence_reviews_patient_date the
+        real defence against a double-fired nightly run: a duplicate collides
+        here and IntegrityError propagates before any alert or notification
+        is ever created for the replay attempt."""
+        review = AdherenceReview(**fields)
+        self._db.add(review)
+        await self._db.flush()
+        return review
+
+    async def link_alert_and_notification(
+        self,
+        review_id: uuid.UUID,
+        alert_id: Optional[uuid.UUID],
+        notification_delivery_id: Optional[uuid.UUID],
+    ) -> None:
+        """Second statement in the same transaction as insert_review, once
+        the alert/notification it references have been created."""
+        stmt = (
+            update(AdherenceReview)
+            .where(AdherenceReview.id == review_id)
+            .values(alert_id=alert_id, notification_delivery_id=notification_delivery_id)
+        )
+        await self._db.execute(stmt)
+
+    async def list_for_patient(
+        self,
+        patient_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        page: int = 1,
+        size: int = 10,
+    ) -> Tuple[List[AdherenceReview], int]:
+        """Newest first, access-scoped the same way as adherence logs and
+        health surveys (self / doctor-prescribed / active-caregiver).
+        Out-of-scope returns an empty page, matching
+        HealthSurveyService.list_patient_surveys."""
+        filters = [
+            AdherenceReview.patient_id == patient_id,
+            _access_filter(actor_id, AdherenceReview.patient_id),
+        ]
+
+        count_stmt = select(func.count(AdherenceReview.id)).where(*filters)
+        total_count = (await self._db.execute(count_stmt)).scalar_one()
+
+        if total_count == 0:
+            return [], 0
+
+        offset = (page - 1) * size
+        stmt = (
+            select(AdherenceReview)
+            .where(*filters)
+            .order_by(AdherenceReview.review_date.desc())
+            .offset(offset)
+            .limit(size)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all()), total_count
