@@ -85,15 +85,21 @@ jobs:
   # that leaves a test fixture behind stays invisible until someone cuts a
   # release APK. Compiling the demo variant's tests is what catches it.
   #
-  # Not self-hosted, unlike every other job here. The VPS has 3.8 GB of RAM with
-  # no swap and 2 cores, and ~1.6 GB of that is production (backend, worker,
-  # beat, redis, caddy). Gradle alone is configured for a 2 GB heap and kapt
-  # spawns further JVMs on top, so a build would exhaust memory -- and with no
-  # swap the kernel goes straight to the OOM killer, which picks the largest
-  # process it can find. That is production. GitHub's runner also ships the
-  # Android SDK preinstalled, so this is faster besides.
+  # Pull requests only, and tuned for a small box. The self-hosted runner is the
+  # production VPS: 3.8 GB RAM, 2 cores, with ~1.6 GB held by backend, worker,
+  # beat, redis and caddy. Gradle's own default here is a 2 GB heap and Kotlin
+  # normally compiles in a second daemon process on top of that, which does not
+  # fit. The overrides below keep it to a single JVM with a 1 GB heap.
+  #
+  # This job needs the VPS to have swap. Without it the kernel has no way to
+  # shed pressure and goes straight to the OOM killer, which picks the largest
+  # process it can find -- during a build that is plausibly production itself.
+  #
+  # GitHub-hosted runners are not an option: the organisation's billing blocks
+  # them ("The job was not started because recent account payments have failed").
   android-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +120,12 @@ jobs:
         working-directory: android
 
       - name: Run demo unit tests
-        run: ./gradlew testDemoUnitTest --no-daemon
+        run: >-
+          ./gradlew testDemoUnitTest
+          --no-daemon
+          --max-workers=1
+          -Dorg.gradle.jvmargs=-Xmx1024m
+          -Dkotlin.compiler.execution.strategy=in-process
         working-directory: android
 
   repository-diagnostics:
