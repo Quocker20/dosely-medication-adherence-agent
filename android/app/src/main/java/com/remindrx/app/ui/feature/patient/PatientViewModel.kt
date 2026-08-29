@@ -8,6 +8,7 @@ import com.remindrx.app.data.AdherenceLog
 import com.remindrx.app.data.AdherenceSummary
 import com.remindrx.app.data.CaregiverLink
 import com.remindrx.app.data.DoseAction
+import com.remindrx.app.data.DoseStatus
 import com.remindrx.app.data.DoseToday
 import com.remindrx.app.data.Medication
 import com.remindrx.app.data.MedicationDetail
@@ -26,12 +27,16 @@ import com.remindrx.app.core.NoopPatientRealtimeEvents
 import com.remindrx.app.ui.toVietnameseUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.Duration
 import java.time.temporal.TemporalAdjusters
 import java.util.Collections
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +57,9 @@ private fun currentWeekStart(today: LocalDate = LocalDate.now()): LocalDate =
     today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
 enum class SosSubmissionStatus { IDLE, SENDING, SENT, QUEUED_OFFLINE, FAILED }
+
+private const val DOSE_LOCK_RESCAN_INTERVAL_MS = 30_000L
+private val DOSE_LOCK_EARLY_UNLOCK_WINDOW: Duration = Duration.ofMinutes(15)
 
 data class PatientUiState(
     val isCheckingRoutine: Boolean = false,
@@ -125,6 +133,48 @@ class PatientViewModel @Inject constructor(
             }
         }
         monitorConnectivityRestored()
+        watchDoseLockExpiry()
+    }
+
+    /**
+     * DoseToday.status is frozen at fetch/mapping time (Instant.now() read once
+     * in PatientMappers.toDoseToday()), so a LOCKED dose never flips to
+     * UPCOMING on its own once its scheduled time passes — Compose has nothing
+     * to observe for the wall clock ticking forward. Re-scan client-side every
+     * 30s so the dashboard doesn't need a manual reload to show a dose as
+     * actionable right when its time arrives.
+     */
+    private fun watchDoseLockExpiry() {
+        viewModelScope.launch {
+            while (true) {
+                delay(DOSE_LOCK_RESCAN_INTERVAL_MS)
+                unlockDueDoses()
+            }
+        }
+    }
+
+    private fun unlockDueDoses() {
+        val now = Instant.now()
+        _state.update { current ->
+            var changed = false
+            val doses = current.doses.map { dose ->
+                if (dose.status == DoseStatus.LOCKED && dose.isNowDue(now)) {
+                    changed = true
+                    dose.copy(status = DoseStatus.UPCOMING)
+                } else {
+                    dose
+                }
+            }
+            if (changed) current.copy(doses = doses) else current
+        }
+    }
+
+    private fun DoseToday.isNowDue(now: Instant): Boolean {
+        val scheduledAt = currentScheduledAt ?: return false
+        val dueInstant = runCatching { OffsetDateTime.parse(scheduledAt).toInstant() }.getOrNull() ?: return false
+        // Unlock a bit ahead of the exact minute so the patient can act as soon
+        // as they open the app around dose time, not only after it strikes.
+        return !dueInstant.minus(DOSE_LOCK_EARLY_UNLOCK_WINDOW).isAfter(now)
     }
 
     /** Called by the authenticated navigation shell; never fetch before login. */
