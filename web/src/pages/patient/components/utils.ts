@@ -20,6 +20,13 @@ export function doseStatus(status: string) {
   return ["Sắp tới", "upcoming"] as const;
 }
 
+// Mirrors the Android app's 15-minute early-unlock window and stays inside
+// the backend's 20-minute grace on record_dose_action (see
+// _EARLY_ACTION_GRACE_MINUTES in src/modules/adherence/repository.py), so a
+// tap here never gets rejected by the server for being "too early".
+const EARLY_UNLOCK_MS = 15 * 60_000;
+
 export function isDoseLocked(dose: ScheduledDoseRow) {
-  return dose.status.toUpperCase() === "PENDING" && new Date(dose.current_scheduled_at).getTime() > Date.now();
+  return dose.status.toUpperCase() === "PENDING"
+    && new Date(dose.current_scheduled_at).getTime() - EARLY_UNLOCK_MS > Date.now();
 }
