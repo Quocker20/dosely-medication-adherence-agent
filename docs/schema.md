@@ -509,12 +509,31 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `id` (UUID): Mã cảnh báo.
   * `patient_id` (UUID): Mã bệnh nhân.
   * `assigned_doctor_id` (Optional[UUID]): Mã bác sĩ tiếp nhận.
-  * `triggered_by_type` (str): Nguồn kích hoạt (`SOS_BUTTON`, `SEVERE_SYMPTOM`, `MISSED_DOSES`).
+  * `triggered_by_type` (str): Nguồn kích hoạt (`SOS_BUTTON`, `SEVERE_SYMPTOM`, `MISSED_DOSES`, `ADHERENCE_REVIEW`). Giá trị cuối do đánh giá tuân thủ hàng đêm (Slice 7a) sinh ra khi hành động là `DOCTOR_WARNING`/`DOCTOR_ALERT`.
   * `alert_type` (str): Loại cảnh báo (`RED_ALERT`, `WARNING`).
   * `severity` (str): Mức độ nghiêm trọng (`CRITICAL`, `HIGH`, `MEDIUM`).
   * `status` (str): Trạng thái xử lý (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`).
   * `message` (Optional[str]): Nội dung cảnh báo.
   * `created_at` (datetime): Thời điểm phát sinh cảnh báo.
+
+### 7.12 AdherenceReviewDetailResponse
+* **Mục đích**: Phản hồi một bản ghi đánh giá tuân thủ hàng đêm từ bảng `adherence_reviews`. Chỉ tồn tại bản ghi khi `severity != NONE` — bệnh nhân tuân thủ tốt không sinh dòng nào. Dùng cho `GET /patients/{patient_id}/adherence-reviews` (phân trang, mới nhất trước).
+* **Module**: `src.modules.adherence_review.schemas`
+* **Luật quyết định (tham khảo, không phải API)**: `severity` (`MILD`/`MODERATE`/`SEVERE`) do luật xác định (`AdherenceReviewService.compute_severity`), không đổi được bởi LLM. `remedy_class` do LLM phân loại nguyên nhân từ 6 giá trị cố định (`RESCHEDULE_TIMING`, `SUSPECTED_SIDE_EFFECT`, `DELIBERATE_REFUSAL`, `DISENGAGEMENT`, `EXTERNAL_DISRUPTION`, `UNCLEAR`) và không có trường nào để LLM ghi đè `severity`. `action_taken` là hành động cao nhất trong đêm đó (`NONE`/`PATIENT_NOTIFICATION`/`DOCTOR_WARNING`/`DOCTOR_ALERT`) — một đêm có thể vừa thông báo bệnh nhân vừa cảnh báo bác sĩ, cột này chỉ lưu giá trị có mức độ cao nhất.
+* **Phạm vi truy cập**: PATIENT/DOCTOR/CAREGIVER, dùng lại quy tắc truy cập adherence (chính chủ / bác sĩ đã kê đơn / người thân liên kết ACTIVE). Ngoài phạm vi trả về trang rỗng, không 404.
+* **Cấu trúc thuộc tính**:
+  * `id` (UUID): Mã bản ghi đánh giá.
+  * `patient_id` (UUID): Mã bệnh nhân.
+  * `review_date` (date): Ngày chạy đánh giá.
+  * `window_start` / `window_end` (date): Khoảng thời gian được phân tích.
+  * `severity` (str): Mức độ nghiêm trọng do luật xác định.
+  * `days_in_severity` (int): Số đêm liên tiếp ở mức độ này (dùng cho bậc thang leo thang).
+  * `remedy_class` (Optional[str]): Nguyên nhân do LLM phân loại, `null` nếu LLM lỗi/timeout/bị giới hạn số lượt gọi (khi đó luôn là `"UNCLEAR"`, không phải `null` — trường chỉ `null` nếu chưa từng chạy phân loại).
+  * `action_taken` (str): Hành động cao nhất được thực hiện đêm đó.
+  * `indicators` (Dict[str, Any]): Các số liệu thô (`total`, `taken`, `skipped`, `missed`, `critical_missed`) đã dùng để tính `severity`, đóng băng cho mục đích audit.
+  * `llm_reasoning` (Optional[str]): Giải thích dành cho bác sĩ, `null` nếu LLM lỗi/timeout.
+  * `llm_confidence` (Optional[str]): Độ tin cậy LLM tự báo cáo (`high`/`medium`/`low`).
+  * `created_at` (datetime): Thời điểm ghi bản ghi.
 
 ---
 
@@ -549,7 +568,7 @@ Slice thuần backend — không có phần nào của agent service tham gia (d
 * **Mục đích**: Khối dữ liệu Payload đẩy thời gian thực từ Server xuống Client qua kết nối WebSocket (`/ws/dashboard`).
 * **Module**: `src.modules.dashboard.schemas`
 * **Cấu trúc thuộc tính**:
-  * `event_type` (str): Tên sự kiện. Hiện phát ra: `alert.opened` (SOS hoặc agent phát hiện triệu chứng nặng), `alert.updated` (bác sĩ acknowledge/resolve). `adherence.updated`/`schedule.updated` từng được liệt kê nhưng chưa có publisher nào — đừng dựng client chờ chúng.
+  * `event_type` (str): Tên sự kiện. Hiện phát ra: `alert.opened` (SOS, agent phát hiện triệu chứng nặng, hoặc đánh giá tuân thủ hàng đêm sinh `DOCTOR_WARNING`/`DOCTOR_ALERT` — `triggered_by_type=ADHERENCE_REVIEW`), `alert.updated` (bác sĩ acknowledge/resolve). `adherence.updated`/`schedule.updated` từng được liệt kê nhưng chưa có publisher nào ngoài các đường ghi nhận liều/rải lịch hiện có — đừng dựng client chờ payload khác các nguồn đã nêu.
   * `timestamp` (datetime): Mốc thời gian phát sinh sự kiện (UTC, ISO 8601).
   * `data` (Dict[str, Any]): Nội dung sự kiện. Với `alert.*` là nguyên `AlertDetailResponse` đã serialize.
 * **Đường phát**: envelope do `src.core.redis.publish_dashboard_event` dựng, không phải module dashboard. Lý do: publisher là write path của slice khác (adherence) — bắt chúng import module dashboard chỉ để bắn một event chính là kiểu coupling mà vertical-slice isolation cần tránh. Cùng lý do `src/core/response.py` sở hữu envelope HTTP. Phía dashboard validate lại theo schema này trước khi đẩy xuống socket.
