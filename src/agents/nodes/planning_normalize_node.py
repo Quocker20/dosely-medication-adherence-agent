@@ -51,6 +51,7 @@ def normalize_planning_inputs(
             minimum_interval_minutes=item.minimum_interval_minutes,
             start_date=item.start_date,
             end_date=item.end_date,
+            is_critical=item.is_critical,
         )
         for item, _prescription_id in item_pairs
     ]

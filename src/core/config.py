@@ -126,6 +126,53 @@ class Settings(BaseSettings):
     # so one shared bound serves every patient regardless of their timezone.
     dashboard_adherence_window_days: int = Field(default=7, ge=1, le=90)
     dashboard_recent_alerts_limit: int = Field(default=5, ge=1, le=50)
+    # Nightly graded-adherence review (docs/graded-adherence-implementation.md
+    # Stage 3+). A closed calendar window [D-window_days, D) in
+    # adherence_review_timezone, not a rolling "now - N days" — the escalation
+    # ladder compares night-over-night, so each night's window must be fixed
+    # once computed rather than drifting as the day progresses.
+    adherence_review_window_days: int = Field(default=7, ge=1, le=90)
+    # Single deployment-wide timezone for the nightly window boundary, not
+    # per-patient: per-patient boundaries would force one query per patient,
+    # which is exactly the N+1 this stage's indicator queries exist to avoid.
+    # Matches patient_profiles.timezone's own default and Celery's configured
+    # timezone. Revisit only if the platform ships outside one timezone.
+    adherence_review_timezone: str = "Asia/Ho_Chi_Minh"
+    # A patient with fewer doses than this in the window has no meaningful
+    # rate to judge — same reasoning as the zero-dose dashboard-band fix on
+    # this branch (dashboard/repository.py adherence_band filters).
+    adherence_review_min_doses: int = Field(default=5, ge=1, le=100)
+    # Severity bands, aligned with the doctor dashboard's existing 50/70
+    # adherence_band cutoffs (dashboard/repository.py) so the same percentage
+    # reads the same tier on both screens. adherence_mild_threshold is the
+    # all-clear line: at or above it, severity is NONE.
+    adherence_severe_threshold: float = Field(default=50.0, ge=0, le=100)
+    adherence_moderate_threshold: float = Field(default=70.0, ge=0, le=100)
+    adherence_mild_threshold: float = Field(default=80.0, ge=0, le=100)
+    # Week-over-week drop (current_rate - prior_rate, so this is negative)
+    # at or below which severity is bumped one level regardless of the band
+    # it already landed in — a fast deterioration matters even inside an
+    # otherwise-tolerable band.
+    adherence_trend_alarm_delta: float = Field(default=-20.0, ge=-100, le=0)
+    # Escalation-ladder day breakpoints (docs/graded-adherence-implementation.md
+    # Stage 4.2): three typed ints rather than one parsed CSV string, so
+    # Pydantic validates them at startup instead of a bad string surfacing as
+    # a runtime crash mid-scan. day5 has no upper bound in the ladder itself
+    # ("day 5+") — it is the day this and every later day shares one column.
+    adherence_review_escalation_day1: int = Field(default=1, ge=1, le=365)
+    adherence_review_escalation_day3: int = Field(default=3, ge=1, le=365)
+    adherence_review_escalation_day5: int = Field(default=5, ge=1, le=365)
+    # Doctor-facing re-notification cadence once an alert/warning starts
+    # firing for a patient stuck at one severity — without this, a patient
+    # at SEVERE for 30 nights pages the doctor 30 times. A FRESH escalation
+    # (severity just rose, or just entered this action tier) always fires
+    # regardless of cooldown; see AdherenceEscalationService for the exact
+    # "days since this action tier started" rule.
+    adherence_review_cooldown_days: int = Field(default=3, ge=1, le=30)
+    # Patient-facing notifications are throttled separately and more
+    # gently — a daily nudge while MILD is tolerable in a way a daily
+    # doctor page is not.
+    adherence_review_patient_cooldown_days: int = Field(default=1, ge=1, le=30)
     doctor_id: str = "dr-nguyen-van-a"
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"

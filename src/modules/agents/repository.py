@@ -429,17 +429,23 @@ class ScheduledDoseRepository:
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
-    async def mark_overdue_pending_as_missed(self, cutoff: datetime) -> list[tuple[uuid.UUID, uuid.UUID, datetime]]:
+    async def mark_overdue_pending_as_missed(
+        self, cutoff: datetime
+    ) -> list[tuple[uuid.UUID, uuid.UUID, datetime, bool]]:
         """Flip every ScheduledDose still PENDING with current_scheduled_at <
-        cutoff to MISSED, across all patients in one statement. Rides
+        cutoff to MISSED, across all patients in one statement — regardless
+        of is_critical. This is the state-machine half of the scan (a dose
+        left PENDING forever would stay retroactively actionable); only the
+        streak-alert half below is narrowed to critical doses. Rides
         idx_scheduled_doses_pending_due (current_scheduled_at) WHERE
         status='PENDING'. Race-safe against a patient actioning the same dose
         concurrently: standard row-level UPDATE locking means a row already
         flipped to TAKEN/SKIPPED a moment earlier no longer matches
         status='PENDING' by the time this runs, so it's simply excluded — no
         read-then-write window. Returns (patient_id, dose_id,
-        current_scheduled_at) for every row just flipped, so the caller only
-        recomputes streaks for affected patients."""
+        current_scheduled_at, is_critical) for every row just flipped, so the
+        caller can pick out which patients had a critical dose newly missed
+        this tick without a second query."""
         stmt = (
             update(ScheduledDose)
             .where(
@@ -451,10 +457,11 @@ class ScheduledDoseRepository:
                 ScheduledDose.patient_id,
                 ScheduledDose.id,
                 ScheduledDose.current_scheduled_at,
+                ScheduledDose.is_critical,
             )
         )
         result = await self._db.execute(stmt)
-        return [(row[0], row[1], row[2]) for row in result.all()]
+        return [(row[0], row[1], row[2], row[3]) for row in result.all()]
 
     async def get_recent_dose_statuses(
         self, patient_ids: list[uuid.UUID], lookback: int, before: datetime
@@ -497,6 +504,57 @@ class ScheduledDoseRepository:
             .where(
                 ScheduledDose.patient_id.in_(patient_ids),
                 ScheduledDose.current_scheduled_at <= before,
+            )
+            .subquery()
+        )
+        stmt = (
+            select(subq.c.patient_id, subq.c.status)
+            .where(subq.c.rn <= lookback)
+            .order_by(subq.c.patient_id, subq.c.current_scheduled_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        grouped: dict[uuid.UUID, list[dict[str, str]]] = {}
+        for patient_id, status in result.all():
+            grouped.setdefault(patient_id, []).append({"status": status})
+        return grouped
+
+    async def get_recent_critical_dose_statuses(
+        self, patient_ids: list[uuid.UUID], lookback: int, before: datetime
+    ) -> dict[uuid.UUID, list[dict[str, str]]]:
+        """Same shape and ROW_NUMBER() OVER (PARTITION BY patient_id ...)
+        approach as get_recent_dose_statuses (one query for every affected
+        patient, never one per patient), filtered to WHERE is_critical.
+
+        Deliberate semantic difference from the unfiltered version: a patient
+        who takes their statin on time but misses their warfarin no longer
+        has that on-time statin dose interrupt the streak, because the
+        statin dose is excluded from this sequence entirely rather than
+        counted as a non-missed entry. The filtered streak is more sensitive
+        to critical-only misses, not less — see
+        docs/graded-adherence-implementation.md Stage 2. Rides
+        idx_scheduled_doses_critical_patient_time (patient_id,
+        current_scheduled_at DESC) WHERE is_critical."""
+        if not patient_ids:
+            return {}
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=ScheduledDose.patient_id,
+                order_by=ScheduledDose.current_scheduled_at.desc(),
+            )
+            .label("rn")
+        )
+        subq = (
+            select(
+                ScheduledDose.patient_id,
+                ScheduledDose.status,
+                ScheduledDose.current_scheduled_at,
+                rn,
+            )
+            .where(
+                ScheduledDose.patient_id.in_(patient_ids),
+                ScheduledDose.current_scheduled_at <= before,
+                ScheduledDose.is_critical,
             )
             .subquery()
         )

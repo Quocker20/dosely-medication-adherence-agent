@@ -82,6 +82,7 @@ class PlannableItem:
     minimum_interval_minutes: int | None
     start_date: date
     end_date: date | None
+    is_critical: bool = False
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,10 @@ class ScheduleRow:
     status: str = "PENDING"
     snooze_count: int = 0
     notification_group_id: uuid.UUID | None = None
+    # Pure carried value from PlannableItem.is_critical — must never
+    # participate in slot selection, gap validation, or any scheduling
+    # decision. See docs/graded-adherence-implementation.md Stage 2.
+    is_critical: bool = False
 
 
 @dataclass(frozen=True)
@@ -385,6 +390,7 @@ def expand_schedule(
                         meal_relation=_normalize_meal_relation(item.meal_relation),
                         original_scheduled_at=utc_dt,
                         current_scheduled_at=utc_dt,
+                        is_critical=item.is_critical,
                     )
                 )
             day += timedelta(days=1)

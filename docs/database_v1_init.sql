@@ -225,6 +225,11 @@ CREATE TABLE prescription_items (
     start_date DATE NOT NULL,
     end_date DATE,
     instructions TEXT,
+    -- Doctor-set on high-risk medications; narrows the missed-dose-streak
+    -- fast-path alert to only these items instead of every medication.
+    -- Snapshotted onto scheduled_doses.is_critical at generation time.
+    -- Added by migration 0021_prescription_item_is_critical.
+    is_critical BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -259,6 +264,11 @@ CREATE TABLE scheduled_doses (
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
         CHECK (status IN ('PENDING','TAKEN','SKIPPED','MISSED')),
     snooze_count INTEGER NOT NULL DEFAULT 0 CHECK (snooze_count >= 0),
+    -- Immutable snapshot of PrescriptionItem.is_critical at generation time,
+    -- same pattern as dose_slot/medication_id/dose_value above -- cannot
+    -- drift from the item since items are DRAFT-locked once doses exist.
+    -- Added by migration 0021_prescription_item_is_critical.
+    is_critical BOOLEAN NOT NULL DEFAULT FALSE,
     taken_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -284,6 +294,21 @@ CREATE INDEX idx_scheduled_doses_patient_time
 -- Added by migration 0008_slice6_sched.
 CREATE INDEX idx_scheduled_doses_pending_due
     ON scheduled_doses(current_scheduled_at) WHERE status = 'PENDING';
+-- Backs the narrowed missed-dose-streak fast-path scan: most recent doses
+-- per patient that are flagged critical. Stays proportional to actual
+-- doctor usage of is_critical rather than table size (partial on it).
+-- Added by migration 0021_prescription_item_is_critical.
+CREATE INDEX idx_scheduled_doses_critical_patient_time
+    ON scheduled_doses(patient_id, current_scheduled_at DESC) WHERE is_critical;
+-- Backs the nightly graded-adherence-review scan, which ranges across every
+-- patient at once (unlike idx_scheduled_doses_patient_time, which leads with
+-- patient_id and cannot serve a patient-agnostic time range). INCLUDE keeps
+-- the six aggregate queries index-only. Added by migration
+-- 0024_scheduled_doses_window_scan_index.
+CREATE INDEX idx_scheduled_doses_window_scan
+    ON scheduled_doses(current_scheduled_at, patient_id, status)
+    INCLUDE (dose_slot, medication_id, is_critical, snooze_count,
+             original_scheduled_at, taken_at);
 
 -- 10. adherence_logs
 CREATE TABLE adherence_logs (
@@ -372,9 +397,13 @@ CREATE TABLE alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
     assigned_doctor_id UUID REFERENCES doctor_profiles(user_id) ON DELETE SET NULL,
+    -- ADHERENCE_REVIEW added by migration 0023_alerts_adherence_review_trigger
+    -- for DOCTOR_WARNING/DOCTOR_ALERT rows raised by the nightly
+    -- graded-severity review.
     triggered_by_type VARCHAR(30) NOT NULL
         CONSTRAINT ck_alerts_triggered_by_type
-        CHECK (triggered_by_type IN ('SOS_BUTTON','SEVERE_SYMPTOM','MISSED_DOSES')),
+        CHECK (triggered_by_type IN
+            ('SOS_BUTTON','SEVERE_SYMPTOM','MISSED_DOSES','ADHERENCE_REVIEW')),
     triggered_by_id UUID,
     alert_type VARCHAR(30) NOT NULL
         CONSTRAINT ck_alerts_alert_type CHECK (alert_type IN ('RED_ALERT','WARNING')),
@@ -406,6 +435,71 @@ CREATE INDEX idx_alerts_status_created ON alerts(status, created_at DESC);
 -- Postgres never auto-indexes a FK column; backs ON DELETE SET NULL from
 -- doctor_profiles. Added by migration 0009_slice7_adherence.
 CREATE INDEX idx_alerts_assigned_doctor_id ON alerts(assigned_doctor_id);
+
+-- 13a. adherence_reviews
+-- One row per patient per night, written ONLY when severity is not NONE (an
+-- adherent patient generates no row -- storing one for every patient every
+-- night would add ~365 rows/patient/year that are never read). Rules decide
+-- `severity` deterministically; the LLM only ever classifies `remedy_class`
+-- from a closed list and cannot revise severity. Added by migration
+-- 0022_adherence_reviews.
+CREATE TABLE adherence_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
+    review_date DATE NOT NULL,
+    window_start DATE NOT NULL,
+    window_end DATE NOT NULL,
+
+    severity VARCHAR(20) NOT NULL
+        CONSTRAINT ck_adherence_reviews_severity
+        CHECK (severity IN ('MILD','MODERATE','SEVERE')),
+    -- Running counter carried forward from the prior night's row (reset to 1
+    -- on any severity change, or on a gap in review history) -- NOT
+    -- recomputed by counting rows, so a skipped nightly run degrades the
+    -- escalation ladder instead of corrupting it.
+    days_in_severity INTEGER NOT NULL DEFAULT 1
+        CONSTRAINT ck_adherence_reviews_days CHECK (days_in_severity >= 1),
+
+    remedy_class VARCHAR(40)
+        CONSTRAINT ck_adherence_reviews_remedy
+        CHECK (remedy_class IS NULL OR remedy_class IN (
+            'RESCHEDULE_TIMING','SUSPECTED_SIDE_EFFECT','DELIBERATE_REFUSAL',
+            'DISENGAGEMENT','EXTERNAL_DISRUPTION','UNCLEAR')),
+
+    action_taken VARCHAR(30) NOT NULL
+        CONSTRAINT ck_adherence_reviews_action
+        CHECK (action_taken IN
+            ('NONE','PATIENT_NOTIFICATION','DOCTOR_WARNING','DOCTOR_ALERT')),
+
+    -- The exact numbers that produced `severity`, frozen for audit -- an
+    -- alert must be reconstructable even after later dose actions change the
+    -- underlying scheduled_doses rows.
+    indicators JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    llm_reasoning TEXT,
+    llm_confidence VARCHAR(10)
+        CONSTRAINT ck_adherence_reviews_confidence
+        CHECK (llm_confidence IS NULL OR llm_confidence IN ('high','medium','low')),
+    model_version VARCHAR(100),
+    prompt_version VARCHAR(50),
+
+    alert_id UUID REFERENCES alerts(id) ON DELETE SET NULL,
+    notification_delivery_id UUID REFERENCES notification_deliveries(id) ON DELETE SET NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Idempotency guard AND the primary defense against a double-fired nightly
+-- job writing two alerts for one patient on one night: the service inserts
+-- this row before any Alert/NotificationDelivery, so a concurrent second run
+-- collides here first. Added by migration 0022_adherence_reviews.
+CREATE UNIQUE INDEX uq_adherence_reviews_patient_date
+    ON adherence_reviews(patient_id, review_date);
+-- Escalation lookup: "the most recent review for each of these patients",
+-- fetched as one DISTINCT ON query for the whole nightly batch rather than
+-- one query per patient. Added by migration 0022_adherence_reviews.
+CREATE INDEX idx_adherence_reviews_patient_date_desc
+    ON adherence_reviews(patient_id, review_date DESC);
 
 
 -- =============================================================================
