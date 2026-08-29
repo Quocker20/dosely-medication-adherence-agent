@@ -31,6 +31,8 @@ class AgentState(TypedDict, total=False):
     safety_reason: str
     scope_blocked: bool
     scope_category: str
+    output_guarded: bool
+    output_errors: list[str]
     # Nhãn do classify_intent_node gán — graph dùng để route sang
     # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
     intent: str
@@ -40,3 +42,4 @@ class AgentState(TypedDict, total=False):
     grounding_errors: list[str]
     error: str
     metadata: dict
+    memory_context: dict

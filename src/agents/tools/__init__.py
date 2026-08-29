@@ -46,10 +46,11 @@ WRITE_TOOLS = [
 
 ALL_TOOLS = READ_ONLY_TOOLS + WRITE_TOOLS
 
-# Tool set cho patient-facing chat agent — hiện trùng ALL_TOOLS, giữ tên riêng
-# vì đây là danh sách được đưa vào tay LLM hội thoại: thêm tool nền (job
-# metadata, batch...) thì thêm vào ALL_TOOLS, không mặc định vào đây.
-CHAT_TOOLS = READ_ONLY_TOOLS + WRITE_TOOLS
+# Generic conversation LLM gets no backend capability. Read operations route
+# through deterministic intent nodes; write tools are invoked only by dedicated
+# workflows after authorization/confirmation. Hiding schemas is the first
+# least-privilege boundary, not merely a prompt instruction.
+CHAT_TOOLS = []
 
 __all__ = [
     "get_prescriptions",

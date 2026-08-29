@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.patient_presentation import patient_facing_text
 from src.agents.state import AgentState
 from src.rag_retrieval import SafeDrugRAG
+from src.rag_retrieval.input_guardrail import is_contextual_drug_reference
 
 _CITATION = re.compile(r"\s*\[Nguồn\s+\d+]", re.IGNORECASE)
 _EFFECT_QUERY = re.compile(r"\b(?:tác dụng|công dụng|chỉ định|dùng để làm gì|used for|indication)\b", re.IGNORECASE)
@@ -97,7 +98,16 @@ def _format_effect_answer(answer: str, drug_name: str) -> str:
 async def drug_rag_node(state: AgentState) -> dict:
     question = _last_human_text(state)
     try:
-        result = await asyncio.to_thread(_get_rag_service().query, question)
+        rag = _get_rag_service()
+        context_drug = None
+        memory = state.get("memory_context") or {}
+        current = memory.get("current_medication") if isinstance(memory, dict) else None
+        if is_contextual_drug_reference(question) and isinstance(current, dict):
+            display_name = str(current.get("display_name") or "")
+            normalized, canonical = rag.rag.infer_drug(display_name)
+            if normalized and canonical:
+                context_drug = (normalized, canonical)
+        result = await asyncio.to_thread(rag.query, question, context_drug=context_drug) if context_drug else await asyncio.to_thread(rag.query, question)
     except Exception:
         return {
             "messages": [AIMessage(content=_UNAVAILABLE_REPLY)],

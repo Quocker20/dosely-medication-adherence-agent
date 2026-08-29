@@ -25,7 +25,7 @@ async def test_empty_stomach_question_uses_time_to_resolve_drug_not_list_schedul
         result = await classify_intent_node({"messages": [HumanMessage(content=(
             "Tôi bị đau bụng, chắc do uống thuốc lúc đói, tra hộ tôi xem dùng thuốc ở cữ 7h30 như thế có sai không?"
         ))]})
-    assert result["intent"] == "ask_scheduled_drug_info"
+    assert result["intent"] == "ask_prescribed_drug_info"
     assert result["intent_analysis"]["schedule_time"] == "07:30"
     assert result["intent_analysis"]["symptoms"] == ["đau bụng"]
 
@@ -47,7 +47,7 @@ async def test_effect_question_about_timed_dose_uses_special_route():
         result = await classify_intent_node({
             "messages": [HumanMessage(content="Thuốc ở cữ 07:30 có tác dụng gì?")]
         })
-    assert result["intent"] == "ask_scheduled_drug_info"
+    assert result["intent"] == "ask_prescribed_drug_info"
 
 
 @pytest.mark.asyncio
@@ -59,8 +59,8 @@ async def test_semantic_parser_failure_keeps_safe_deterministic_fallback():
         result = await classify_intent_node({"messages": [HumanMessage(content=(
             "Thuốc ở cữ 7h30 uống lúc đói có sai không?"
         ))]})
-    assert result["intent"] == "ask_scheduled_drug_info"
-    assert result["intent_analysis"]["parser"] == "deterministic_fallback"
+    assert result["intent"] == "ask_prescribed_drug_info"
+    assert result["intent_analysis"]["parser"] == "deterministic"
 
 
 @pytest.mark.asyncio

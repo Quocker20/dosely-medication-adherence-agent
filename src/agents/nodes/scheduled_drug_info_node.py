@@ -131,4 +131,10 @@ async def scheduled_drug_info_node(state: AgentState) -> dict:
         "messages": [AIMessage(content=answer)],
         "grounding_valid": grounded,
         "grounding_errors": [] if grounded else ["drug_information_unavailable"],
+        "metadata": {"resolved_medication": {
+            "display_name": name,
+            "medication_id": str(dose.get("medication_id") or ""),
+            "resolved_from": "schedule_time",
+            "resolved_value": rendered_time,
+        }},
     }

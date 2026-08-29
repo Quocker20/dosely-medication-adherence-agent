@@ -61,7 +61,7 @@ async def test_agent_answers_directly_without_tool_calls():
     reply = AIMessage(content="Xin chào, tôi có thể giúp gì cho bạn?")
 
     with _reaches_agent(), patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(return_value=reply)
+        mock_get_llm.return_value.ainvoke = AsyncMock(return_value=reply)
 
         result = await agent.ainvoke({"messages": [HumanMessage(content="Xin chào")], "patient_id": "patient-123"})
 
@@ -69,40 +69,13 @@ async def test_agent_answers_directly_without_tool_calls():
 
 
 @pytest.mark.asyncio
-async def test_agent_calls_tool_then_answers():
-    """LLM gọi search_drug_info trước, rồi dùng kết quả tool để trả lời."""
-    tool_call_reply = AIMessage(
-        content="",
-        tool_calls=[
-            {
-                "name": "search_drug_info",
-                "args": {"query": "paracetamol"},
-                "id": "call_1",
-            }
-        ],
-    )
-    final_reply = AIMessage(content="Đây là thông tin về paracetamol.")
-
-    with (
-        _reaches_agent(intent="general"),
-        patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm,
-    ):
-        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(
-            side_effect=[tool_call_reply, final_reply]
-        )
-
-        result = await agent.ainvoke(
-            {
-                "messages": [HumanMessage(content="Paracetamol dùng để làm gì?")],
-                "patient_id": "patient-123",
-            }
-        )
-
-    messages = result["messages"]
-    tool_messages = [m for m in messages if m.__class__.__name__ == "ToolMessage"]
-    assert len(tool_messages) == 1
-    assert tool_messages[0].tool_call_id == "call_1"
-    assert messages[-1].content == "Đây là thông tin về paracetamol."
+async def test_generic_agent_has_no_tools_under_least_privilege():
+    reply = AIMessage(content="Mình có thể hỗ trợ trong phạm vi RemindRx.")
+    with _reaches_agent(intent="general"), patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm:
+        mock_get_llm.return_value.ainvoke = AsyncMock(return_value=reply)
+        result = await agent.ainvoke({"messages": [HumanMessage(content="Xin chào")], "patient_id": "patient-123"})
+    mock_get_llm.return_value.bind_tools.assert_not_called()
+    assert result["messages"][-1].content == reply.content
 
 
 @pytest.mark.asyncio
