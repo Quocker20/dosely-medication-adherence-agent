@@ -73,7 +73,6 @@ export default function HomePage({ onLogin }: Props) {
       <section className="lp-sec lp-hero">
         <div className="lp-wrap lp-hero-grid">
           <div>
-            <span className="lp-eyebrow lp-rise" style={{ animationDelay: "80ms" }}>AI Agent nhắc thuốc &amp; theo dõi tuân thủ điều trị</span>
             <h1 className="lp-rise" style={{ animationDelay: "180ms" }}>Rời phòng khám rồi,<br /><em>đơn thuốc</em> đừng rời bạn.</h1>
             <p className="lp-lede lp-rise" style={{ animationDelay: "300ms" }}>RemindRx biến đơn thuốc đã bác sĩ duyệt thành lịch uống cá nhân hoá theo đúng giờ ăn, giờ ngủ của bạn — và báo ngay cho người thân khi có dấu hiệu bất ổn.</p>
             <div className="lp-hero-cta lp-rise" style={{ animationDelay: "400ms" }}>
@@ -99,7 +98,6 @@ export default function HomePage({ onLogin }: Props) {
       <section className="lp-sec">
         <div className="lp-wrap lp-problem">
           <div className="reveal">
-            <span className="lp-eyebrow">Vấn đề thực</span>
             <h2>Đơn thuốc đúng. Nhưng ai nhắc bạn uống nó, mỗi ngày, đúng giờ?</h2>
             <p className="lp-lede">Theo báo cáo của WHO về điều trị dài hạn, bệnh nhân ở các nước phát triển chỉ tuân thủ khoảng 50% phác đồ thuốc được kê cho bệnh mạn tính<a className="lp-ref" href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5878368/" target="_blank" rel="noreferrer">1</a>. Hệ quả là hiệu quả điều trị giảm, biến chứng tăng, và tỷ lệ tái nhập viện cao hơn đáng kể.</p>
             <ul className="lp-risks">
@@ -117,7 +115,6 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap">
           <div className="lp-head reveal">
             <div>
-              <span className="lp-index">§ 01 — Khác biệt</span>
               <h2>Nhắc đúng giờ đã là chuyện bình thường. Vòng lặp khép kín thì không.</h2>
             </div>
             <p className="lp-lede">Nhắc nhở một mình không tạo ra vòng lặp giữa toa thuốc đã bác sĩ duyệt, lịch trình cá nhân hoá và cảnh báo tới người thân khi có sự cố — đó là phần RemindRx đặt cược vào.</p>
@@ -144,7 +141,6 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap">
           <div className="lp-head reveal">
             <div>
-              <span className="lp-index">§ 02 — Cách hoạt động</span>
               <h2>Một đường nối liền từ toa thuốc đến từng viên bạn uống.</h2>
             </div>
             <p className="lp-lede">Bốn bước, một agent theo dõi xuyên suốt — không đứt quãng sau khi bạn rời phòng khám.</p>
@@ -164,7 +160,6 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap">
           <div className="lp-head reveal">
             <div>
-              <span className="lp-index">§ 03 — Ba vai trò</span>
               <h2>Mỗi người một màn hình, cùng một dữ liệu.</h2>
             </div>
             <p className="lp-lede">RemindRx là cầu nối giữa ba vai trò quanh một bệnh nhân — không ai phải gọi điện hỏi lại ai.</p>
@@ -184,7 +179,6 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap">
           <div className="lp-head reveal">
             <div>
-              <span className="lp-index">§ 04 — Tính năng</span>
               <h2>Bốn phân hệ, một hệ thống liền mạch.</h2>
             </div>
             <p className="lp-lede">Từ toa thuốc của bác sĩ đến cảnh báo cho người thân — không có khoảng trống dữ liệu ở giữa.</p>
@@ -216,7 +210,6 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap">
           <div className="lp-head reveal">
             <div>
-              <span className="lp-index">§ 05 — Mục tiêu</span>
               <h2>Mục tiêu vận hành, không phải lời quảng cáo.</h2>
             </div>
             <p className="lp-lede">Mức kỳ vọng để giữ mục tiêu thực tế cho một pilot quy mô nhỏ — không phải con số tự đặt ra.</p>
@@ -230,7 +223,6 @@ export default function HomePage({ onLogin }: Props) {
       <section id="download" className="lp-sec">
         <div className="lp-wrap lp-download">
           <div className="reveal">
-            <span className="lp-eyebrow">Bắt đầu</span>
             <h2>RemindRx chạy ngay trên trình duyệt.</h2>
             <p className="lp-lede">Không có ứng dụng nào để chờ duyệt trên kho ứng dụng — mở một lần, thêm vào màn hình chính, dùng như một ứng dụng thật.</p>
             <div className="lp-stores">
