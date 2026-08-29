@@ -48,6 +48,16 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
 
   useEffect(() => { refresh().catch((cause: unknown) => setError(cause instanceof ApiError ? cause.message : "Không tải được lịch uống thuốc")); }, [refresh]);
 
+  // isDoseLocked() (utils.ts) reads Date.now() live and is always correct,
+  // but React only re-renders on state/prop changes — nothing re-invokes it
+  // as the wall clock crosses a dose's unlock time. Force a re-render every
+  // 30s so a locked dose card flips to actionable without a page reload.
+  const [, forceDoseLockRecheck] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => forceDoseLockRecheck((t) => t + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const doses = schedule?.doses ?? [];
   const nextDose = useMemo(() => doses.find((dose) => !["TAKEN", "SKIPPED", "MISSED"].includes(dose.status.toUpperCase())), [doses]);
   const completed = doses.filter((dose) => dose.status.toUpperCase() === "TAKEN").length;
