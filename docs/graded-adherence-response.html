@@ -1,0 +1,1040 @@
+<title>Graded Adherence Response</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:        #F9FAFB;
+    --surface:       #FFFFFF;
+    --surface-sunk:  #F1F3F5;
+    --ink:           #171A1F;
+    --ink-soft:      #5B626C;
+    --ink-faint:     #8A929C;
+    --rule:          #E1E5EA;
+    --rule-strong:   #C8CED6;
+    --accent:        #2E6E68;
+    --accent-soft:   #E4EFEE;
+    --sev-mild:      #8A6510;
+    --sev-mild-bg:   #F6EEDC;
+    --sev-mod:       #A9521C;
+    --sev-mod-bg:    #F8E9DE;
+    --sev-high:      #9C2B27;
+    --sev-high-bg:   #F7E2E1;
+
+    --measure: 67ch;
+    --wide: 1080px;
+
+    --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --f-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #131519;
+      --surface:       #191C21;
+      --surface-sunk:  #1F232A;
+      --ink:           #E7EAEE;
+      --ink-soft:      #A2ABB6;
+      --ink-faint:     #6E7783;
+      --rule:          #2A2F37;
+      --rule-strong:   #3D444E;
+      --accent:        #63AEA6;
+      --accent-soft:   #1D2C2B;
+      --sev-mild:      #D3A64B;
+      --sev-mild-bg:   #2C2617;
+      --sev-mod:       #DE8B54;
+      --sev-mod-bg:    #2E1F16;
+      --sev-high:      #DE706B;
+      --sev-high-bg:   #2E1817;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #131519;
+    --surface:       #191C21;
+    --surface-sunk:  #1F232A;
+    --ink:           #E7EAEE;
+    --ink-soft:      #A2ABB6;
+    --ink-faint:     #6E7783;
+    --rule:          #2A2F37;
+    --rule-strong:   #3D444E;
+    --accent:        #63AEA6;
+    --accent-soft:   #1D2C2B;
+    --sev-mild:      #D3A64B;
+    --sev-mild-bg:   #2C2617;
+    --sev-mod:       #DE8B54;
+    --sev-mod-bg:    #2E1F16;
+    --sev-high:      #DE706B;
+    --sev-high-bg:   #2E1817;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0 24px 120px;
+  }
+
+  .shell { max-width: var(--wide); margin: 0 auto; }
+  .col   { max-width: var(--measure); }
+
+  /* ─── masthead ─────────────────────────────── */
+  .masthead {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--rule-strong);
+    margin-bottom: 56px;
+  }
+  .kicker {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+  }
+  .kicker .dot { color: var(--ink-faint); }
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 500;
+    font-size: clamp(2.5rem, 6vw, 3.6rem);
+    line-height: 1.06;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+    max-width: 18ch;
+  }
+  .standfirst {
+    font-family: var(--f-display);
+    font-size: clamp(1.1rem, 2.1vw, 1.32rem);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 56ch;
+    margin: 0;
+  }
+
+  /* ─── sections ─────────────────────────────── */
+  section { margin-bottom: 72px; }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 12px;
+  }
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 500;
+    font-size: clamp(1.65rem, 3.4vw, 2.05rem);
+    line-height: 1.2;
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+    margin: 0 0 24px;
+    max-width: 24ch;
+  }
+  h3 {
+    font-family: var(--f-body);
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: -0.005em;
+    margin: 0 0 10px;
+  }
+  p { margin: 0 0 18px; }
+  .col > p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: 0.855em;
+    background: var(--surface-sunk);
+    padding: 0.12em 0.38em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, .stage:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  /* ─── today panel ──────────────────────────── */
+  .today {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 32px 0 0;
+  }
+  .today > div { background: var(--surface); padding: 20px 22px; }
+  .today dt {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 8px;
+  }
+  .today dd {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  .today dd b {
+    display: block;
+    font-family: var(--f-display);
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+
+  /* ─── pipeline ─────────────────────────────── */
+  .flow { margin: 8px 0 0; }
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 18px 22px;
+  }
+  .stage .st-label {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 7px;
+  }
+  .stage .st-title {
+    font-weight: 600;
+    font-size: 15.5px;
+    margin: 0 0 6px;
+  }
+  .stage .st-body {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .stage ul {
+    margin: 8px 0 0;
+    padding-left: 17px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .stage li { margin-bottom: 3px; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stage.sev { border-left: 3px solid var(--accent); }
+  .stage.rem { border-left: 3px solid var(--rule-strong); }
+
+  .conn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 11px 0;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+  .conn::before, .conn::after {
+    content: "";
+    height: 1px;
+    background: var(--rule-strong);
+    flex: 1;
+    max-width: 90px;
+  }
+  .conn.plain { padding: 8px 0; }
+  .conn.plain::before, .conn.plain::after { max-width: 140px; }
+
+  .gate {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 15px 22px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 14px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .gate b {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* ─── authority ────────────────────────────── */
+  .authority {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .auth-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--rule-strong);
+    border-radius: 4px;
+    padding: 22px;
+  }
+  .auth-card.is-rules { border-top-color: var(--accent); }
+  .auth-card.is-doctor { border-top-color: var(--sev-high); }
+  .auth-card h3 { margin-bottom: 4px; }
+  .auth-role {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 14px;
+  }
+  .auth-card ul { margin: 0; padding-left: 16px; font-size: 14px; line-height: 1.55; }
+  .auth-card li { margin-bottom: 7px; color: var(--ink-soft); }
+  .auth-card li:last-child { margin-bottom: 0; }
+  .auth-card .cannot {
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px dashed var(--rule-strong);
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  .auth-card .cannot span {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  /* ─── tables ───────────────────────────────── */
+  .scroller { overflow-x: auto; margin-top: 8px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  tbody th {
+    font-family: var(--f-body);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td { color: var(--ink-soft); }
+  tbody tr:last-child th, tbody tr:last-child td { border-bottom: none; }
+
+  .chip {
+    display: inline-block;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 3px;
+    white-space: nowrap;
+    line-height: 1.45;
+  }
+  .chip.patient { background: var(--accent-soft); color: var(--accent); }
+  .chip.warn    { background: var(--sev-mod-bg);  color: var(--sev-mod); }
+  .chip.red     { background: var(--sev-high-bg); color: var(--sev-high); }
+  .chip.none    { background: var(--surface-sunk); color: var(--ink-faint); }
+
+  .sev-name { display: flex; align-items: baseline; gap: 9px; }
+  .sev-name i {
+    width: 8px; height: 8px; border-radius: 2px;
+    flex: none; display: block; transform: translateY(-1px);
+  }
+  .sev-name i.mild { background: var(--sev-mild); }
+  .sev-name i.mod  { background: var(--sev-mod); }
+  .sev-name i.high { background: var(--sev-high); }
+
+  /* ─── two-up ───────────────────────────────── */
+  .twoup {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 36px;
+    margin-top: 8px;
+  }
+  .twoup h3 {
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--rule-strong);
+    margin-bottom: 14px;
+  }
+  .twoup ul { margin: 0; padding-left: 17px; font-size: 15px; }
+  .twoup li { margin-bottom: 9px; color: var(--ink-soft); }
+
+  /* ─── fence / scope ────────────────────────── */
+  .fence { margin: 8px 0 0; padding: 0; list-style: none; }
+  .fence li {
+    padding: 14px 0 14px 30px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+    font-size: 15px;
+    color: var(--ink-soft);
+  }
+  .fence li:last-child { border-bottom: none; }
+  .fence li::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 22px;
+    width: 11px; height: 1.5px;
+    background: var(--rule-strong);
+  }
+  .fence li b { color: var(--ink); font-weight: 600; }
+
+  /* ─── status list ──────────────────────────── */
+  .status { margin: 8px 0 0; padding: 0; list-style: none; }
+  .status li {
+    display: grid;
+    grid-template-columns: 15px 1fr;
+    gap: 13px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 15px;
+    color: var(--ink-soft);
+  }
+  .status li:last-child { border-bottom: none; }
+  .status .mark {
+    width: 9px; height: 9px;
+    margin-top: 8px;
+    border-radius: 2px;
+  }
+  .status.settled .mark { background: var(--accent); }
+  .status.open .mark { border: 1.5px solid var(--rule-strong); background: none; }
+  .status li b { color: var(--ink); font-weight: 600; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 20px;
+  }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: block; }
+  .legend i.filled { background: var(--accent); }
+  .legend i.hollow { border: 1.5px solid var(--rule-strong); }
+
+  .ask {
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    padding: 28px 30px;
+    margin-top: 8px;
+  }
+  .ask p:last-child { margin-bottom: 0; }
+
+  footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 620px) {
+    body { padding: 0 18px 80px; font-size: 16px; }
+    .masthead { padding-top: 52px; }
+    .split { grid-template-columns: 1fr; }
+    .stage { padding: 16px 18px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="kicker">
+      <span>RemindRx</span><span class="dot">/</span>
+      <span>Feature proposal</span><span class="dot">/</span>
+      <span>Awaiting approval</span>
+    </p>
+    <h1>Graded Adherence Response</h1>
+    <p class="standfirst">
+      Today the platform has one way to react when a patient stops taking their
+      medication: page a doctor. This proposal adds the steps in between — and
+      uses a language model to explain <em>why</em> a patient is struggling,
+      without ever letting it decide how urgent that patient is.
+    </p>
+  </header>
+
+  <section>
+    <p class="eyebrow">The problem</p>
+    <h2>One volume knob</h2>
+    <div class="col">
+      <p>
+        The system currently detects two adherence problems, and both produce the
+        same maximum-severity response — a red alert to the doctor. A patient who
+        misses three doses of a cholesterol tablet triggers exactly what a patient
+        who misses three doses of a blood thinner triggers.
+      </p>
+      <p>
+        Everything below that bar produces nothing at all. A patient sliding from
+        90% adherence to 55% over two weeks is invisible until they hit a
+        three-dose streak. The database already reserves a lower-severity
+        <code>WARNING</code> alert type for exactly this purpose; no code has
+        ever created one.
+      </p>
+      <p>
+        The result is predictable in both directions: doctors get paged for
+        things that did not need a page, and get nothing for patients who are
+        quietly deteriorating.
+      </p>
+    </div>
+
+    <dl class="today">
+      <div>
+        <dt>Detection rules today</dt>
+        <dd><b>2</b>Missed-dose streak, and severe symptom on a survey</dd>
+      </div>
+      <div>
+        <dt>Severity levels produced</dt>
+        <dd><b>1</b>Red alert. Nothing quieter exists</dd>
+      </div>
+      <div>
+        <dt>Distinction by drug risk</dt>
+        <dd><b>None</b>A vitamin and a blood thinner alert identically</dd>
+      </div>
+      <div>
+        <dt>Explanation given to doctor</dt>
+        <dd><b>None</b>The count, with no indication of cause</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section>
+    <p class="eyebrow">The proposal</p>
+    <h2>Rules decide how loud. The model explains why.</h2>
+    <div class="col">
+      <p>
+        Every night, the system reviews each patient once. Deterministic rules —
+        ordinary code, no AI — score how serious that patient's adherence
+        situation is and assign one of four levels. Most patients score
+        <em>none</em> and the review stops there.
+      </p>
+      <p>
+        Only patients who fail a real rule are passed to the language model, and
+        the model is asked a narrower question than "is this bad?" — it is asked
+        <em>what kind of problem is this?</em> It picks one cause from a fixed
+        list of six and writes a short explanation citing the numbers it was
+        given. It cannot change the severity the rules already assigned.
+      </p>
+      <p>
+        The severity determines who is told and how urgently. The cause
+        determines what the message says. A patient missing every evening dose
+        of one drug, who also reported nausea, produces a different message from
+        a patient missing doses at random across all their medications — even
+        when both sit at the same adherence percentage.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">How one nightly review runs</p>
+    <h2>The pipeline</h2>
+
+    <div class="flow">
+      <div class="stage">
+        <p class="st-label">Stage 1 · Database</p>
+        <p class="st-title">Measure the patient</p>
+        <p class="st-body">
+          One query per patient produces two separate packages of numbers,
+          answering two different questions.
+        </p>
+      </div>
+
+      <div class="conn plain">splits into two packages</div>
+
+      <div class="split">
+        <div class="stage sev">
+          <p class="st-label">Package A · goes to the rules</p>
+          <p class="st-title">How bad is it?</p>
+          <ul>
+            <li>Adherence rate over the window</li>
+            <li>Week-over-week trend</li>
+            <li>Longest run of missed doses</li>
+            <li>How many missed doses were high-risk drugs</li>
+          </ul>
+        </div>
+        <div class="stage rem">
+          <p class="st-label">Package B · goes to the model</p>
+          <p class="st-title">What kind of problem is it?</p>
+          <ul>
+            <li>Which time of day is missed</li>
+            <li>Which medication is missed</li>
+            <li>Deliberately skipped vs. silently missed</li>
+            <li>Snooze count and lateness pattern</li>
+            <li>Symptoms reported on health surveys</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="conn">package A only</div>
+
+      <div class="stage sev">
+        <p class="st-label">Stage 2 · Deterministic code</p>
+        <p class="st-title">Assign severity — none, mild, moderate, severe</p>
+        <p class="st-body">
+          Plain thresholds, no AI. Reproducible and auditable: the same numbers
+          always produce the same level, and the level does not change when a
+          model version changes. Patients with too little dose history to judge
+          are excluded rather than guessed at.
+        </p>
+      </div>
+
+      <div class="conn">gate</div>
+
+      <div class="gate">
+        <b>Scored none</b>
+        <span>Review ends. No alert, no message, no model call. This is the
+        majority of patients on any given night.</span>
+      </div>
+
+      <div class="conn">everyone else, with package B</div>
+
+      <div class="stage rem">
+        <p class="st-label">Stage 3 · Language model</p>
+        <p class="st-title">Classify the cause and write the explanation</p>
+        <p class="st-body">
+          Receives the already-fixed severity and package B. Returns one cause
+          from a fixed list, a short explanation for the doctor citing the
+          specific numbers, and — only where the severity routes to the patient —
+          a plain-language nudge.
+        </p>
+      </div>
+
+      <div class="conn plain"></div>
+
+      <div class="stage">
+        <p class="st-label">Stage 4 · Stored history</p>
+        <p class="st-title">Check how long this has been going on</p>
+        <p class="st-body">
+          A patient stuck at the same level for five nights despite reminders is
+          a different problem from one who dropped there yesterday. Escalation is
+          driven by non-response, not by badness alone — which is only possible
+          because each night's review is recorded.
+        </p>
+      </div>
+
+      <div class="conn plain"></div>
+
+      <div class="stage">
+        <p class="st-label">Stage 5 · Action</p>
+        <p class="st-title">Notify the patient, warn the doctor, or page the doctor</p>
+        <p class="st-body">
+          Severity and days-at-that-level pick the channel. The cause picks the
+          wording.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The safety question</p>
+    <h2>Who is allowed to decide what</h2>
+    <div class="col">
+      <p>
+        This is a clinical product, so the important question is not what the AI
+        does but what it is structurally prevented from doing. Authority is split
+        three ways, and the split is enforced by the shape of the system rather
+        than by instructions in a prompt.
+      </p>
+    </div>
+
+    <div class="authority">
+      <div class="auth-card is-rules">
+        <h3>Deterministic rules</h3>
+        <p class="auth-role">Code · no AI</p>
+        <ul>
+          <li>How serious this patient is</li>
+          <li>Whether anyone is told at all</li>
+          <li>Whether the doctor is paged</li>
+          <li>Whether the model is called</li>
+        </ul>
+        <p class="cannot">
+          <span>Cannot</span>
+          Explain a cause, or write anything a human reads.
+        </p>
+      </div>
+
+      <div class="auth-card">
+        <h3>Language model</h3>
+        <p class="auth-role">Constrained output</p>
+        <ul>
+          <li>Which of six causes best fits</li>
+          <li>A short explanation, citing the numbers it was given</li>
+          <li>A plain-language nudge for the patient, where routed</li>
+        </ul>
+        <p class="cannot">
+          <span>Cannot</span>
+          Change severity, invent an action outside the fixed list, reach a
+          patient the rules did not route to it, or alter any prescription,
+          schedule or dose.
+        </p>
+      </div>
+
+      <div class="auth-card is-doctor">
+        <h3>Doctor</h3>
+        <p class="auth-role">Human in the loop</p>
+        <ul>
+          <li>Every clinical decision, unchanged</li>
+          <li>Whether to act on an alert</li>
+          <li>Prescription and dosage changes</li>
+        </ul>
+        <p class="cannot">
+          <span>Unchanged by this feature</span>
+          No clinical authority moves anywhere. The feature only changes what
+          reaches the doctor's attention and when.
+        </p>
+      </div>
+    </div>
+
+    <div class="col" style="margin-top:32px">
+      <p>
+        Two consequences worth stating plainly. First, because severity is
+        computed before the model runs and cannot be revised by it, a model that
+        misreads a case produces a wrong <em>explanation</em>, never a wrong
+        <em>urgency</em> — a doctor reading a mistaken cause still sees a
+        correctly-graded case. Second, every review stores the numbers that
+        produced its level, so any alert can be reconstructed after the fact.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The six causes</p>
+    <h2>A fixed list, including permission to say "unclear"</h2>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Cause</th><th>Recognised by</th><th>Points toward</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Timing mismatch</th>
+            <td>Misses concentrate in one time slot</td>
+            <td>Adjusting the schedule to the patient's real day</td>
+          </tr>
+          <tr>
+            <th>Suspected side effect</th>
+            <td>Misses concentrate on one drug, with symptoms reported</td>
+            <td>Doctor reviewing that specific medication</td>
+          </tr>
+          <tr>
+            <th>Deliberate refusal</th>
+            <td>Patient actively marks doses as skipped</td>
+            <td>A conversation, not a louder reminder</td>
+          </tr>
+          <tr>
+            <th>Disengagement</th>
+            <td>Doses missed silently, no pattern, no symptoms</td>
+            <td>Re-engagement, caregiver involvement</td>
+          </tr>
+          <tr>
+            <th>External disruption</th>
+            <td>Sudden drop with no prior history</td>
+            <td>Likely temporary — travel, illness, hospitalisation</td>
+          </tr>
+          <tr>
+            <th>Unclear</th>
+            <td>Nothing dominates</td>
+            <td>Honest uncertainty instead of a plausible guess</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col" style="margin-top:22px">
+      <p>
+        The last one matters more than it looks. Without an explicit way to
+        decline, a language model asked for a cause will always produce one — and
+        a confident, fabricated explanation shown to a doctor is worse than no
+        explanation at all.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Escalation</p>
+    <h2>What happens, and when</h2>
+    <div class="col">
+      <p>
+        Mild cases are handled with the patient first; the doctor is only brought
+        in if that does not work. Severe cases go straight to the doctor. The day
+        counts below are a starting point, to be tuned once we can see real
+        volumes.
+      </p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>Severity</th><th>First night</th><th>Still there day 3</th><th>Still there day 5+</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th><span class="sev-name"><i class="mild"></i>Mild</span></th>
+            <td><span class="chip patient">patient nudge</span></td>
+            <td><span class="chip patient">patient nudge</span></td>
+            <td><span class="chip warn">doctor warning</span></td>
+          </tr>
+          <tr>
+            <th><span class="sev-name"><i class="mod"></i>Moderate</span></th>
+            <td><span class="chip patient">patient nudge</span> <span class="chip warn">doctor warning</span></td>
+            <td><span class="chip warn">doctor warning</span></td>
+            <td><span class="chip warn">doctor warning</span></td>
+          </tr>
+          <tr>
+            <th><span class="sev-name"><i class="high"></i>Severe</span></th>
+            <td><span class="chip red">doctor alert</span></td>
+            <td><span class="chip red">doctor alert</span></td>
+            <td><span class="chip red">doctor alert</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col" style="margin-top:22px">
+      <p>
+        A patient whose adherence improves drops out of the ladder and receives
+        nothing. Silence is the correct response to someone getting better.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">High-risk medication</p>
+    <h2>The immediate path stays immediate</h2>
+    <div class="col">
+      <p>
+        A nightly cycle is right for analysing a slow-moving trend, but wrong for
+        a patient who has just missed their third consecutive dose of a blood
+        thinner. Waiting until morning for that is not acceptable.
+      </p>
+      <p>
+        So prescriptions gain a way for the prescribing doctor to mark individual
+        medications as high-risk. The existing every-fifteen-minutes check
+        survives, but narrowed: it pages a doctor only for a missed streak on a
+        medication the doctor themselves flagged. Everything else moves to the
+        nightly review.
+      </p>
+      <p>
+        One honest note: the flag defaults to off, so this fast path covers
+        nobody on the day it ships and grows as doctors begin using it. If uptake
+        is poor we can seed defaults from the medication catalogue — but we
+        should measure before building that.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">What changes in practice</p>
+    <h2>For the two people who feel it</h2>
+    <div class="twoup">
+      <div>
+        <h3>The doctor</h3>
+        <ul>
+          <li>Stops being paged for missed doses of low-risk medication</li>
+          <li>Gains a quieter warning tier for patients worth watching but not worth interrupting for</li>
+          <li>Each alert names a likely cause and cites the numbers behind it, instead of reporting a count</li>
+          <li>Patients needing attention still sort to the top of the dashboard — the ordering is being changed so warnings cannot bury genuine alerts</li>
+        </ul>
+      </div>
+      <div>
+        <h3>The patient</h3>
+        <ul>
+          <li>Hears from the app before their doctor is involved, where the situation allows it</li>
+          <li>Messages are specific — "you often miss your evening dose" rather than "your adherence is low"</li>
+          <li>Nothing is sent at night; patient messages are held for daytime hours</li>
+          <li>No message contains clinical advice, dosage guidance, or anything that reads as a diagnosis</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Scope</p>
+    <h2>What this feature does not do</h2>
+    <ul class="fence">
+      <li><b>It does not change any prescription.</b> No dose, schedule, or medication is altered by this system. Suggestions go to people; people act.</li>
+      <li><b>It does not reschedule automatically.</b> Where a timing problem is identified, the outcome is a suggestion that the patient or doctor chooses to act on.</li>
+      <li><b>It does not give medical advice.</b> Patient-facing text is limited to reminders and prompts to talk to their doctor.</li>
+      <li><b>It does not run in real time.</b> Adherence is a trend measured over a week; analysing it continuously would produce noise, not insight.</li>
+      <li><b>It does not remove the existing safety net.</b> Severe-symptom alerts and high-risk missed-dose alerts continue to fire immediately.</li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="eyebrow">Risks</p>
+    <h2>What could go wrong, and what contains it</h2>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Risk</th><th>Containment</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Alert fatigue</th>
+            <td>The failure mode that kills features like this — and it is dangerous here, because ignored warnings share a channel with genuine emergencies. Contained by the escalation ladder, a cooldown per patient, severity-weighted dashboard ordering, and starting with conservative thresholds.</td>
+          </tr>
+          <tr>
+            <th>The model invents a cause</th>
+            <td>It can only pick from six, must cite the numbers it was given, and has an explicit "unclear" option. Because severity is already fixed, a wrong cause never becomes a wrong urgency.</td>
+          </tr>
+          <tr>
+            <th>Patient-facing tone</th>
+            <td>The lowest-severity tier carries the highest product risk: badly worded, patients mute notifications and lose the dose reminders that already work. Message templates get reviewed before launch; nothing is sent outside daytime hours.</td>
+          </tr>
+          <tr>
+            <th>Model cost</th>
+            <td>Only patients failing a rule reach the model — one call each, at most once a night. A hard cap per run, ordered by severity, bounds the worst case and reports when it is hit.</td>
+          </tr>
+          <tr>
+            <th>Thresholds set wrong</th>
+            <td>Near-certain on the first attempt. Doctors' responses to alerts are recorded from day one, so tuning is done against evidence rather than opinion.</td>
+          </tr>
+          <tr>
+            <th>New alerts silently dropped from the live feed</th>
+            <td>The doctor dashboard's realtime channel now re-checks every event against the doctor-patient relationship before delivery, and discards anything without a patient identifier attached. New alert events from this feature must carry that identifier or they will never reach a connected doctor's screen — a requirement, not an assumption, confirmed against the current codebase.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Build</p>
+    <h2>Roughly two weeks, in a useful order</h2>
+    <div class="col">
+      <p>
+        Five workstreams. The order matters: the first two deliver a working
+        graded-alert system <em>with no AI involved at all</em>. If the model
+        step were dropped entirely, that foundation still solves the original
+        problem — it simply produces generic messages instead of explained ones.
+      </p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Workstream</th><th>Delivers</th><th>Size</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>1 · Measurements</th><td>The new database queries behind both number packages</td><td>2 days</td></tr>
+          <tr><th>2 · Rules and escalation</th><td>Severity levels, the ladder, the stored review history</td><td>2–3 days</td></tr>
+          <tr><th>3 · Model step</th><td>Cause classification and explanation text</td><td>2 days</td></tr>
+          <tr><th>4 · Nightly job and delivery</th><td>The batch run, alerts, patient messages, daytime gating</td><td>2 days</td></tr>
+          <tr><th>5 · High-risk flag</th><td>Prescription marking, narrowed fast path, dashboard ordering fix</td><td>2 days</td></tr>
+          <tr><th>Testing and tuning</th><td>Validation, first-week threshold adjustment</td><td>2–3 days</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col" style="margin-top:22px">
+      <p>
+        Estimate assumes one backend engineer and no change to the existing
+        prescription or scheduling logic, which this feature reads but never
+        writes.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Status</p>
+    <h2>Settled, and still to settle</h2>
+    <p class="legend">
+      <span><i class="filled"></i>Decided</span>
+      <span><i class="hollow"></i>Open — to be tuned with real data</span>
+    </p>
+
+    <ul class="status settled">
+      <li><span class="mark"></span><span><b>Rules alone assign severity.</b> The model classifies cause only and cannot revise urgency.</span></li>
+      <li><span class="mark"></span><span><b>Six fixed causes</b>, including an explicit "unclear" so the model can decline rather than fabricate.</span></li>
+      <li><span class="mark"></span><span><b>One review per patient per night</b>, at most one model call each. Specific medications and times are named inside the message, not split into separate alerts.</span></li>
+      <li><span class="mark"></span><span><b>Escalation is driven by non-response</b>, which requires storing each night's review.</span></li>
+      <li><span class="mark"></span><span><b>Doctors flag high-risk medications</b>; the immediate alert path is narrowed to those, and the general missed-streak page is retired.</span></li>
+      <li><span class="mark"></span><span><b>Doctor responses are recorded</b> from launch, so thresholds can be tuned against outcomes.</span></li>
+      <li><span class="mark"></span><span><b>Dashboard ordering becomes severity-weighted</b>, so the new warning tier cannot bury genuine alerts.</span></li>
+    </ul>
+
+    <ul class="status open" style="margin-top:34px">
+      <li><span class="mark"></span><span><b>Exact severity thresholds.</b> Starting from the percentage bands already used on the doctor dashboard, so the numbers stay consistent across screens.</span></li>
+      <li><span class="mark"></span><span><b>Escalation spacing.</b> The day 1 / 3 / 5 ladder is a starting point.</span></li>
+      <li><span class="mark"></span><span><b>Run time and daytime window</b> for holding patient messages.</span></li>
+      <li><span class="mark"></span><span><b>Per-night model call cap.</b></span></li>
+      <li><span class="mark"></span><span><b>Which health-survey fields</b> are passed to the model as symptom evidence.</span></li>
+    </ul>
+  </section>
+
+  <section style="margin-bottom:0">
+    <p class="eyebrow">The ask</p>
+    <h2>What we need from you</h2>
+    <div class="ask">
+      <p>
+        Approval to build as described — specifically, approval of the authority
+        split: that deterministic code decides urgency and routing, that the
+        language model is confined to classifying a cause from a fixed list and
+        writing explanatory text, and that no clinical authority moves away from
+        the doctor.
+      </p>
+      <p>
+        The open items above are tuning decisions that need real data to answer
+        well; they do not change the shape of the system and can be settled
+        during the first week of operation.
+      </p>
+    </div>
+  </section>
+
+  <footer>RemindRx · Medication adherence platform · Internal proposal</footer>
+
+</div>

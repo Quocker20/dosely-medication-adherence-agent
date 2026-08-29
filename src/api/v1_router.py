@@ -6,6 +6,10 @@ from src.modules.adherence.router import (
     health_surveys_router,
     patients_adherence_router,
 )
+from src.modules.adherence_review.router import (
+    admin_adherence_reviews_router,
+    adherence_reviews_router,
+)
 from src.modules.agents.router import agent_runs_router, chat_router, schedules_router
 from src.modules.auth.router import router as auth_router
 from src.modules.dashboard.router import router as dashboard_router
@@ -30,3 +34,5 @@ v1_router.include_router(alerts_router)
 v1_router.include_router(health_surveys_router)
 v1_router.include_router(chat_router)
 v1_router.include_router(dashboard_router)
+v1_router.include_router(adherence_reviews_router)
+v1_router.include_router(admin_adherence_reviews_router)

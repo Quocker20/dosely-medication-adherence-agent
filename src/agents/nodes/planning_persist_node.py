@@ -31,6 +31,7 @@ async def planning_persist_node(state: PlanningState, config: RunnableConfig) ->
             "status": row.status,
             "snooze_count": row.snooze_count,
             "notification_group_id": row.notification_group_id,
+            "is_critical": row.is_critical,
         }
         for row in state["candidate_rows"]
     ]
