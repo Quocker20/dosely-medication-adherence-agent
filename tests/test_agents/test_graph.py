@@ -117,7 +117,11 @@ async def test_agent_calls_formulary_rag_only_after_safety_passes():
 
     mock_get_llm.assert_not_called()
     mock_rag.return_value.query.assert_called_once_with("Acid ascorbic có chỉ định gì?")
-    assert result["messages"][-1].content == "Acid ascorbic điều trị thiếu vitamin C."
+    answer = result["messages"][-1].content
+    assert "Tác dụng hoặc chỉ định chính" in answer
+    assert "- Acid ascorbic điều trị thiếu vitamin C." in answer
+    assert "Khi cần xác nhận thêm" in answer
+    assert "[Nguồn" not in answer
     assert result["grounding_valid"] is True
 
 
@@ -272,13 +276,9 @@ def test_rag_node_is_only_reachable_after_safety_guard():
 def test_chat_system_prompt_guides_profile_based_addressing():
     from src.agents.nodes.chat_node import _build_system_message
 
-    content = _build_system_message("patient-123").content
+    content = _build_system_message("patient-123", "chị").content
 
     assert 'Không mặc định mở đầu bằng "chào bác"' in content
-    assert "get_patient_profile" in content
-    assert "profile.dob" in content
-    assert "profile.sex" in content
-    assert "bác" in content
-    assert "anh" in content
-    assert "chị" in content
-    assert "bạn" in content
+    assert "Xưng hô đã được backend xác định từ hồ sơ: chị" in content
+    assert "không cần gọi tool hồ sơ" in content
+    assert "không tự suy đoán tuổi" in content

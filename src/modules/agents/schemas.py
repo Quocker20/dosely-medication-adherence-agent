@@ -57,6 +57,7 @@ class ActiveScheduleResponse(BaseModel):
 
     patient_id: uuid.UUID
     date: date
+    timezone: Optional[str] = None
     doses: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -65,6 +66,7 @@ class NextDoseResponse(BaseModel):
 
     status: Literal["UPCOMING", "NO_SCHEDULE", "NO_UPCOMING"]
     local_date: date
+    timezone: Optional[str] = None
     dose: Optional[Dict[str, Any]] = None
 
 
@@ -78,6 +80,10 @@ class ChatRequest(BaseModel):
     """
 
     message: str = Field(..., min_length=1, max_length=5000, description="Tin nhắn từ bệnh nhân")
+
+
+    client_date: Optional[date] = Field(None, alias="clientDate")
+    client_datetime: Optional[datetime] = Field(None, alias="clientDateTime")
 
 
 class ChatResponse(BaseModel):
