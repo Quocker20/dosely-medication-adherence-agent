@@ -4,7 +4,11 @@ package com.remindrx.app.data.remote
 // ApiEnvelope như mọi endpoint khác — router gọi success_response()
 // (src/modules/agents/router.py), đúng như api-contract.md Slice 6 mô tả.
 
-data class ChatRequestDto(val message: String)
+data class ChatRequestDto(
+    val message: String,
+    val clientDate: String = "",
+    val clientDateTime: String = "",
+)
 
 data class ChatResponseDto(val response: String)
 

@@ -1,8 +1,8 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,6 +103,22 @@ async def get_my_next_dose(
     )
 
 
+@schedules_router.get("/patients/me/schedules/today")
+async def get_my_today_schedule(
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+) -> JSONResponse:
+    """Return a fresh DB view of today's schedule for the authenticated patient."""
+    patient_id = uuid.UUID(current_user["sub"])
+    result = await service.get_today_schedule_for_patient(
+        patient_id=patient_id, actor_payload=current_user
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Today's schedule fetched successfully",
+    )
+
+
 @schedules_router.post(
     "/patients/{patient_id}/schedules/reschedule",
     status_code=status.HTTP_202_ACCEPTED,
@@ -165,7 +181,12 @@ async def chat(
     """Chat với AI agent bằng chữ (Patient only, self)."""
     handle = set_actor_token(token)
     try:
-        result = await service.handle_text_chat(message=request_body.message, patient_id=current_user["sub"])
+        result = await service.handle_text_chat(
+            message=request_body.message,
+            patient_id=current_user["sub"],
+            client_date=request_body.client_date,
+            client_datetime=request_body.client_datetime,
+        )
     finally:
         reset_actor_token(handle)
     return success_response(
@@ -183,6 +204,8 @@ async def chat_voice(
     service: ChatServiceDep,
     token: RawTokenDep,
     audio: UploadFile = File(...),
+    client_date: Optional[date] = Form(None, alias="clientDate"),
+    client_datetime: Optional[datetime] = Form(None, alias="clientDateTime"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
     audio_bytes = await audio.read()
@@ -193,6 +216,8 @@ async def chat_voice(
             audio_bytes=audio_bytes,
             filename=audio.filename or "audio.webm",
             patient_id=current_user["sub"],
+            client_date=client_date,
+            client_datetime=client_datetime,
         )
     finally:
         reset_actor_token(handle)

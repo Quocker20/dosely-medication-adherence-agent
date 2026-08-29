@@ -80,6 +80,8 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | :--- | :--- | :--- | :--- | :--- |
 | POST | /patients/{patient_id}/schedules/generate | Required (DOCTOR/SYSTEM) | Path Param (patient_id: UUID) + GenerateScheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /patients/{patient_id}/schedules | Required (PATIENT/DOCTOR/CAREGIVER) | Path Param (patient_id: UUID) + Query Params (date) | 200 OK / ActiveScheduleResponse |
+| GET | /patients/me/schedules/today | Required (PATIENT) | No caller-supplied identity/date; backend derives patient and local date from JWT/profile timezone | 200 OK / ActiveScheduleResponse |
+| GET | /patients/me/schedules/next | Required (PATIENT) | No caller-supplied identity/date; returns UPCOMING, NO_SCHEDULE, or NO_UPCOMING | 200 OK / NextDoseResponse |
 | POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT/SYSTEM) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
 | POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |

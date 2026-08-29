@@ -17,6 +17,11 @@ class AgentState(TypedDict, total=False):
     # De-identified theo cong_viec.md §4.5: truyền patient_id, không truyền
     # họ tên/SĐT/địa chỉ vào state hay prompt.
     patient_id: str
+    # Deterministic vocative loaded once from /patients/me/profile for this turn.
+    # It contains no name or other profile PII.
+    patient_address: str
+    client_date: str
+    client_datetime: str
     # True khi safety_guard_node đã escalate (Red Alert) ở turn này — graph
     # dùng field này để ngắt, không đi tiếp vào agent_node bình thường.
     escalated: bool
