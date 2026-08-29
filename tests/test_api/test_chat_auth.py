@@ -50,13 +50,19 @@ async def test_chat_uses_authenticated_patient_and_ignores_legacy_client_id(clie
                 # Backward compatibility: an older app may still send this,
                 # but it must never control the agent's patient context.
                 "patient_id": str(uuid.uuid4()),
+                "clientDate": "2026-08-29",
+                "clientDateTime": "2026-08-29T23:30:00+07:00",
             },
             headers=_auth_headers(),
         )
 
     assert response.status_code == 200
     assert response.json()["data"] == {"response": "Phản hồi an toàn"}
-    handle_text_chat.assert_awaited_once_with(message="Lịch thuốc hôm nay?", patient_id=PATIENT_ID)
+    call = handle_text_chat.await_args.kwargs
+    assert call["message"] == "Lịch thuốc hôm nay?"
+    assert call["patient_id"] == PATIENT_ID
+    assert call["client_date"].isoformat() == "2026-08-29"
+    assert call["client_datetime"].isoformat() == "2026-08-29T23:30:00+07:00"
 
 
 @pytest.mark.asyncio
@@ -84,4 +90,6 @@ async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(cli
         audio_bytes=b"audio",
         filename="question.m4a",
         patient_id=PATIENT_ID,
+        client_date=None,
+        client_datetime=None,
     )

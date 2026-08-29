@@ -1,7 +1,7 @@
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import Exists, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert

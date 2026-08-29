@@ -291,7 +291,11 @@ class RemindRxApiServiceContractTest {
             "audio.webm",
             okhttp3.RequestBody.create(null, ByteArray(0)),
         )
-        val reply = api.sendVoiceChatMessage(part).data
+        val reply = api.sendVoiceChatMessage(
+            part,
+            okhttp3.RequestBody.create(null, "2026-08-29"),
+            okhttp3.RequestBody.create(null, "2026-08-29T23:30:00+07:00"),
+        ).data
 
         val request = server.takeRequest()
         assertEquals("/api/v1/chat/voice", request.requestUrl?.encodedPath)

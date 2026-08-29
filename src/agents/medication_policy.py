@@ -21,6 +21,12 @@ _RECOMMENDATION_REQUEST = re.compile(
     r"\bthuoc\s+(?:nao|gi)\s+(?:ho tro|giup|tri|dieu tri|chua|dung cho)\b"
 )
 
+_READ_ONLY_TREATMENT_REQUEST = re.compile(
+    r"\b(?:giai thich|xem|nhac lai|doc lai)\b.*\b(?:cach dung|huong dan)\b.*\b(?:don|bac si|da ke)\b|"
+    r"\btai sao\s+bac si\s+(?:cho|ke).*\b(?:dung|uong)\b|"
+    r"\bbac si\s+(?:vua\s+)?doi lieu.*\b(?:bao nhieu|the nao)\b"
+)
+
 
 def fold(value: str) -> str:
     value = unicodedata.normalize("NFD", value.casefold().replace("đ", "d"))
@@ -32,6 +38,23 @@ def match_medication_decision(text: str) -> str | None:
     """Return a policy code for patient-specific treatment decisions."""
     normalized = fold(text)
     raw = unicodedata.normalize("NFC", text.casefold())
+    # Asking what is already prescribed is a read-only database request, not
+    # a request for the chatbot to choose a treatment.
+    if re.search(
+        r"\b(?:toi|minh|em|chau)\s+(?:hien tai\s+)?dang\s+(?:dung|uong)\s+thuoc\s+gi\b",
+        normalized,
+    ):
+        return None
+    unsafe_change_markers = (
+        "tang lieu", "giam lieu", "gap doi", "uong them", "ngung thuoc",
+        "bo thuoc", "uong cung", "uong chung", "dung chung", "phoi hop",
+    )
+    if (
+        _READ_ONLY_TREATMENT_REQUEST.search(normalized)
+        and not any(marker in normalized for marker in unsafe_change_markers)
+        and not any(marker in normalized for marker in ("duoc khong", "co nen", "co the"))
+    ):
+        return None
     has_decision = any(marker in normalized for marker in DECISION_MARKERS)
     tokens = normalized.split()
     has_personal = (

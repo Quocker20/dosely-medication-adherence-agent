@@ -4,16 +4,24 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
+from src.agents.nodes.next_dose_node import format_dose_value
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 
 
 async def current_medications_node(state: AgentState) -> dict:
+    address = state.get("patient_address", "bạn")
     """Read current medicines from PostgreSQL through the authenticated API."""
     try:
-        result = await get("/patients/me/medications/current")
+        client_date = state.get("client_date")
+        if client_date:
+            result = await get(
+                "/patients/me/medications/current", params={"as_of": client_date}
+            )
+        else:
+            result = await get("/patients/me/medications/current")
     except BackendAPIError:
-        reply = "Mình chưa thể lấy danh sách thuốc của bạn lúc này. Vui lòng thử lại sau."
+        reply = f"Mình chưa thể lấy danh sách thuốc của {address} lúc này. Vui lòng thử lại sau."
         return {"messages": [AIMessage(content=reply)]}
 
     medications = (result or {}).get("medications", [])
@@ -21,22 +29,27 @@ async def current_medications_node(state: AgentState) -> dict:
     if not medications:
         reply = (
             f"Mình không thấy thuốc nào trong đơn đã duyệt còn hiệu lực vào {as_of}. "
-            "Nếu bạn đang tự dùng thuốc hoặc thực phẩm bổ sung, hãy cập nhật với bác sĩ/dược sĩ."
+            f"Nếu {address} đang tự dùng thuốc hoặc thực phẩm bổ sung, hãy cập nhật với bác sĩ/dược sĩ."
         )
         return {"messages": [AIMessage(content=reply)]}
 
-    lines = [f"Theo đơn thuốc đã duyệt còn hiệu lực vào {as_of}, bạn đang dùng:"]
+    lines = [f"Theo đơn thuốc đã duyệt còn hiệu lực vào {as_of}, {address} đang dùng:"]
     for med in medications:
         doses = []
         for label, field in (
             ("sáng", "morning_dose"),
             ("trưa", "noon_dose"),
             ("tối", "evening_dose"),
-            ("trước ngủ", "bedtime_dose"),
+            ("trước khi ngủ", "bedtime_dose"),
         ):
             value = med.get(field)
-            if value is not None and float(value) > 0:
-                doses.append(f"{label} {value} {med.get('dose_unit', '')}".strip())
+            rendered = format_dose_value(value)
+            try:
+                positive = rendered != "" and float(rendered) > 0
+            except ValueError:
+                positive = False
+            if positive:
+                doses.append(f"{label} {rendered} {med.get('dose_unit', '')}".strip())
         detail = ", ".join(doses) if doses else "chưa có liều theo buổi"
         if med.get("instructions"):
             detail += f"; {med['instructions']}"

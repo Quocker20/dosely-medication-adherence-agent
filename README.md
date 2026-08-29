@@ -79,6 +79,16 @@ alembic stamp 0001_baseline
 alembic upgrade head
 ```
 
+Migration `0016_seed_medications` tự nạp 66 hoạt chất nền vào PostgreSQL (không
+ghi vào Chroma/RAG). Có thể chủ động nạp/cập nhật lại bằng:
+
+```bash
+python scripts/seed_medications.py
+```
+
+Script upsert theo `source_name + source_record_key`, nên có thể chạy lại an
+toàn mà không tạo thuốc trùng. Dùng `--dry-run` để chỉ kiểm tra file catalog.
+
 #### Bước 4: Chạy Server FastAPI
 
 ```bash
