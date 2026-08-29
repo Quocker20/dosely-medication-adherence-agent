@@ -258,19 +258,25 @@ Dùng làm quy trình khi bắt đầu module/màn hình mới:
 
 ## 9. Ánh xạ vào RemindRx ([android/](../android/))
 
-Trạng thái hiện tại: 8 màn hình, **mock data only**, chưa có ViewModel/Repository thật (xem [android/README.md](../android/README.md)).
+> ⚠️ **Cập nhật:** đoạn mô tả trạng thái bên dưới đã lỗi thời — viết từ giai đoạn app còn
+> mock data. Thực tế hiện tại (xem [android/README.md](../android/README.md)): app đã gọi
+> FastAPI backend thật qua Retrofit cho dashboard, lịch sinh hoạt, đơn thuốc, thao tác cữ
+> thuốc, khảo sát và SOS; đã build/cài/verify trên emulator. `data/MockRepository.kt`
+> không còn tồn tại trong repo.
+
+Trạng thái hiện tại (đã verify lại so với code thật):
 
 | Skill trong file này | Áp dụng vào RemindRx | Trạng thái |
 |---|---|---|
-| 1.1 UDF + ViewModel | Mỗi màn hình cần `XxxViewModel` + `XxxUiState`; hiện state đang nằm trong `remember` | ❌ chưa có |
+| 1.1 UDF + ViewModel | Mỗi màn hình cần `XxxViewModel` + `XxxUiState` | ✅ có — `AuthViewModel`, `PatientViewModel`, `AssistantViewModel` (`ui/feature/*/`) |
 | 2.1 Navigation graph | `navigation/RemindRxNavHost.kt` — 8 route đã có | ✅ |
 | 2.2 Deep link | Push nhắc thuốc phải mở thẳng `reminder/{doseId}` | ❌ chưa có |
-| 3.2 Retrofit | Thay `data/MockRepository.kt` bằng client gọi `/api/v1` trong [src/api/routes.py](../src/api/routes.py) | ❌ chưa có |
-| 3.3 Repository | `MockRepository` đã đúng hình dạng ranh giới — giữ interface, đổi implementation | 🟡 một nửa |
-| 3.4 DI | Cần `AppContainer` để swap mock ↔ remote | ❌ chưa có |
-| 4.2/4.3 Room + SSOT | Lịch uống thuốc **phải đọc được offline** — bệnh nhân mất mạng vẫn phải thấy lịch | ❌ chưa có, ưu tiên cao |
-| 4.4 DataStore | Onboarding routine + settings đang là in-memory `remember` | ❌ chưa có |
-| 5.1/5.2 WorkManager | Đồng bộ lịch, gửi báo cáo tuân thủ khi có mạng lại | ❌ chưa có |
+| 3.2 Retrofit | Client gọi `/api/v1` thật | ✅ có — `data/repository/Remote*RepositoryImpl.kt` gọi `RemindRxApiService` |
+| 3.3 Repository | Interface + implementation thật (không còn mock) | ✅ |
+| 3.4 DI | Swap implementation qua Hilt module | ✅ có — `di/{DatabaseModule,NetworkModule,RepositoryModule,ConnectivityModule,RealtimeModule}.kt` |
+| 4.2/4.3 Room + SSOT | Lịch uống thuốc **phải đọc được offline** — bệnh nhân mất mạng vẫn phải thấy lịch | ✅ có — `data/local/RemindRxDatabase.kt` + `data/local/dao/`, cộng cơ chế outbox riêng (xem `docs/outbox-replay-contract.md`) |
+| 4.4 DataStore | Onboarding routine + settings đang là in-memory `remember` | ❌ chưa xác nhận lại — không nằm trong phạm vi audit lần này |
+| 5.1/5.2 WorkManager | Đồng bộ lịch, gửi báo cáo tuân thủ khi có mạng lại | ✅ có — `sync/OutboxSyncWorker.kt` (`@HiltWorker`) + `sync/WorkManagerOutboxSyncScheduler.kt` |
 | 5.3 Giới hạn WorkManager | **Nhắc uống thuốc đúng giờ không được dựa WorkManager** — dùng exact alarm hoặc FCM | ⚠️ điểm thiết kế phải chốt |
 | 6.1 Design system | `ui/theme/` đã khớp mockup | ✅ |
 | 6.3 Component | `ui/components/Components.kt` đã tách atom | ✅ |

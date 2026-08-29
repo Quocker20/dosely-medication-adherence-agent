@@ -1,5 +1,9 @@
 # RemindRx Android Outbox Replay Contract
 
+**Status: Phase 1 & Phase 2 both fully implemented** — `sync/OutboxReplayer.kt`,
+`sync/OutboxSyncWorker.kt`, and a passing unit test (`sync/OutboxReplayerTest.kt`). The
+contract below is not a future plan, it's what the shipped code does.
+
 Phase 1 records pending patient writes locally only after a connectivity failure
 (`IOException`/timeout). HTTP validation and authorization errors are not queued.
 Phase 2 must replay rows in `outbox_actions` without logging `payloadJson`,
