@@ -35,6 +35,15 @@ const metrics = [
   ["≥80%", "Tỷ lệ hoàn tất onboarding"],
 ];
 
+const WEEKDAYS = ["CHỦ NHẬT", "THỨ HAI", "THỨ BA", "THỨ TƯ", "THỨ NĂM", "THỨ SÁU", "THỨ BẢY"];
+
+function formatToday(date: Date): string {
+  const weekday = WEEKDAYS[date.getDay()];
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${weekday} · ${day}/${month}`;
+}
+
 function Logo() {
   return <svg className="lp-logo" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="4" y="4" width="24" height="24" rx="9" /><path d="M12.5 19.5 19.5 12.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" /><path d="M11 18a4.2 4.2 0 0 1 0-6l1-1a4.2 4.2 0 0 1 6 6l-1 1a4.2 4.2 0 0 1-6 0Z" stroke="#fff" strokeWidth="1.6" /></svg>;
 }
@@ -83,7 +92,7 @@ export default function HomePage({ onLogin }: Props) {
           </div>
           <div className="lp-daycard lp-rise" style={{ animationDelay: "620ms" }}>
             <span className="lp-stamp">Đã bác sĩ duyệt</span>
-            <div className="lp-daycard-head"><b>Hôm nay của bạn</b><span>THỨ BA · 23/08</span></div>
+            <div className="lp-daycard-head"><b>Hôm nay của bạn</b><span>{formatToday(new Date())}</span></div>
             <div className="lp-daystrip">
               <div className="lp-dose taken"><i>✓</i><small>Sáng<br />7:00</small></div>
               <div className="lp-dose taken"><i>✓</i><small>Trưa<br />12:00</small></div>

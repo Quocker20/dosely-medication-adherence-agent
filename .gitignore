@@ -106,3 +106,5 @@ test_fcm_now.py
 
 # Firebase service account credentials — never commit
 firebase-adminsdk.json
+.vercel
+.env*
