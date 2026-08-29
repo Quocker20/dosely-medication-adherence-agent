@@ -177,6 +177,26 @@ class Settings(BaseSettings):
     # proceeds with the rule-decided severity/action -- only the cause
     # explanation degrades to UNCLEAR, never the alert itself.
     adherence_review_llm_timeout_seconds: int = Field(default=20, ge=1, le=120)
+    # One-flag stop for the whole nightly job (Stage 6.5) -- checked at the
+    # top of the task, before Phase A ever queries the database.
+    adherence_review_enabled: bool = True
+    # crontab hour, not a timedelta interval -- the run must land at a fixed
+    # local hour every night. Default 5am: the previous day is fully closed
+    # by then, and doctor alerts are waiting at shift start; midnight has no
+    # advantage and lands alerts in an empty portal.
+    adherence_review_run_hour: int = Field(default=5, ge=0, le=23)
+    # Hard cap on LLM calls per nightly run, sorted by severity descending
+    # before truncating so a loose threshold can't fan out to an unbounded
+    # bill -- patients dropped by the cap still get a review row and the
+    # rule-decided action, just with FALLBACK_REMEDY_ANALYSIS instead of an
+    # attempted classification.
+    adherence_review_max_llm_calls: int = Field(default=300, ge=0, le=10000)
+    # Daytime window (local hour, [from, to)) patient-facing
+    # NotificationDelivery.scheduled_at is pushed into -- a reminder about
+    # missed doses must never land at 5am. Doctor alerts are not gated; a
+    # WARNING sitting unread in the portal before shift start costs nothing.
+    adherence_review_patient_send_from: int = Field(default=8, ge=0, le=23)
+    adherence_review_patient_send_to: int = Field(default=20, ge=0, le=23)
     doctor_id: str = "dr-nguyen-van-a"
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"
