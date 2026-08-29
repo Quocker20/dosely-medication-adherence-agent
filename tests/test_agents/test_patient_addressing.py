@@ -78,7 +78,7 @@ async def test_chat_loads_address_once_and_puts_only_vocative_in_agent_state():
         patch("src.modules.agents.service.get_patient_address", new=address_get),
         patch("src.modules.agents.service.agent.ainvoke", new=invoke),
     ):
-        response = await ChatService._run_agent(
+        response, _ = await ChatService()._run_agent(
             "Xin chào", "patient-123", date(2026, 8, 29)
         )
 

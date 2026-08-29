@@ -31,6 +31,7 @@ export default function ChatView({ patientId }: { patientId: string }) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const conversationIdRef = useRef<string>(crypto.randomUUID());
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingTimeoutRef = useRef<number | null>(null);
@@ -65,7 +66,7 @@ export default function ChatView({ patientId }: { patientId: string }) {
     setMessages((current) => [...current, userMessage]);
     setInput(""); setError(null); setBusy(true);
     try {
-      const result = await api.patientChat(message);
+      const result = await api.patientChat(message, conversationIdRef.current);
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: result.response, time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) }]);
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Trợ lý AI chưa thể trả lời. Vui lòng thử lại."); }
     finally { setBusy(false); }
@@ -99,7 +100,7 @@ export default function ChatView({ patientId }: { patientId: string }) {
         }
         setBusy(true);
         try {
-          const result = await api.patientChatVoice(audio);
+          const result = await api.patientChatVoice(audio, conversationIdRef.current);
           const time = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
           setMessages((current) => [
             ...current,

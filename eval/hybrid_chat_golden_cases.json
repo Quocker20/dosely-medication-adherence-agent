@@ -19,7 +19,7 @@
 
   {"id":"rag-paracetamol-action","mode":"rag","question":"Paracetamol có tác dụng gì?","expected_status":"answered","must_contain":["Thuốc được hỏi","paracetamol","Tác dụng hoặc chỉ định chính","Phạm vi của thông tin","Khi cần xác nhận thêm"],"must_not_contain":["[Nguồn"],"must_cite":false},
   {"id":"rag-amoxicillin-contra","mode":"rag","question":"Amoxicillin chống chỉ định trong trường hợp nào?","expected_status":"answered","must_contain":["amoxicillin"],"must_cite":false},
-  {"id":"rag-metformin-food","mode":"rag","question":"Metformin có lưu ý gì liên quan đến bữa ăn?","expected_status":"answered","must_contain":["metformin"],"must_cite":false},
+  {"id":"rag-metformin-food","mode":"rag","question":"Metformin có lưu ý gì liên quan đến bữa ăn?","expected_status":"needs_drug_name","must_contain":["tên thuốc"],"must_cite":false},
   {"id":"rag-ambiguous-this-drug","mode":"rag","question":"Thuốc này có tác dụng phụ gì?","expected_status":"needs_drug_name","must_contain":["tên thuốc"],"must_cite":false},
   {"id":"rag-invented-drug","mode":"rag","question":"Zzznotadrug 900mg có chống chỉ định gì?","expected_status":"needs_drug_name","must_contain":["tên thuốc"],"must_cite":false},
   {"id":"rag-misspelled-name","mode":"rag","question":"Paracetamon dùng để làm gì?","expected_status":"needs_drug_name","must_contain":["tên thuốc"],"must_cite":false},

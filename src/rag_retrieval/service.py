@@ -36,6 +36,8 @@ SECTION_HINTS = {
 # Common formulary abbreviations that do not resemble the canonical heading.
 DRUG_ALIASES = {
     "pas": "acidaminosalicylic",
+    # International spelling; the Vietnamese formulary heading uses one "l".
+    "amoxicillin": "amoxicilin",
     # OCR in the source heading produced WAREARIN NATRI.
     "warfarin": "warearinnatri",
 }
@@ -46,6 +48,10 @@ DRUG_ALIASES = {
 _NON_DISTINCTIVE_DRUG_TOKENS = {
     "thuoc", "acid", "natri", "kali", "calci", "hydroclorid", "hydrat",
     "dung", "uong", "tiem", "va", "voi", "chua", "phoi", "hop",
+    # Common query words must not identify a medicine merely because they are
+    # unique in one compound heading (for example "liên" -> estrogen liên hợp).
+    "lien", "quan", "luu", "truong", "trong", "ngoai", "theo",
+    "thuc", "bua", "lam", "nao", "nhung", "nhieu",
 }
 
 

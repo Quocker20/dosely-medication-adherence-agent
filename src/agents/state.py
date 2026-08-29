@@ -29,11 +29,17 @@ class AgentState(TypedDict, total=False):
     # intent classifier, chat model, tool, or retrieval call.
     safety_blocked: bool
     safety_reason: str
+    scope_blocked: bool
+    scope_category: str
+    output_guarded: bool
+    output_errors: list[str]
     # Nhãn do classify_intent_node gán — graph dùng để route sang
     # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
     intent: str
+    intent_analysis: dict
     # Result of SafeDrugRAG's citation and factual-grounding validation.
     grounding_valid: bool
     grounding_errors: list[str]
     error: str
     metadata: dict
+    memory_context: dict
