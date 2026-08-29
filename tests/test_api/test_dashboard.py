@@ -330,7 +330,12 @@ async def test_roster_filters_by_adherence_band(client):
     high_id = await _create_patient("0900000019", "Bệnh nhân cao")
     low_rx = await _create_prescription(low_id, doctor_id)
     high_rx = await _create_prescription(high_id, doctor_id)
-    await _add_doses(low_id, low_rx, ["TAKEN", "MISSED"])
+    # 1/3 ~= 33% -- unambiguously below the LOW band's strict "< 50%" cutoff.
+    # Exactly 50% is deliberately NOT "LOW": dashboard/repository.py's
+    # adherence_band filter uses strict "<", the same convention
+    # AdherenceReviewService.compute_severity mirrors for its own bands, so
+    # a boundary value must land consistently on one side across both.
+    await _add_doses(low_id, low_rx, ["TAKEN", "MISSED", "MISSED"])
     await _add_doses(high_id, high_rx, ["TAKEN", "TAKEN"])
     headers = await _login(client, DOCTOR_PHONE)
 
