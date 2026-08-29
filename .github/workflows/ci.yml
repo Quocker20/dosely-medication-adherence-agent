@@ -84,8 +84,16 @@ jobs:
   # Kotlin compiles only at build time, so a repository or DTO signature change
   # that leaves a test fixture behind stays invisible until someone cuts a
   # release APK. Compiling the demo variant's tests is what catches it.
+  #
+  # Not self-hosted, unlike every other job here. The VPS has 3.8 GB of RAM with
+  # no swap and 2 cores, and ~1.6 GB of that is production (backend, worker,
+  # beat, redis, caddy). Gradle alone is configured for a 2 GB heap and kapt
+  # spawns further JVMs on top, so a build would exhaust memory -- and with no
+  # swap the kernel goes straight to the OOM killer, which picks the largest
+  # process it can find. That is production. GitHub's runner also ships the
+  # Android SDK preinstalled, so this is faster besides.
   android-unit-tests:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
