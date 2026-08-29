@@ -60,6 +60,7 @@ function emptyItem(): PrescriptionItemIn {
     start_date: isoDate(new Date()),
     end_date: null,
     instructions: null,
+    is_critical: false,
   };
 }
 
@@ -565,6 +566,18 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                         onChange={(event) => patchItem(index, { instructions: event.target.value || null })}
                       />
                     </label>
+
+                    <label className="wide" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={item.is_critical}
+                        onChange={(event) => patchItem(index, { is_critical: event.target.checked })}
+                      />
+                      Thuốc nguy hiểm / quan trọng
+                    </label>
+                    <small className="wide" style={{ color: "var(--text-2)", marginTop: -4 }}>
+                      Đánh dấu thuốc này để hệ thống chỉ báo động khi bệnh nhân bỏ lỡ 3 liều liên tiếp của riêng thuốc này.
+                    </small>
                   </div>
                 </div>
               ))}
