@@ -16,6 +16,7 @@ def test_explain_and_next_dose_have_deterministic_routes():
         == "explain_my_medications"
     )
     assert _route_after_classify_intent({"intent": "ask_next_dose"}) == "next_dose"
+    assert _route_after_classify_intent({"intent": "ask_schedule"}) == "today_schedule"
 
 
 @pytest.mark.asyncio

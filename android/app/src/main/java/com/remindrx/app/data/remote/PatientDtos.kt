@@ -83,6 +83,7 @@ data class DoseDto(
 data class ScheduleResponseDto(
     val patientId: String,
     val date: String,
+    val timezone: String? = null,
     val doses: List<DoseDto> = emptyList(),
 )
 

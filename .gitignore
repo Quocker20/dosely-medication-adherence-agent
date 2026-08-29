@@ -10,6 +10,7 @@ build/
 # Virtual environments
 venv/
 .venv/
+.venv-py*-backup-*/
 env/
 
 # Environment variables

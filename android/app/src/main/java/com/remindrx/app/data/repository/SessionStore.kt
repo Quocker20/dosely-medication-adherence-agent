@@ -47,8 +47,11 @@ class SessionStore @VisibleForTesting internal constructor(
     val patientId: String?
         get() = mutableSession.value?.patientId
 
-    val isFirstLogin: Boolean?
-        get() = mutableSession.value?.isFirstLogin
+    val mustChangePassword: Boolean?
+        get() = mutableSession.value?.mustChangePassword
+
+    val needOnboarding: Boolean?
+        get() = mutableSession.value?.needOnboarding
 
     val phone: String?
         get() = mutableSession.value?.phone
@@ -115,7 +118,8 @@ private class AndroidKeystoreSessionPersistence(
                 accessToken = requireValue(KEY_ACCESS_TOKEN),
                 refreshToken = requireValue(KEY_REFRESH_TOKEN),
                 patientId = requireValue(KEY_PATIENT_ID),
-                isFirstLogin = requireValue(KEY_IS_FIRST_LOGIN).toBooleanStrict(),
+                mustChangePassword = requireValue(KEY_MUST_CHANGE_PASSWORD).toBooleanStrict(),
+                needOnboarding = requireValue(KEY_NEED_ONBOARDING).toBooleanStrict(),
                 phone = requireValue(KEY_PHONE),
             )
         }.getOrElse {
@@ -131,7 +135,8 @@ private class AndroidKeystoreSessionPersistence(
             KEY_ACCESS_TOKEN to encrypt(KEY_ACCESS_TOKEN, session.accessToken),
             KEY_REFRESH_TOKEN to encrypt(KEY_REFRESH_TOKEN, session.refreshToken),
             KEY_PATIENT_ID to encrypt(KEY_PATIENT_ID, session.patientId),
-            KEY_IS_FIRST_LOGIN to encrypt(KEY_IS_FIRST_LOGIN, session.isFirstLogin.toString()),
+            KEY_MUST_CHANGE_PASSWORD to encrypt(KEY_MUST_CHANGE_PASSWORD, session.mustChangePassword.toString()),
+            KEY_NEED_ONBOARDING to encrypt(KEY_NEED_ONBOARDING, session.needOnboarding.toString()),
             KEY_PHONE to encrypt(KEY_PHONE, session.phone),
         )
         val editor = preferences.edit()
@@ -207,7 +212,8 @@ private class AndroidKeystoreSessionPersistence(
         const val KEY_ACCESS_TOKEN = "access_token"
         const val KEY_REFRESH_TOKEN = "refresh_token"
         const val KEY_PATIENT_ID = "patient_id"
-        const val KEY_IS_FIRST_LOGIN = "is_first_login"
+        const val KEY_MUST_CHANGE_PASSWORD = "must_change_password"
+        const val KEY_NEED_ONBOARDING = "need_onboarding"
         const val KEY_PHONE = "phone"
         val FORMAT_VERSION: Byte = 1
         val KEY_LOCK = Any()

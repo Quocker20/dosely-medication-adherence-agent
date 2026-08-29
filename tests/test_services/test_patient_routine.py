@@ -2,7 +2,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, time, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -44,17 +44,21 @@ async def test_update_routine_upserts_for_profile_without_existing_routine():
     repository = MagicMock()
     repository.upsert_routine = AsyncMock(return_value=saved)
 
-    result = await _service(repository).update_routine(
-        patient_id=patient_id,
-        request=UpdateRoutineRequest(
-            wake_time=saved.wake_time,
-            breakfast_time=saved.breakfast_time,
-            lunch_time=saved.lunch_time,
-            dinner_time=saved.dinner_time,
-            sleep_time=saved.sleep_time,
-        ),
-        actor_payload={"sub": str(patient_id), "role": "PATIENT"},
-    )
+    with (
+        patch.object(PatientService, "_dispatch_reschedule"),
+        patch("src.modules.patients.service.publish_dashboard_event", new_callable=AsyncMock),
+    ):
+        result = await _service(repository).update_routine(
+            patient_id=patient_id,
+            request=UpdateRoutineRequest(
+                wake_time=saved.wake_time,
+                breakfast_time=saved.breakfast_time,
+                lunch_time=saved.lunch_time,
+                dinner_time=saved.dinner_time,
+                sleep_time=saved.sleep_time,
+            ),
+            actor_payload={"sub": str(patient_id), "role": "PATIENT"},
+        )
 
     repository.upsert_routine.assert_awaited_once_with(
         patient_id=patient_id,
@@ -83,3 +87,32 @@ async def test_update_routine_rejects_another_patient_without_writing():
         )
 
     repository.upsert_routine.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_routine_publishes_minimal_realtime_marker_after_commit():
+    patient_id = uuid.uuid4()
+    updated_at = datetime.now(timezone.utc)
+    saved = SimpleNamespace(
+        id=uuid.uuid4(), patient_id=patient_id, wake_time=time(6, 30),
+        breakfast_time=time(7), lunch_time=time(12), dinner_time=time(18),
+        sleep_time=time(22), updated_at=updated_at,
+    )
+    repository = MagicMock()
+    repository.upsert_routine = AsyncMock(return_value=saved)
+
+    with (
+        patch.object(PatientService, "_dispatch_reschedule") as dispatch,
+        patch("src.modules.patients.service.publish_dashboard_event", new_callable=AsyncMock) as publish,
+    ):
+        await _service(repository).update_routine(
+            patient_id=patient_id,
+            request=UpdateRoutineRequest(dinner_time=time(19)),
+            actor_payload={"sub": str(patient_id), "role": "PATIENT"},
+        )
+
+    dispatch.assert_called_once_with(patient_id)
+    publish.assert_awaited_once_with(
+        "routine.updated",
+        {"patient_id": str(patient_id), "updated_at": updated_at.isoformat()},
+    )

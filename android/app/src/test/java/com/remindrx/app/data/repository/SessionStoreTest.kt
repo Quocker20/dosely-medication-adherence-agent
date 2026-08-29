@@ -17,7 +17,8 @@ class SessionStoreTest {
         assertEquals(expected.accessToken, recreated.accessToken)
         assertEquals(expected.refreshToken, recreated.refreshToken)
         assertEquals(expected.patientId, recreated.requirePatientId())
-        assertEquals(expected.isFirstLogin, recreated.isFirstLogin)
+        assertEquals(expected.mustChangePassword, recreated.mustChangePassword)
+        assertEquals(expected.needOnboarding, recreated.needOnboarding)
         assertEquals(expected.phone, recreated.phone)
     }
 
@@ -53,12 +54,14 @@ internal fun testSession(
     accessToken: String = "access-old",
     refreshToken: String = "refresh-old",
     patientId: String = "patient-1",
-    isFirstLogin: Boolean = true,
+    mustChangePassword: Boolean = true,
+    needOnboarding: Boolean = true,
     phone: String = "+84901234567",
 ): AuthSession = AuthSession(
     accessToken = accessToken,
     refreshToken = refreshToken,
     patientId = patientId,
-    isFirstLogin = isFirstLogin,
+    mustChangePassword = mustChangePassword,
+    needOnboarding = needOnboarding,
     phone = phone,
 )

@@ -43,8 +43,7 @@ private const val HOLD_MILLIS = 3000
  */
 @Composable
 fun SosScreen(
-    isSending: Boolean = false,
-    isSent: Boolean = false,
+    sosStatus: SosSubmissionStatus = SosSubmissionStatus.IDLE,
     error: String? = null,
     onTriggered: () -> Unit,
     onCancel: () -> Unit,
@@ -52,7 +51,10 @@ fun SosScreen(
     val extras = LocalRemindRxColors.current
     var pressed by remember { mutableStateOf(false) }
     var requested by remember { mutableStateOf(false) }
-    val canTrigger = !requested && !isSending && !isSent
+    val isSending = sosStatus == SosSubmissionStatus.SENDING
+    val isSent = sosStatus == SosSubmissionStatus.SENT
+    val isQueuedOffline = sosStatus == SosSubmissionStatus.QUEUED_OFFLINE
+    val canTrigger = !requested && (sosStatus == SosSubmissionStatus.IDLE || sosStatus == SosSubmissionStatus.FAILED)
     val progress by animateFloatAsState(
         targetValue = if (pressed && canTrigger) 1f else 0f,
         animationSpec = if (pressed) tween(HOLD_MILLIS, easing = LinearEasing) else tween(150),
@@ -123,6 +125,7 @@ fun SosScreen(
                         Text(
                             when {
                                 isSent -> "ĐÃ GỬI"
+                                isQueuedOffline -> "ĐÃ LƯU"
                                 requested || isSending -> "ĐANG GỬI"
                                 else -> "SOS"
                             },
@@ -130,7 +133,12 @@ fun SosScreen(
                             color = extras.danger,
                         )
                         Text(
-                            if (isSent) "CẢNH BÁO SOS" else if (requested || isSending) "VUI LÒNG ĐỢI" else "GIỮ ĐỂ GỬI",
+                            when {
+                                isSent -> "CẢNH BÁO SOS"
+                                isQueuedOffline -> "CHỜ CÓ MẠNG"
+                                requested || isSending -> "VUI LÒNG ĐỢI"
+                                else -> "GIỮ ĐỂ GỬI"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = extras.danger,
                             fontWeight = FontWeight.Bold,
@@ -142,6 +150,7 @@ fun SosScreen(
             Text(
                 when {
                     isSent -> "Cảnh báo SOS đã được gửi tới hệ thống"
+                    isQueuedOffline -> "Yêu cầu SOS đã lưu trên máy nhưng chưa gửi được"
                     requested || isSending -> "Đang gửi cảnh báo SOS…"
                     else -> "Giữ nút 3 giây để gửi cảnh báo SOS"
                 },
@@ -151,7 +160,9 @@ fun SosScreen(
                 modifier = Modifier.padding(top = 20.dp),
             )
             Text(
-                if (isSent) {
+                if (isQueuedOffline) {
+                    "Nếu đang khẩn cấp, hãy gọi 115 ngay. Ứng dụng sẽ đồng bộ yêu cầu này khi có mạng."
+                } else if (isSent) {
                     "Hệ thống đã ghi nhận cảnh báo. Ứng dụng không tự gọi cấp cứu hoặc chia sẻ vị trí."
                 } else {
                     "Yêu cầu sẽ được chuyển tới hệ thống chăm sóc sau khi bạn xác nhận."
@@ -173,7 +184,7 @@ fun SosScreen(
                 )
             }
             Text(
-                if (isSent) "Đóng" else "Huỷ",
+                if (isSent || isQueuedOffline) "Đóng" else "Huỷ",
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White,
                 modifier = Modifier

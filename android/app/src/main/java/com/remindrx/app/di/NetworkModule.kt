@@ -119,7 +119,8 @@ class SessionAuthenticator(
                 accessToken = refreshed.accessToken,
                 refreshToken = refreshed.refreshToken,
                 patientId = refreshed.user.id,
-                isFirstLogin = refreshed.isFirstLogin,
+                mustChangePassword = refreshed.mustChangePassword,
+                needOnboarding = refreshed.needOnboarding,
                 phone = refreshed.user.phone,
             )
             try {

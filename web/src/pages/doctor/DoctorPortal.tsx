@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, waitForAgentRun } from "../../api";
+import { ApiError, api } from "../../api";
 import GuardBanner from "../../components/shared/GuardBanner";
 import { useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
 import { setSession, type Session } from "../../session";
-import type {
-  ActiveSchedule,
-  AlertDetail,
-  DashboardPatientDetail,
-  DashboardPatientListItem,
-  PatientRoutine,
-} from "../../types";
-import { isoDate, paginationRange } from "../../utils/labels";
+import type { AlertDetail, DashboardPatientListItem } from "../../types";
+import { paginationRange } from "../../utils/labels";
 import AlertsView from "./components/AlertsView";
 import KpiRow from "./components/KpiRow";
-import PatientDrawer from "./components/PatientDrawer";
+import PatientDetailPage from "./components/PatientDetailPage";
 import PatientTable from "./components/PatientTable";
 import PrescriptionView from "./components/PrescriptionView";
 import Sidebar from "./components/Sidebar";
@@ -45,8 +39,16 @@ const ADHERENCE_FILTERS = [
   { value: "HIGH", label: "Tuân thủ từ 70%" },
 ];
 
-export default function DoctorPortal({ session }: { session: Session }) {
-  const [view, setView] = useState<ViewName>("dashboard");
+interface Props {
+  session: Session;
+  view: ViewName;
+  onViewChange: (view: ViewName) => void;
+  patientDetailId: string | null;
+  onOpenPatient: (patientId: string) => void;
+  onClosePatient: () => void;
+}
+
+export default function DoctorPortal({ session, view, onViewChange, patientDetailId, onOpenPatient, onClosePatient }: Props) {
   const { theme, cycleTheme } = useTheme();
 
   const [patients, setPatients] = useState<DashboardPatientListItem[]>([]);
@@ -55,11 +57,6 @@ export default function DoctorPortal({ session }: { session: Session }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [detail, setDetail] = useState<DashboardPatientDetail | null>(null);
-  const [routine, setRoutine] = useState<PatientRoutine | null>(null);
-  const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerBusy, setDrawerBusy] = useState(false);
   const [patientSearch, setPatientSearch] = useState("");
   const [debouncedPatientSearch, setDebouncedPatientSearch] = useState("");
   const [alertFilter, setAlertFilter] = useState("");
@@ -168,29 +165,6 @@ export default function DoctorPortal({ session }: { session: Session }) {
     return () => socket.close();
   }, [session.accessToken, refresh]);
 
-  async function openPatient(patientId: string) {
-    setDrawerOpen(true);
-    setDetail(null);
-    setRoutine(null);
-    setSchedule(null);
-
-    try {
-      const nextDetail = await api.dashboardPatientDetail(patientId);
-      setDetail(nextDetail);
-
-      // Routine và lịch hôm nay là dữ liệu phụ — thiếu thì vẫn mở được hồ sơ.
-      const [routineResult, scheduleResult] = await Promise.allSettled([
-        api.patientRoutine(patientId),
-        api.schedule(patientId, isoDate(new Date())),
-      ]);
-      if (routineResult.status === "fulfilled") setRoutine(routineResult.value);
-      if (scheduleResult.status === "fulfilled") setSchedule(scheduleResult.value);
-    } catch (error) {
-      setDrawerOpen(false);
-      toast(error instanceof ApiError ? error.message : "Không mở được hồ sơ");
-    }
-  }
-
   async function acknowledgeAlert(id: string) {
     setAlertBusyId(id);
     try {
@@ -214,24 +188,6 @@ export default function DoctorPortal({ session }: { session: Session }) {
       toast(error instanceof ApiError ? error.message : "Không đóng được cảnh báo");
     } finally {
       setAlertBusyId(null);
-    }
-  }
-
-  async function requestReschedule(patientId: string) {
-    setDrawerBusy(true);
-    try {
-      const dispatched = await api.generateSchedule(patientId, "Bác sĩ yêu cầu tính lại lịch từ portal");
-      const run = await waitForAgentRun(dispatched.agent_run_id);
-      if (run.status === "COMPLETED") {
-        setSchedule(await api.schedule(patientId, isoDate(new Date())));
-        toast(`Đã tính lại lịch · ${run.generated_dose_count ?? 0} cữ`);
-      } else {
-        toast(`Agent chưa hoàn tất lịch · ${run.status}`);
-      }
-    } catch (error) {
-      toast(error instanceof ApiError ? error.message : "Không tính được lịch");
-    } finally {
-      setDrawerBusy(false);
     }
   }
 
@@ -263,12 +219,25 @@ export default function DoctorPortal({ session }: { session: Session }) {
           theme={theme}
           user={session.user}
           doctorName={doctorName}
-          onView={setView}
+          onView={onViewChange}
           onTheme={cycleTheme}
           onLogout={logout}
         />
 
         <main className="main">
+          {patientDetailId ? (
+            <PatientDetailPage
+              patientId={patientDetailId}
+              accessToken={session.accessToken}
+              onBack={onClosePatient}
+              onPrescribe={(phone) => {
+                setRxPhone(phone);
+                onClosePatient();
+                onViewChange("rx");
+              }}
+              onToast={toast}
+            />
+          ) : <>
           <header className="topbar">
             <div>
               <h1>{title}</h1>
@@ -391,7 +360,7 @@ export default function DoctorPortal({ session }: { session: Session }) {
               </div>
               <PatientTable
                 patients={patients}
-                onOpen={openPatient}
+                onOpen={onOpenPatient}
                 onRefresh={() => {
                   refresh()
                     .then(() => toast("Đã đồng bộ dữ liệu mới nhất"))
@@ -401,9 +370,9 @@ export default function DoctorPortal({ session }: { session: Session }) {
                 }}
                 onAdd={() => {
                   setRxPhone("");
-                  setView("rx");
+                  onViewChange("rx");
                 }}
-                selectedPatientId={drawerOpen ? (detail?.patient.user_id ?? null) : null}
+                selectedPatientId={null}
               />
               <nav className="row-actions pager" aria-label="Phân trang bệnh nhân">
                 <button
@@ -447,12 +416,12 @@ export default function DoctorPortal({ session }: { session: Session }) {
               busyId={alertBusyId}
               onAcknowledge={acknowledgeAlert}
               onResolve={resolveAlert}
-              onOpenPatient={openPatient}
+              onOpenPatient={onOpenPatient}
             />
           )}
 
           {view === "surveys" && (
-            <SurveyView patients={patients} onOpenPatient={openPatient} onToast={toast} />
+            <SurveyView patients={patients} onOpenPatient={onOpenPatient} onToast={toast} />
           )}
 
           {view === "rx" && (
@@ -465,23 +434,9 @@ export default function DoctorPortal({ session }: { session: Session }) {
               }}
             />
           )}
+          </>}
         </main>
       </div>
-
-      <PatientDrawer
-        detail={detail}
-        routine={routine}
-        schedule={schedule}
-        open={drawerOpen}
-        busy={drawerBusy}
-        onClose={() => setDrawerOpen(false)}
-        onPrescribe={(phone) => {
-          setDrawerOpen(false);
-          setRxPhone(phone);
-          setView("rx");
-        }}
-        onGenerateSchedule={requestReschedule}
-      />
 
       <div className="toast-wrap">
         {toasts.map((item) => (

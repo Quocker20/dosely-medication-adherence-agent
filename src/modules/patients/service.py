@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
 from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
+from src.core.redis import publish_dashboard_event
 from src.core.config import get_settings
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
@@ -260,6 +261,8 @@ class PatientService:
 
         upsert_routine makes the routine half idempotent against a double-submit
         (e.g. a double-tapped submit button) without a pre-check race window.
+        Also clears need_onboarding: this is one of the two ways a patient can
+        complete onboarding (see update_routine for the other).
         """
         patient_id = uuid.UUID(actor_payload["sub"])
 
@@ -282,6 +285,7 @@ class PatientService:
                     "sleep_time": request.routine.sleep_time,
                 },
             )
+            await self._auth_repo.clear_need_onboarding(patient_id)
 
         result = await self._patient_repo.get_patient_with_user(patient_id)
         if result is None:
@@ -341,7 +345,9 @@ class PatientService:
         Doctor-created patient profiles do not initially have a routine row.
         The mobile onboarding flow intentionally collects routine data only,
         so PUT is an idempotent upsert instead of requiring the legacy
-        /patients/me/profile endpoint to run first.
+        /patients/me/profile endpoint to run first. This is the primary way a
+        patient completes onboarding (see onboard_patient for the other) --
+        a non-empty PUT means they reviewed/edited the doctor-seeded defaults.
         """
         actor_id = uuid.UUID(actor_payload["sub"])
         if actor_id != patient_id:
@@ -354,11 +360,23 @@ class PatientService:
 
         async with self._db.begin():
             routine = await self._patient_repo.upsert_routine(patient_id=patient_id, updates=updates)
+            if updates:
+                await self._auth_repo.clear_need_onboarding(patient_id)
 
         # After the commit, and only when something actually changed: the
         # already-generated future doses still sit on the old meal times.
         if updates:
             self._dispatch_reschedule(patient_id)
+            # Publish only the identity/version marker after the transaction
+            # commits.  Both web and Android reload the routine through REST;
+            # routine times never travel in the realtime frame.
+            await publish_dashboard_event(
+                "routine.updated",
+                {
+                    "patient_id": str(patient_id),
+                    "updated_at": routine.updated_at.isoformat(),
+                },
+            )
         return self._to_routine_response(routine)
 
     async def _resolve_or_create_caregiver(self, cleaned_phone: str) -> tuple:
