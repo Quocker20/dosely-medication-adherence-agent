@@ -137,6 +137,7 @@ interface RemindRxApiService {
         @Part audio: MultipartBody.Part,
         @Part("clientDate") clientDate: RequestBody,
         @Part("clientDateTime") clientDateTime: RequestBody,
+        @Part("conversationId") conversationId: RequestBody,
     ): ApiEnvelope<VoiceChatResponseDto>
 
     @POST("auth/device-token")

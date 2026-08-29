@@ -80,8 +80,7 @@ class ChatRequest(BaseModel):
     """
 
     message: str = Field(..., min_length=1, max_length=5000, description="Tin nhắn từ bệnh nhân")
-
-
+    conversation_id: Optional[uuid.UUID] = Field(None, alias="conversationId")
     client_date: Optional[date] = Field(None, alias="clientDate")
     client_datetime: Optional[datetime] = Field(None, alias="clientDateTime")
 
@@ -90,6 +89,7 @@ class ChatResponse(BaseModel):
     """Response schema for POST /chat."""
 
     response: str = Field(..., description="Phản hồi từ agent")
+    conversation_id: Optional[uuid.UUID] = Field(None, alias="conversationId")
 
 
 class VoiceChatResponse(BaseModel):
@@ -97,6 +97,7 @@ class VoiceChatResponse(BaseModel):
 
     transcript: str = Field(..., description="Văn bản nhận dạng được từ giọng nói của bệnh nhân")
     response: str = Field(..., description="Phản hồi từ agent (dạng chữ)")
+    conversation_id: Optional[uuid.UUID] = Field(None, alias="conversationId")
     audio_base64: Optional[str] = Field(
         None, description="Phản hồi dạng giọng nói (mp3, base64) — null nếu TTS lỗi (fail-open)"
     )

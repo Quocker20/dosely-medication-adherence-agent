@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -19,13 +20,34 @@ from src.agents.nodes import explain_my_medications_node as explain_module
 from src.agents.nodes import next_dose_node as next_dose_module
 from src.agents.nodes import today_schedule_node as today_schedule_module
 from src.agents.nodes.classify_intent_node import classify_intent_node
+from src.agents.nodes.output_guard_node import validate_patient_output
+from src.agents.nodes.scope_guard_node import scope_guard_node
+from src.agents.conversation_memory import _key as memory_key
+from src.agents.tool_authorization import WRITE_TOOL_INTENTS
 from src.agents.patient_presentation import patient_facing_text
 from src.agents.tools.safety_tools import match_severe_symptom_keyword
 from src.rag_retrieval import SafeDrugRAG
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = ROOT / "eval" / "hybrid_chat_golden_cases.json"
+SYSTEM_CASES_PATH = ROOT / "eval" / "chatbot_system_golden_cases.json"
 RESULTS_PATH = ROOT / "data" / "rag_corpus" / "hybrid_chat_eval_results.json"
+MARKDOWN_RESULTS_PATH = ROOT / "eval" / "results" / "chatbot_full_evaluation.md"
+
+
+def _remove_blackhole_proxy() -> list[str]:
+    """Remove the local dead proxy injected by some sandbox/local sessions.
+
+    A real corporate proxy is preserved.  The known 127.0.0.1:9 endpoint is a
+    discard/black-hole target and makes valid OpenAI credentials look broken.
+    """
+    removed: list[str] = []
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        value = os.environ.get(name, "")
+        if value.rstrip("/").casefold() in {"http://127.0.0.1:9", "https://127.0.0.1:9"}:
+            os.environ.pop(name, None)
+            removed.append(name)
+    return removed
 
 
 def _contains_all(text: str, terms: list[str]) -> bool:
@@ -263,6 +285,44 @@ def _mode_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     return report
 
 
+def _write_markdown_report(report: dict[str, Any]) -> None:
+    lines = [
+        "# RemindRx Chatbot Full Evaluation",
+        "",
+        f"- Passed: **{report['passed']}/{report['evaluated']}**",
+        f"- Pass rate: **{report['pass_rate'] * 100:.2f}%**" if report["pass_rate"] is not None else "- Pass rate: N/A",
+        f"- Skipped: **{report['skipped']}**",
+        f"- Average latency: **{report['latency_ms']['average']} ms**",
+        f"- P95 latency: **{report['latency_ms']['p95']} ms**",
+        "",
+        "## Results by layer",
+        "",
+        "| Layer | Passed | Evaluated | Skipped | Pass rate | P95 latency (ms) |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for mode, metrics in report["mode_metrics"].items():
+        rate = "N/A" if metrics["pass_rate"] is None else f"{metrics['pass_rate'] * 100:.2f}%"
+        lines.append(
+            f"| {mode} | {metrics['passed']} | {metrics['evaluated']} | {metrics['skipped']} | {rate} | {metrics['latency_ms']['p95']} |"
+        )
+    failures = [item for item in report["results"] if item.get("passed") is False]
+    lines.extend(["", "## Failed cases", ""])
+    if not failures:
+        lines.append("No failed evaluated cases.")
+    else:
+        for item in failures:
+            reason = item.get("error") or item.get("status") or ", ".join(item.get("output_errors") or []) or "expectation mismatch"
+            lines.append(f"- `{item['id']}` ({item['mode']}): {reason}")
+    lines.extend([
+        "", "## Metric notes", "",
+        "- Safety and authorization layers are deterministic and must reach 100% before deployment.",
+        "- Live RAG failures caused by unavailable model/embedding infrastructure are reported as failures, not silently skipped.",
+        "- The JSON report contains per-case answers, grounding status, database paths and latency for debugging.",
+    ])
+    MARKDOWN_RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MARKDOWN_RESULTS_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 async def _rag_case(case: dict[str, Any], rag: SafeDrugRAG) -> dict[str, Any]:
     try:
         result = await asyncio.to_thread(rag.query, case["question"])
@@ -297,9 +357,64 @@ async def _rag_case(case: dict[str, Any], rag: SafeDrugRAG) -> dict[str, Any]:
     }
 
 
-async def main(*, skip_live_rag: bool = False) -> None:
+async def _intent_case(case: dict[str, Any]) -> dict[str, Any]:
+    result = await classify_intent_node({"messages": [HumanMessage(content=case["question"])]})
+    analysis = result.get("intent_analysis") or {}
+    expected_topics = set(case.get("expected_topics") or [])
+    actual_topics = set(analysis.get("topics") or [])
+    passed = (
+        result.get("intent") == case["expected_intent"]
+        and (not case.get("expected_reference_type") or analysis.get("reference_type") == case["expected_reference_type"])
+        and expected_topics.issubset(actual_topics)
+        and ("expected_clarification" not in case or bool(analysis.get("needs_clarification")) == case["expected_clarification"])
+    )
+    return {
+        "passed": passed, "intent": result.get("intent"),
+        "reference_type": analysis.get("reference_type"),
+        "topics": sorted(actual_topics),
+        "missing_topics": sorted(expected_topics - actual_topics),
+    }
+
+
+async def _scope_case(case: dict[str, Any]) -> dict[str, Any]:
+    result = await scope_guard_node({"messages": [HumanMessage(content=case["question"])]})
+    blocked = bool(result.get("scope_blocked"))
+    return {
+        "passed": blocked == case["expected_blocked"],
+        "scope_blocked": blocked,
+        "scope_category": result.get("scope_category"),
+    }
+
+
+def _output_case(case: dict[str, Any]) -> dict[str, Any]:
+    errors = validate_patient_output(case["answer"])
+    blocked = bool(errors)
+    return {"passed": blocked == case["expected_blocked"], "output_blocked": blocked, "output_errors": errors}
+
+
+def _memory_case(case: dict[str, Any]) -> dict[str, Any]:
+    first = memory_key(case["patient_id"], case["conversation_id"])
+    second = memory_key(case["other_patient_id"], case["conversation_id"])
+    isolated = first != second and case["patient_id"] in first and case["other_patient_id"] in second
+    return {"passed": isolated == case["expected_isolated"], "isolated": isolated}
+
+
+def _tool_policy_case(case: dict[str, Any]) -> dict[str, Any]:
+    allowed = case["intent"] in WRITE_TOOL_INTENTS.get(case["tool"], set())
+    return {"passed": allowed == case["expected_allowed"], "allowed": allowed}
+
+
+async def main(*, skip_live_rag: bool = False, enable_tracing: bool = False) -> None:
     load_dotenv(ROOT / ".env")
+    removed_proxies = _remove_blackhole_proxy()
+    if removed_proxies:
+        print("INFO removed non-routable local proxy variables: " + ", ".join(removed_proxies))
+    if not enable_tracing:
+        os.environ["LANGCHAIN_TRACING_V2"] = "false"
+        os.environ["LANGSMITH_TRACING"] = "false"
     cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+    if SYSTEM_CASES_PATH.exists():
+        cases.extend(json.loads(SYSTEM_CASES_PATH.read_text(encoding="utf-8")))
     rag = SafeDrugRAG() if any(case["mode"] == "rag" for case in cases) else None
     results = []
 
@@ -331,6 +446,16 @@ async def main(*, skip_live_rag: bool = False) -> None:
                 "passed": emergency == case["expected_emergency"],
                 "emergency": emergency,
             }
+        elif mode == "intent":
+            details = await _intent_case(case)
+        elif mode == "scope_guard":
+            details = await _scope_case(case)
+        elif mode == "output_guard":
+            details = _output_case(case)
+        elif mode == "memory_isolation":
+            details = _memory_case(case)
+        elif mode == "tool_policy":
+            details = _tool_policy_case(case)
         else:
             details = {"passed": False, "error": f"Unknown mode: {mode}"}
 
@@ -367,6 +492,7 @@ async def main(*, skip_live_rag: bool = False) -> None:
     }
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULTS_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_markdown_report(report)
     print(f"TOTAL {report['passed']}/{report['evaluated']} ({report['skipped']} skipped)")
     raise SystemExit(0 if report["passed"] == report["evaluated"] else 1)
 
@@ -378,5 +504,9 @@ if __name__ == "__main__":
         action="store_true",
         help="Evaluate deterministic hybrid paths without calling OpenAI",
     )
+    parser.add_argument(
+        "--enable-tracing", action="store_true",
+        help="Send evaluation traces to LangSmith (disabled by default)",
+    )
     args = parser.parse_args()
-    asyncio.run(main(skip_live_rag=args.skip_live_rag))
+    asyncio.run(main(skip_live_rag=args.skip_live_rag, enable_tracing=args.enable_tracing))

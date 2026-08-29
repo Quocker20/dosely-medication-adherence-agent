@@ -7,11 +7,12 @@ from enum import Enum
 from zoneinfo import ZoneInfo
 
 from fastapi import status
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.audit import log_turn
+from src.agents.conversation_memory import load_working_memory, save_working_memory
 from src.agents.graph import agent
 from src.agents.patient_addressing import get_patient_address
 from src.agents.patient_presentation import patient_facing_text
@@ -35,7 +36,7 @@ from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.grouping import schedule_rows_hmac
 from src.modules.agents.planner import PlanningNeedsReviewError
-from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
@@ -601,15 +602,19 @@ class ChatService:
     transcribe -> agent -> synthesize and never touches AsyncSession.
     """
 
+    def __init__(self, db: AsyncSession | None = None, memory_repository: ChatMemoryRepository | None = None) -> None:
+        self._db = db
+        self._memory = memory_repository
+
     async def handle_text_chat(
-        self, message: str, patient_id: str, client_date=None, client_datetime=None
+        self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
     ) -> ChatResponse:
-        response_text = await self._run_agent(message, patient_id, client_date, client_datetime)
-        return ChatResponse(response=response_text)
+        response_text, conversation_id = await self._run_agent(message, patient_id, client_date, client_datetime, conversation_id)
+        return ChatResponse(response=response_text, conversationId=conversation_id)
 
     async def handle_voice_chat(
         self, audio_bytes: bytes, filename: str, patient_id: str,
-        client_date=None, client_datetime=None,
+        client_date=None, client_datetime=None, conversation_id=None,
     ) -> VoiceChatResponse:
         try:
             transcript = await transcribe_audio(audio_bytes, filename=filename)
@@ -619,7 +624,7 @@ class ChatService:
         if not transcript:
             raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
 
-        response_text = await self._run_agent(transcript, patient_id, client_date, client_datetime)
+        response_text, conversation_id = await self._run_agent(transcript, patient_id, client_date, client_datetime, conversation_id)
 
         audio_base64 = None
         try:
@@ -630,31 +635,64 @@ class ChatService:
             # text answer they already have.
             logger.warning("TTS failed, returning text-only reply")
 
-        return VoiceChatResponse(transcript=transcript, response=response_text, audio_base64=audio_base64)
+        return VoiceChatResponse(transcript=transcript, response=response_text, audio_base64=audio_base64, conversationId=conversation_id)
 
-    @staticmethod
-    async def _run_agent(message: str, patient_id: str, client_date=None, client_datetime=None) -> str:
+    async def _run_agent(self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None) -> tuple[str, uuid.UUID]:
+        persistence_available = self._db is not None and self._memory is not None
+        if self._db is not None and self._memory is not None:
+            try:
+                async with self._db.begin():
+                    conversation = await self._memory.get_or_create(uuid.UUID(str(patient_id)), conversation_id)
+                    history_rows = await self._memory.recent_messages(conversation.id, limit=10)
+            except PermissionError as exc:
+                raise ForbiddenException(message=str(exc)) from exc
+            except Exception:  # memory outage must not make medication chat unavailable
+                logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
+                conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+                history_rows = []
+                persistence_available = False
+        else:  # isolated unit/eval mode; production DI always supplies persistence
+            conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+            history_rows = []
+        working = (
+            await load_working_memory(str(patient_id), str(conversation.id))
+            if persistence_available else {}
+        )
+        history = [
+            HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
+            for row in history_rows
+        ]
         reference_date = client_date or (
             client_datetime.date() if client_datetime is not None else date.today()
         )
         patient_address = await get_patient_address(patient_id, reference_date)
         result = await agent.ainvoke(
             {
-                "messages": [HumanMessage(content=message)],
+                "messages": history + [HumanMessage(content=message)],
                 "patient_id": patient_id,
                 "patient_address": patient_address,
                 "client_date": client_date.isoformat() if client_date else None,
                 "client_datetime": client_datetime.isoformat() if client_datetime else None,
+                "memory_context": working,
             }
         )
         # Sources and citation ids remain available to the grounding/audit
         # pipeline. They are removed exactly once at the API presentation
         # boundary so no ReAct/tool fallback can leak "[Nguồn N]" to patients.
         response_text = patient_facing_text(result["messages"][-1].content)
+        if persistence_available:
+            async with self._db.begin():
+                await self._memory.append_exchange(conversation.id, message, response_text, result.get("intent"))
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        if metadata.get("resolved_medication"):
+            working["current_medication"] = metadata["resolved_medication"]
+        working["last_intent"] = result.get("intent")
+        if persistence_available:
+            await save_working_memory(str(patient_id), str(conversation.id), working)
         log_turn(
             patient_id=patient_id,
             intent=result.get("intent"),
             escalated=bool(result.get("escalated")),
             response_length=len(response_text),
         )
-        return response_text
+        return response_text, conversation.id

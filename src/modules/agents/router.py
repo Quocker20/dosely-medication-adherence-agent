@@ -7,10 +7,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
+from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import reset_actor_token, set_actor_token
-from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import ChatRequest, GenerateScheduleRequest, RescheduleRequest
 from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
@@ -26,9 +27,11 @@ def get_scheduling_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Sche
     )
 
 
-def get_chat_service() -> ChatService:
+def get_chat_service(db: Annotated[AsyncSession, Depends(get_db)]) -> ChatService:
     """Dependency factory providing ChatService instance."""
-    return ChatService()
+    if get_settings().app_env == "test":
+        return ChatService()
+    return ChatService(db, ChatMemoryRepository(db))
 
 
 SchedulingServiceDep = Annotated[SchedulingService, Depends(get_scheduling_service)]
@@ -186,6 +189,7 @@ async def chat(
             patient_id=current_user["sub"],
             client_date=request_body.client_date,
             client_datetime=request_body.client_datetime,
+            conversation_id=request_body.conversation_id,
         )
     finally:
         reset_actor_token(handle)
@@ -206,6 +210,7 @@ async def chat_voice(
     audio: UploadFile = File(...),
     client_date: Optional[date] = Form(None, alias="clientDate"),
     client_datetime: Optional[datetime] = Form(None, alias="clientDateTime"),
+    conversation_id: Optional[uuid.UUID] = Form(None, alias="conversationId"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
     audio_bytes = await audio.read()
@@ -218,6 +223,7 @@ async def chat_voice(
             patient_id=current_user["sub"],
             client_date=client_date,
             client_datetime=client_datetime,
+            conversation_id=conversation_id,
         )
     finally:
         reset_actor_token(handle)
