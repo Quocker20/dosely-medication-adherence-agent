@@ -173,6 +173,10 @@ class Settings(BaseSettings):
     # gently — a daily nudge while MILD is tolerable in a way a daily
     # doctor page is not.
     adherence_review_patient_cooldown_days: int = Field(default=1, ge=1, le=30)
+    # Stage 5 remedy-classification call. On timeout the review still
+    # proceeds with the rule-decided severity/action -- only the cause
+    # explanation degrades to UNCLEAR, never the alert itself.
+    adherence_review_llm_timeout_seconds: int = Field(default=20, ge=1, le=120)
     doctor_id: str = "dr-nguyen-van-a"
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"
