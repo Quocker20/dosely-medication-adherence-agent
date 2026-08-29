@@ -70,6 +70,44 @@ class DashboardRepository:
         )
 
     @staticmethod
+    def _critical_alerts_count_subquery(patient_id_col: ColumnElement):
+        """Correlated COUNT of alerts a doctor must act on now (RED_ALERT
+        severities). Kept separate from _warning_alerts_count_subquery so
+        the roster's ORDER BY can rank truly urgent patients above
+        merely-watched ones. Without this split, the WARNING tier the
+        nightly graded-adherence review introduces
+        (docs/graded-adherence-implementation.md Stage 6) could let warning
+        volume push a genuinely critical patient off page 1 if ordering used
+        only the combined open_alerts_count."""
+        return (
+            select(func.count(Alert.id))
+            .where(
+                Alert.patient_id == patient_id_col,
+                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
+                Alert.severity.in_(("CRITICAL", "HIGH")),
+            )
+            .correlate_except(Alert)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _warning_alerts_count_subquery(patient_id_col: ColumnElement):
+        """Correlated COUNT of alerts worth watching but not paging for
+        (MEDIUM severity — currently only WARNING-type ADHERENCE_REVIEW
+        alerts use this). Ranked below critical_alerts, never instead of it,
+        in the roster ORDER BY."""
+        return (
+            select(func.count(Alert.id))
+            .where(
+                Alert.patient_id == patient_id_col,
+                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
+                Alert.severity == "MEDIUM",
+            )
+            .correlate_except(Alert)
+            .scalar_subquery()
+        )
+
+    @staticmethod
     def _last_survey_date_subquery(patient_id_col: ColumnElement):
         return (
             select(func.max(HealthSurvey.survey_date))
@@ -200,7 +238,14 @@ class DashboardRepository:
         if total_count == 0:
             return [], 0
 
+        # open_alerts (the combined count) is still what the API returns as
+        # open_alerts_count -- unchanged meaning, unchanged response shape.
+        # critical_alerts/warning_alerts exist only to drive ORDER BY: a
+        # patient with one RED_ALERT must sort above one with five WARNINGs,
+        # which a single combined count cannot express.
         open_alerts = self._open_alerts_count_subquery(PatientProfile.user_id)
+        critical_alerts = self._critical_alerts_count_subquery(PatientProfile.user_id)
+        warning_alerts = self._warning_alerts_count_subquery(PatientProfile.user_id)
         stmt = (
             select(
                 PatientProfile.user_id,
@@ -211,7 +256,7 @@ class DashboardRepository:
                 self._last_survey_date_subquery(PatientProfile.user_id),
             )
             .join(User, PatientProfile.user_id == User.id)
-            .order_by(open_alerts.desc(), PatientProfile.created_at.desc())
+            .order_by(critical_alerts.desc(), warning_alerts.desc(), PatientProfile.created_at.desc())
             .offset((page - 1) * size)
             .limit(size)
         )

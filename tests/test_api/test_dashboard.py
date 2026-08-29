@@ -113,14 +113,19 @@ async def _add_doses(patient_id: uuid.UUID, prescription_id: uuid.UUID, statuses
                 )
 
 
-async def _add_alert(patient_id: uuid.UUID, status: str = "OPEN") -> uuid.UUID:
+async def _add_alert(
+    patient_id: uuid.UUID,
+    status: str = "OPEN",
+    alert_type: str = "RED_ALERT",
+    severity: str = "CRITICAL",
+) -> uuid.UUID:
     async with AsyncSessionLocal() as db:
         async with db.begin():
             alert = Alert(
                 patient_id=patient_id,
                 triggered_by_type="SOS_BUTTON",
-                alert_type="RED_ALERT",
-                severity="CRITICAL",
+                alert_type=alert_type,
+                severity=severity,
                 status=status,
                 message="test alert",
                 alert_metadata={},
@@ -348,6 +353,33 @@ async def test_roster_filters_by_adherence_band(client):
 
     assert [row["patient_id"] for row in low.json()["data"]["content"]] == [str(low_id)]
     assert [row["patient_id"] for row in high.json()["data"]["content"]] == [str(high_id)]
+
+
+@pytest.mark.asyncio
+async def test_roster_ranks_one_red_alert_above_five_warnings(client):
+    """Stage 7: introducing the WARNING tier must not let warning volume
+    push a genuinely critical patient off page 1. Ordering is
+    critical_alerts DESC, warning_alerts DESC -- a raw combined count would
+    rank the five-warning patient first."""
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    critical_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân đỏ")
+    warned_id = await _create_patient("0900000019", "Bệnh nhân vàng")
+    await _create_prescription(critical_id, doctor_id)
+    await _create_prescription(warned_id, doctor_id)
+
+    await _add_alert(critical_id, alert_type="RED_ALERT", severity="HIGH")
+    for _ in range(5):
+        await _add_alert(warned_id, alert_type="WARNING", severity="MEDIUM")
+
+    headers = await _login(client, DOCTOR_PHONE)
+    response = await client.get("/api/v1/dashboard/patients", headers=headers)
+
+    rows = response.json()["data"]["content"]
+    assert [row["patient_id"] for row in rows] == [str(critical_id), str(warned_id)]
+    # open_alerts_count keeps its existing combined meaning -- unaffected by
+    # the ordering split.
+    assert rows[0]["open_alerts_count"] == 1
+    assert rows[1]["open_alerts_count"] == 5
 
 
 @pytest.mark.asyncio
