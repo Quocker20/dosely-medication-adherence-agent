@@ -20,21 +20,30 @@ android {
     }
 
     buildTypes {
+        // api.00000216.xyz is an AAAA record proxied through Cloudflare. The VPS
+        // has no public IPv4, so the older remindrx.duckdns.org resolved to AAAA
+        // only and was unreachable from anything IPv4-only — the emulator's QEMU
+        // NAT, Vercel's rewrite proxy, plenty of home networks. Cloudflare's edge
+        // answers on both families and forwards to the origin over IPv6, so every
+        // client can reach it. Only change if the backend itself moves.
         debug {
+            // 10.0.2.2 is how the emulator reaches the host's own localhost, so
+            // this needs `make run` (or the local docker compose stack) up. To
+            // test against production from the emulator, switch the Build Variant
+            // to demo rather than editing this line.
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/api/v1/\"")
         }
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"https://remindrx.duckdns.org/api/v1/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://api.00000216.xyz/api/v1/\"")
         }
         create("demo") {
-            // Debug-signed build pointed at the public VPS backend, for uploading
-            // as a direct-download APK so people can try the app — see
-            // docs/android-app-testing.md. Domain is a DuckDNS record pointed at the
-            // FossVPS; only needs updating here if the VPS itself changes.
+            // Debug-signed build pointed at the public backend, for uploading as a
+            // direct-download APK so people can try the app — this is what the
+            // /try/ download page serves.
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
-            buildConfigField("String", "API_BASE_URL", "\"https://remindrx.duckdns.org/api/v1/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://api.00000216.xyz/api/v1/\"")
         }
     }
 
