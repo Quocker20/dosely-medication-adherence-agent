@@ -57,6 +57,16 @@ def _conversation(state: AgentState, limit: int = 8) -> str:
 
 
 async def semantic_planner_node(state: AgentState) -> dict:
+    # A bare confirmation applies only to a previously staged adverse-event draft.
+    pending = (state.get("memory_context") or {}).get("pending_adverse_event")
+    latest = _conversation(state, limit=1).split(": ", 1)[-1].strip().lower()
+    if pending and latest in {"có", "co", "đúng", "dung", "xác nhận", "xac nhan", "đồng ý", "dong y"}:
+        from src.agents.semantic_plan import SemanticStep
+        step = SemanticStep(tool="record_adverse_event", symptoms=pending.get("symptoms") or [])
+        plan = SemanticPlan(steps=[step], confidence=1.0)
+        return {"semantic_plan": plan.model_dump(), "intent": "report_adverse_event",
+                "intent_analysis": {"intent": "report_adverse_event", "symptoms": pending.get("symptoms") or [], "parser": "confirmation"},
+                "use_legacy_classifier": False}
     try:
         planner = get_llm(temperature=0).with_structured_output(SemanticPlan)
         plan = await planner.ainvoke([
