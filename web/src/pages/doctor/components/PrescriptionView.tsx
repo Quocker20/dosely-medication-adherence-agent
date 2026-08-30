@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, api, waitForAgentRun } from "../../../api";
-import { formatTime, isoDate } from "../../../utils/labels";
+import {
+  agentRunStatusView,
+  doseStatusLabel,
+  formatTime,
+  isoDate,
+  prescriptionStatusView,
+} from "../../../utils/labels";
 import type {
   ActiveSchedule,
   AgentRunStatus,
@@ -26,7 +32,11 @@ const MEAL_RELATIONS: { value: string; label: string }[] = [
   { value: "WITH_MEAL", label: "Trong bữa ăn" },
 ];
 
-const ROUTES = ["ORAL", "INJECTION", "TOPICAL"];
+const ROUTES: { value: string; label: string }[] = [
+  { value: "ORAL", label: "Đường uống" },
+  { value: "INJECTION", label: "Đường tiêm" },
+  { value: "TOPICAL", label: "Dùng ngoài da" },
+];
 
 const SEXES: { value: PatientForm["sex"]; label: string }[] = [
   { value: "MALE", label: "Nam" },
@@ -49,7 +59,7 @@ type LockedFields = Partial<Record<keyof PatientForm, boolean>>;
 function emptyItem(): PrescriptionItemIn {
   return {
     medication_id: "",
-    dose_unit: "viên",
+    dose_unit: "Viên",
     morning_dose: 1,
     noon_dose: null,
     evening_dose: null,
@@ -77,23 +87,35 @@ function doseValue(dose: number | null): string {
 }
 
 /**
- * Gợi ý thao tác theo error_code của agent run.
- *
- * error_code là tên class exception phía backend (src/modules/agents/planner.py),
- * bản thân nó không nói bác sĩ phải sửa gì — bảng này dịch sang việc cần làm.
+ * Gợi ý thao tác thân thiện cho bác sĩ theo mã tình huống hệ thống.
  */
 function errorHint(code: string): string {
   switch (code) {
     case "ScheduleConstraintError":
-      return "Hai cữ của cùng một thuốc gần nhau hơn mức giãn cách tối thiểu. Tăng khoảng cách giữa các bữa trong lịch sinh hoạt bệnh nhân, hoặc giảm/bỏ trống ô “Giãn cách tối thiểu” của thuốc bị nêu ở trên.";
+      return "Hai cữ của cùng một thuốc gần nhau hơn mức giãn cách tối thiểu. Vui lòng tăng khoảng cách giữa các bữa ăn trong lịch sinh hoạt hoặc giảm bớt số phút tại ô “Giãn cách tối thiểu”.";
     case "PlanningNeedsReviewError":
-      return "Dữ liệu đầu vào không đủ chắc để agent tự lập lịch. Kiểm tra lịch sinh hoạt của bệnh nhân và các cữ đã ghi nhận trước đó.";
+      return "Dữ liệu chưa đủ để tự động tạo lịch. Vui lòng kiểm tra lại lịch sinh hoạt của bệnh nhân và các cữ thuốc đã ghi nhận.";
     case "MissingRoutineError":
-      return "Bệnh nhân chưa khai báo giờ ăn/ngủ nên agent không có mốc để neo cữ thuốc. Nhờ bệnh nhân cập nhật lịch sinh hoạt trong app.";
+      return "Bệnh nhân chưa khai báo giờ ăn và giờ ngủ nên hệ thống chưa có mốc thời gian sắp xếp cữ thuốc. Bệnh nhân có thể cập nhật trong ứng dụng.";
     case "InvalidPrescriptionTimingError":
-      return "Một dòng thuốc có liều ≤ 0, không có cữ nào, hoặc “Giãn cách tối thiểu” nhập số ≤ 0. Muốn không ràng buộc giãn cách thì để trống ô đó thay vì điền 0.";
+      return "Một dòng thuốc có liều lượng hoặc thời gian chưa phù hợp. Vui lòng kiểm tra lại liều và thời gian bắt đầu/kết thúc.";
     default:
-      return "Xem thông báo phía trên để biết chi tiết; sửa đơn hoặc lịch sinh hoạt rồi chạy lại.";
+      return "Vui lòng kiểm tra lại thông tin đơn thuốc hoặc lịch sinh hoạt rồi thực hiện lại.";
+  }
+}
+
+function errorCodeTitle(code: string): string {
+  switch (code) {
+    case "ScheduleConstraintError":
+      return "Khoảng cách cữ thuốc chưa phù hợp";
+    case "PlanningNeedsReviewError":
+      return "Cần kiểm tra lại thông tin";
+    case "MissingRoutineError":
+      return "Chưa có lịch sinh hoạt";
+    case "InvalidPrescriptionTimingError":
+      return "Thông số thời gian hoặc liều chưa hợp lệ";
+    default:
+      return "Cần điều chỉnh thông tin";
   }
 }
 
@@ -263,14 +285,14 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
 
       if (run.status === "COMPLETED") {
         setSchedule(await api.schedule(approved.patient_id, isoDate(new Date())));
-        onToast(`Đơn đã duyệt · Planning Agent sinh ${run.generated_dose_count ?? 0} cữ`);
+        onToast(`Đơn đã duyệt · Hệ thống đã tạo ${run.generated_dose_count ?? 0} cữ nhắc`);
       } else {
-        onToast(`Đơn đã duyệt — agent trả trạng thái ${run.status}, lịch chưa kích hoạt`);
+        onToast(`Đơn đã duyệt — trạng thái: ${agentRunStatusView(run.status).label}, lịch chưa kích hoạt`);
       }
     } catch (error) {
       if (error instanceof ApiError) {
         setErrorDetails(error.details.length > 0 ? error.details : [error.message]);
-        onToast("Chưa duyệt được — kiểm tra lỗi bên dưới form");
+        onToast("Chưa duyệt được — kiểm tra thông tin bên dưới form");
       } else {
         onToast(error instanceof Error ? error.message : "Lỗi không xác định");
       }
@@ -280,45 +302,43 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
   }
 
   /**
-   * Chạy lại Planning Agent trên đơn đã duyệt, không tạo đơn mới.
-   *
-   * Đơn APPROVED bị đóng băng theo HITL nên không sửa được ở đây — nút này dành
-   * cho trường hợp nguyên nhân nằm ngoài đơn (lịch sinh hoạt bệnh nhân vừa được
-   * cập nhật), sửa xong thì chạy lại là ra lịch.
+   * Tính lại lịch nhắc trên đơn đã duyệt, không tạo đơn mới.
    */
   async function retryScheduling() {
     if (!prescription) return;
     setBusy(true);
     try {
-      const dispatched = await api.generateSchedule(prescription.patient_id, "Bác sĩ chạy lại sau khi xem lỗi");
+      const dispatched = await api.generateSchedule(prescription.patient_id, "Bác sĩ yêu cầu tính lại lịch nhắc");
       const run = await waitForAgentRun(dispatched.agent_run_id);
       setAgentRun(run);
       if (run.status === "COMPLETED") {
         setSchedule(await api.schedule(prescription.patient_id, isoDate(new Date())));
-        onToast(`Đã sinh lịch · ${run.generated_dose_count ?? 0} cữ`);
+        onToast(`Đã cập nhật lịch nhắc · ${run.generated_dose_count ?? 0} cữ`);
       } else {
-        onToast(`Agent vẫn dừng ở trạng thái ${run.status}`);
+        onToast(`Hệ thống vẫn ở trạng thái: ${agentRunStatusView(run.status).label}`);
       }
     } catch (error) {
-      onToast(error instanceof ApiError ? error.message : "Không chạy lại được agent");
+      onToast(error instanceof ApiError ? error.message : "Không tính lại được lịch nhắc");
     } finally {
       setBusy(false);
     }
   }
 
-  const agentTone = agentRun?.status === "COMPLETED" ? "ok" : agentRun?.status === "FAILED" ? "crit" : "warn";
+  const rxStatus = prescriptionStatusView(prescription?.status);
+  const agentStatus = agentRunStatusView(agentRun?.status);
+  const agentTone = agentStatus.tone || "warn";
 
   return (
     <section className="view">
-      <GuardBanner title="HITL bắt buộc — bác sĩ là người duyệt cuối cùng">
+      <GuardBanner title="Nguyên tắc an toàn y tế khi kê đơn">
         <li>
-          Chỉ bác sĩ nhập và duyệt đơn. AI <b>không kê đơn, không đổi liều, không khuyên ngưng thuốc</b>.
+          Chỉ bác sĩ có thẩm quyền nhập và duyệt đơn. Hệ thống AI <b>không tự kê đơn, không đổi liều, không chỉ định ngưng thuốc</b>.
         </li>
         <li>
-          Đơn ở trạng thái <b>DRAFT</b> không sinh lịch nhắc. Chỉ khi <b>APPROVED</b> Planning Agent mới chạy.
+          Lịch nhắc uống thuốc chỉ được tự động kích hoạt sau khi đơn thuốc <b>đã được bác sĩ phê duyệt</b>.
         </li>
         <li>
-          Tên thuốc hiển thị do server tự chốt từ danh mục (<b>display_name</b>) — client không tự đặt được.
+          Tên thuốc và hàm lượng được chuẩn hóa trực tiếp từ danh mục dược để đảm bảo an toàn điều trị.
         </li>
       </GuardBanner>
 
@@ -327,9 +347,9 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
           <div className="card-head">
             <h2>Nhập đơn thuốc điện tử</h2>
             <div className="spacer" />
-            <span className={`pill ${prescription ? "ok" : ""}`}>
+            <span className={`pill ${rxStatus.tone}`}>
               <span className="dot" />
-              {prescription ? `${prescription.status} · ${prescription.id.slice(0, 8)}` : "Nháp · chờ duyệt"}
+              {rxStatus.label}
             </span>
           </div>
 
@@ -461,8 +481,8 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                       Đường dùng
                       <select value={item.route} onChange={(event) => patchItem(index, { route: event.target.value })}>
                         {ROUTES.map((route) => (
-                          <option key={route} value={route}>
-                            {route}
+                          <option key={route.value} value={route.value}>
+                            {route.label}
                           </option>
                         ))}
                       </select>
@@ -531,7 +551,6 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                         type="number"
                         min={1}
                         step={15}
-                        placeholder="để trống nếu không ràng buộc"
                         value={item.minimum_interval_minutes ?? ""}
                         onChange={(event) =>
                           patchItem(index, {
@@ -567,16 +586,34 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                       />
                     </label>
 
-                    <label className="wide" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <label
+                      className="wide"
+                      style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        cursor: "pointer",
+                        userSelect: "none",
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={item.is_critical}
                         onChange={(event) => patchItem(index, { is_critical: event.target.checked })}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          minWidth: 18,
+                          minHeight: 18,
+                          cursor: "pointer",
+                          accentColor: "var(--accent)",
+                        }}
                       />
-                      Thuốc nguy hiểm / quan trọng
+                      <span>THUỐC NGUY HIỂM / QUAN TRỌNG</span>
                     </label>
                     <small className="wide" style={{ color: "var(--text-2)", marginTop: -4 }}>
-                      Đánh dấu thuốc này để hệ thống chỉ báo động khi bệnh nhân bỏ lỡ 3 liều liên tiếp của riêng thuốc này.
+                      Đánh dấu thuốc quan trọng để hệ thống gửi cảnh báo ngay nếu bệnh nhân bỏ uống thuốc này liên tiếp.
                     </small>
                   </div>
                 </div>
@@ -594,7 +631,7 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
 
             {errorDetails.length > 0 && (
               <div className="errors">
-                <b>Backend chặn duyệt — {errorDetails.length} lỗi cần sửa</b>
+                <b>Thông tin chưa hợp lệ — vui lòng kiểm tra {errorDetails.length} điểm cần sửa:</b>
                 <ul>
                   {errorDetails.map((message, index) => (
                     <li key={index}>{message}</li>
@@ -626,49 +663,40 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="card">
             <div className="card-head">
-              <h2>Lịch nhắc do Planning Agent sinh</h2>
+              <h2>Lịch nhắc do hệ thống sinh</h2>
               <div className="spacer" />
-              <span className={`pill mono ${agentRun ? agentTone : ""}`}>
-                AGENT · {agentRun?.status ?? "chưa chạy"}
+              <span className={`pill mono ${agentStatus.tone}`}>
+                Trạng thái · {agentStatus.label}
               </span>
             </div>
 
             <div className="card-body">
               {!agentRun && (
                 <p className="empty">
-                  Duyệt đơn để Planning Agent tính khung giờ nhắc.
+                  Vui lòng duyệt đơn để hệ thống tự động lập lịch nhắc uống thuốc cho bệnh nhân.
                   <br />
-                  Không có đơn APPROVED thì không có lịch — đúng theo guardrail.
+                  Lịch nhắc chỉ được kích hoạt sau khi đơn thuốc đã được bác sĩ phê duyệt.
                 </p>
               )}
 
               {agentRun && (
                 <>
                   <div className="agent-run">
-                    <span>{agentRun.agent_type} ·</span>
-                    <span className="num">{agentRun.id.slice(0, 8)}</span>
-                    <span>· RUNNING →</span>
-                    <b style={{ color: `var(--${agentTone})` }}>{agentRun.status}</b>
-                    {agentRun.latency_ms !== null && (
-                      <>
-                        <span>·</span>
-                        <span className="num">{agentRun.latency_ms} ms</span>
-                      </>
-                    )}
+                    <b style={{ color: `var(--${agentTone})` }}>{agentStatus.label}</b>
                   </div>
 
                   {agentRun.error_code && (
                     <div className="review-box">
                       <b>
-                        {agentRun.status === "NEEDS_REVIEW" ? "Cần bác sĩ xem lại" : "Agent dừng lại"} —{" "}
-                        <span className="mono">{agentRun.error_code}</span>
+                        {agentRun.status === "NEEDS_REVIEW" ? "Cần bác sĩ xem lại" : "Chưa thể lập lịch tự động"} —{" "}
+                        <span>{errorCodeTitle(agentRun.error_code)}</span>
                       </b>
                       {agentRun.error_message && <p className="agent-error-message">{agentRun.error_message}</p>}
                       <p>{errorHint(agentRun.error_code)}</p>
-                      <p>Lịch cũ giữ nguyên — agent không tự đoán giờ thay bác sĩ.</p>
+                      <p>Lịch cũ giữ nguyên — hệ thống không tự đoán giờ thay bác sĩ.</p>
                       <div className="row-actions">
                         <button className="btn sm" onClick={retryScheduling} disabled={busy || !prescription}>
-                          {busy ? "Đang chạy…" : "↻ Chạy lại Planning Agent"}
+                          {busy ? "Đang chạy…" : "↻ Tính lại lịch nhắc"}
                         </button>
                       </div>
                     </div>
@@ -682,7 +710,7 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                           <div className="tl-items">
                             <div className="tl-dose">
                               <b>{dose.medication_name}</b>
-                              <span>{dose.status}</span>
+                              <span>{doseStatusLabel(dose.status)}</span>
                             </div>
                           </div>
                         </div>
@@ -691,27 +719,17 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
                   )}
 
                   {schedule && schedule.doses.length === 0 && (
-                    <p className="empty">Chưa có cữ nào trong hôm nay — lịch có thể bắt đầu từ ngày sau.</p>
+                    <p className="empty">Chưa có cữ thuốc nào trong hôm nay — lịch uống có thể bắt đầu từ ngày tiếp theo.</p>
                   )}
 
                   <p className="rail-note">
-                    Agent chỉ sinh khung giờ. Liều, số cữ, số ngày lấy nguyên từ đơn bác sĩ đã duyệt.
+                    Hệ thống chỉ tự động sắp xếp khung giờ nhắc uống thuốc. Liều dùng, số cữ và thời gian điều trị được tuân thủ chính xác theo đơn bác sĩ đã duyệt.
                   </p>
                 </>
               )}
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-head">
-              <h2>Đơn đã duyệt (JSON)</h2>
-              <div className="spacer" />
-              <span className="pill mono">POST /prescriptions/{"{id}"}/approve</span>
-            </div>
-            <div className="card-body">
-              <pre>{prescription ? JSON.stringify(prescription, null, 2) : "// Chưa có đơn được duyệt."}</pre>
-            </div>
-          </div>
         </div>
       </div>
     </section>
