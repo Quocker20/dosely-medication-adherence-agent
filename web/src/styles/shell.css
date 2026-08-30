@@ -1229,13 +1229,11 @@ tr.sev-red .who .avatar {
   font-size: 21px;
 }
 .survey-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.82fr);
-  gap: 16px;
-  align-items: start;
+  display: block;
+  width: 100%;
 }
-.survey-list-card,
-.survey-detail-card {
+.survey-list-card {
+  width: 100%;
   min-width: 0;
 }
 .survey-controls {
@@ -1247,15 +1245,76 @@ tr.sev-red .who .avatar {
 .survey-mode {
   align-self: end;
 }
-.survey-patient-search,
-.survey-patient-select {
-  min-width: 0;
+.survey-patient-picker {
+  grid-column: 1 / -1;
+  position: relative;
+  margin-top: 4px;
 }
-.survey-patient-search {
-  grid-column: span 2;
+.survey-patient-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
-.survey-patient-select {
-  grid-column: span 2;
+.survey-patient-input-wrap input {
+  width: 100%;
+  padding-right: 32px;
+}
+.survey-patient-clear-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 14px;
+  border-radius: 4px;
+}
+.survey-patient-clear-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.survey-patient-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 35;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.survey-patient-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.survey-patient-item:hover,
+.survey-patient-item.is-selected {
+  background: var(--surface-2);
+}
+.survey-patient-item .who-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.survey-patient-item .who-meta {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.survey-patient-empty {
+  padding: 12px 14px;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
 }
 .survey-table {
   min-width: 900px;
@@ -1311,11 +1370,98 @@ tr.sev-red .who .avatar {
   overflow-wrap: anywhere;
 }
 @media (max-width: 1180px) {
-  .survey-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .survey-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- survey detail popup modal ---------- */
+.survey-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 20, 18, 0.48);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: surveyModalFadeIn 0.15s ease-out;
+}
+.survey-modal-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: min(580px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  animation: surveyModalPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.survey-modal-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+}
+.survey-modal-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+.survey-modal-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.survey-modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.survey-modal-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.survey-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@keyframes surveyModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes surveyModalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
