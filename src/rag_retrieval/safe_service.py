@@ -119,11 +119,10 @@ class SafeDrugRAG:
                 grounding_errors=[],
                 sources=[],
             )
-        using_context = bool(
-            not resolved_drug[0]
-            and context_drug
-            and is_contextual_drug_reference(question)
-        )
+        # An upstream catalog->ingredient resolution is authoritative even
+        # when the question contains an explicit brand name. Brand names do
+        # not necessarily exist as formulary headings.
+        using_context = bool(context_drug)
         if using_context:
             resolved_drug = context_drug
         recognized_drug = bool(resolved_drug[0])

@@ -46,6 +46,7 @@ class AgentState(TypedDict, total=False):
     # Result of SafeDrugRAG's citation and factual-grounding validation.
     grounding_valid: bool
     grounding_errors: list[str]
+    rag_sources: list[dict]
     error: str
     metadata: dict
     memory_context: dict
