@@ -14,6 +14,7 @@ class AgentState(TypedDict, total=False):
     """
 
     messages: Annotated[list[BaseMessage], add_messages]
+    conversation_id: str | None
     # De-identified theo cong_viec.md §4.5: truyền patient_id, không truyền
     # họ tên/SĐT/địa chỉ vào state hay prompt.
     patient_id: str
@@ -37,6 +38,10 @@ class AgentState(TypedDict, total=False):
     # rescheduling_node hay agent_node bình thường. Cũng dùng cho audit log.
     intent: str
     intent_analysis: dict
+    semantic_plan: dict
+    semantic_plan_valid: bool
+    use_legacy_classifier: bool
+    plan_errors: list[str]
     # Result of SafeDrugRAG's citation and factual-grounding validation.
     grounding_valid: bool
     grounding_errors: list[str]

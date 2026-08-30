@@ -9,6 +9,19 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Suspected adverse events captured from patient chat. */
+.adverse-events-card { margin: 18px 0; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.adverse-events-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.adverse-events-head h2 { margin: 0; font-size: 16px; }
+.adverse-events-head p { margin: 4px 0 0; color: var(--text-2); font-size: 12px; }
+.adverse-events-table td { vertical-align: top; min-width: 110px; }
+.adverse-events-table td:nth-child(2), .adverse-events-table td:nth-child(6) { min-width: 220px; }
+.adverse-raw { display: block; margin-top: 5px; color: var(--text-2); line-height: 1.35; }
+.adverse-medication-heading { display: block; margin-top: 9px; }
+.adverse-review { display: grid; gap: 6px; }
+.adverse-review select, .adverse-review input { min-width: 180px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); }
+.link-button { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; font-weight: 700; cursor: pointer; text-align: left; }
+
 h1,
 h2,
 h3 {

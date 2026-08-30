@@ -6,12 +6,19 @@ medication stored in conversation working memory.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from src.modules.planning.core.backend_client import BackendAPIError, get
+
+
+_EXPLICIT_TIME = re.compile(
+    r"\b(?P<hour>[01]?\d|2[0-3])\s*(?::|h|giờ)\s*(?P<minute>[0-5]\d)?\b",
+    re.IGNORECASE,
+)
 
 
 class ResolutionStatus(StrEnum):
@@ -58,9 +65,27 @@ def _deduplicate(items: list[dict]) -> list[dict]:
     return list(unique.values())
 
 
+def _explicit_time_from_messages(state: dict) -> str | None:
+    """Read an explicit clock time from the user's text, independent of LLM intent."""
+    for message in reversed(state.get("messages") or []):
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        match = _EXPLICIT_TIME.search(str(content or ""))
+        if match:
+            return f"{int(match.group('hour')):02d}:{int(match.group('minute') or 0):02d}"
+    return None
+
+
 async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
     analysis = state.get("intent_analysis") or {}
     ref_type = str(analysis.get("reference_type") or "none")
+    explicit_time = _explicit_time_from_messages(state)
+    # An explicit clock value is stronger evidence than a semantic label such
+    # as "morning".  This also makes equivalent phrasings ("thuốc 7h", "thuốc
+    # cữ 7h", "thuốc ở cữ 7 giờ") resolve identically.
+    if explicit_time:
+        ref_type = "schedule_time"
     patient_id = state.get("patient_id")
     client_date = state.get("client_date")
     if not patient_id:
@@ -88,7 +113,7 @@ async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
     meds = list((current or {}).get("medications") or [])
 
     if ref_type == "schedule_time":
-        value = analysis.get("schedule_time")
+        value = explicit_time or analysis.get("schedule_time")
         try:
             hour, minute = (int(part) for part in str(value).split(":", 1))
         except (TypeError, ValueError):

@@ -88,6 +88,7 @@ export const ALERT_TRIGGER: Record<AlertTriggeredBy, string> = {
   SEVERE_SYMPTOM: "Triệu chứng nặng",
   MISSED_DOSES: "Chuỗi bỏ liều",
   ADHERENCE_REVIEW: "Đánh giá tuân thủ hàng đêm",
+  ADVERSE_EVENT: "Triệu chứng nghi ngờ từ chat",
 };
 
 export const ALERT_TYPE: Record<string, string> = {

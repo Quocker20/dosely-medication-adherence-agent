@@ -40,6 +40,10 @@ celery_app.conf.update(
             "task": "adherence_review.scan",
             "schedule": crontab(hour=settings.adherence_review_run_hour, minute=0),
         },
+        "summarize-daily-adverse-events": {
+            "task": "agents.summarize_daily_adverse_events",
+            "schedule": crontab(hour=22, minute=0),
+        },
     },
 )
 

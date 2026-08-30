@@ -11,9 +11,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.patient_presentation import patient_facing_text
+from src.agents.medication_mapping import resolve_catalog_medication
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
+from src.rag_retrieval.service import DrugRAG
 
 _TIME = re.compile(r"\b(?P<hour>[01]?\d|2[0-3])\s*(?::|h)\s*(?P<minute>[0-5]\d)?\b", re.IGNORECASE)
 _MEAL = {
@@ -26,6 +28,11 @@ _MEAL = {
 @lru_cache(maxsize=1)
 def _rag() -> SafeDrugRAG:
     return SafeDrugRAG()
+
+
+@lru_cache(maxsize=1)
+def _identity_rag() -> DrugRAG:
+    return DrugRAG(client=object())  # type: ignore[arg-type]
 
 
 def _question(state: AgentState) -> str:
@@ -65,6 +72,41 @@ def _lookup_exact_drug(display_name: str, question: str) -> tuple[str, bool]:
     if result.status != "answered" or not result.grounding_valid:
         return "Không tìm thấy thông tin Dược Thư phù hợp cho thuốc này.", False
     return patient_facing_text(result.answer).strip(), True
+
+
+async def lookup_prescribed_drug_information(medication: dict, question: str) -> tuple[str, bool]:
+    """Resolve a catalog brand to its composition before consulting the formulary."""
+    display_name = str(medication.get("medication_name") or medication.get("display_name") or "").strip()
+    medication_id = str(medication.get("medication_id") or "").strip()
+    catalog: dict = {}
+    if medication_id:
+        try:
+            catalog = await get(f"/medications/{medication_id}") or {}
+        except BackendAPIError:
+            catalog = {}
+    composition = str(catalog.get("composition") or "").strip()
+    lookup_name = display_name
+    if composition:
+        identities = resolve_catalog_medication(display_name, composition, _identity_rag())
+        # A single active ingredient can safely bridge many commercial names
+        # to one reviewed formulary heading. Combination products retain the
+        # full composition so we do not silently answer for only one component.
+        lookup_name = identities[0].formulary_name if len(identities) == 1 else composition
+    information, grounded = await asyncio.to_thread(_lookup_exact_drug, lookup_name, question)
+    if grounded:
+        return information, True
+    if catalog:
+        lines = [f"Thông tin từ danh mục thuốc về {display_name}"]
+        if composition:
+            lines.append(f"- Hoạt chất/thành phần: {composition}")
+        if catalog.get("uses"):
+            lines.append(f"- Công dụng: {catalog['uses']}")
+        if catalog.get("side_effects"):
+            lines.append(f"- Tác dụng phụ: {catalog['side_effects']}")
+        lines.append(f"- Nguồn danh mục: {catalog.get('source_name') or 'chưa rõ'}")
+        lines.append("Dược thư chưa có chuyên luận khớp; không tự suy diễn thêm ngoài dữ liệu danh mục.")
+        return "\n".join(lines), True
+    return information, False
 
 
 async def scheduled_drug_info_node(state: AgentState) -> dict:
@@ -115,7 +157,7 @@ async def scheduled_drug_info_node(state: AgentState) -> dict:
         else "Chỉ dẫn trong lịch chưa ghi rõ dùng trước, sau hay cùng bữa ăn."
     )
     try:
-        information, grounded = await asyncio.to_thread(_lookup_exact_drug, name, _question(state))
+        information, grounded = await lookup_prescribed_drug_information(dose, _question(state))
     except Exception:
         information, grounded = "Hiện không thể kết nối tới Dược Thư.", False
 

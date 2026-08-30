@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from langchain_core.messages import HumanMessage
 
 from src.agents import prescribed_drug_resolver as resolver
 
@@ -80,3 +81,31 @@ async def test_prescription_ordinal_uses_current_authenticated_prescription(monk
     backend.assert_awaited_once_with(
         "/patients/me/medications/current", params={"as_of": "2026-08-29"}
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question", [
+    "thuốc 7h sáng có tác dụng gì?",
+    "thuốc cữ 7h sáng có tác dụng gì?",
+    "thuốc ở cữ 7 giờ sáng có tác dụng gì?",
+    "thuốc lúc 07:00 có tác dụng gì?",
+])
+async def test_explicit_clock_time_overrides_phrase_sensitive_llm_reference(monkeypatch, question):
+    backend = AsyncMock(return_value={
+        "timezone": "Asia/Bangkok",
+        "doses": [{
+            "medication_id": "m1",
+            "medication_name": "Morning Drug",
+            "dose_slot": "",
+            "current_scheduled_at": "2026-08-29T07:00:00+07:00",
+        }],
+    })
+    monkeypatch.setattr(resolver, "get", backend)
+    state = _state("dose_period", dose_period="morning")
+    state["messages"] = [HumanMessage(content=question)]
+
+    result = await resolver.resolve_prescribed_drug(state)
+
+    assert result.status == resolver.ResolutionStatus.RESOLVED_ONE
+    assert result.reference_type == "schedule_time"
+    assert result.reference_value == "07:00"
