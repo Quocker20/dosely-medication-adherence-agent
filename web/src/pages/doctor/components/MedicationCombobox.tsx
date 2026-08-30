@@ -142,7 +142,7 @@ export default function MedicationCombobox({
   useEffect(() => {
     if (activeIndex >= 0 && listRef.current) {
       const activeEl = listRef.current.children[activeIndex] as HTMLElement;
-      if (activeEl) {
+      if (activeEl && typeof activeEl.scrollIntoView === "function") {
         activeEl.scrollIntoView({ block: "nearest" });
       }
     }
