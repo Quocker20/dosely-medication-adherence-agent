@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pydantic import BaseModel, Field
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -43,6 +44,14 @@ _FIXED_SAFE_REPLY = (
     "Nếu đang trong tình huống khẩn cấp, hãy gọi cấp cứu 115 ngay."
 )
 
+_SEMANTIC_EMERGENCY_PROMPT = """Bạn là bộ phân loại cấp cứu y tế. Trả về urgent, confidence và reason theo schema.
+CO chỉ khi người bệnh đang mô tả dấu hiệu nguy hiểm cần xử trí ngay: khó thở, ngất, co giật,
+đau ngực dữ dội, sưng môi/lưỡi/họng, nôn ra máu, chảy máu không cầm, ý định tự sát,
+uống quá liều hoặc triệu chứng tăng nhanh/nghiêm trọng.
+KHONG với câu hỏi kiến thức, giả định, hoặc triệu chứng đơn lẻ chưa có dấu hiệu nặng như đau bụng,
+buồn nôn, chóng mặt, đau đầu, ngứa, khô miệng, mệt, bầm tím. Không chẩn đoán.
+Tin nhắn: {text}"""
+
 _MEDICATION_POLICY_REPLY = (
     "Mình chỉ hỗ trợ tra cứu thông tin về một thuốc hoặc hoạt chất cụ thể, "
     "không thể lựa chọn, kê hoặc gợi ý thuốc điều trị cho bạn. Bạn vui lòng "
@@ -58,17 +67,40 @@ class SafetyVerdict:
     fixed_reply: str | None = None
 
 
+class EmergencyAssessment(BaseModel):
+    urgent: bool
+    confidence: float = Field(ge=0, le=1)
+    reason: str
+
+
 async def _classify_with_llm(text: str) -> bool:
     try:
-        llm = get_llm(temperature=0)
-        response = await asyncio.wait_for(
-            llm.ainvoke([SystemMessage(content=_CLASSIFY_PROMPT.format(text=text))]),
+        llm = get_llm(temperature=0).with_structured_output(EmergencyAssessment)
+        assessment = await asyncio.wait_for(
+            llm.ainvoke([SystemMessage(content=_SEMANTIC_EMERGENCY_PROMPT.format(text=text))]),
             timeout=_LLM_TIMEOUT_SECONDS,
         )
-        verdict = str(response.content).strip().upper()
     except Exception:  # noqa: BLE001 — Lớp 2 lỗi/timeout thì bỏ qua, không chặn luồng
         return False
-    return verdict.startswith("CO")
+    if not (assessment.urgent and assessment.confidence >= 0.9):
+        return False
+    # LLM-only escalation requires an independent verification pass. Explicit
+    # deterministic emergency rules above still trigger immediately.
+    verify_prompt = (
+        "Xác minh nghiêm ngặt một cảnh báo cấp cứu. Triệu chứng nhẹ đơn lẻ như chóng mặt, "
+        "buồn nôn, đau đầu, đau bụng, ngứa hoặc mệt không phải cấp cứu nếu không có dấu hiệu "
+        "nặng đi kèm. Trả về urgent=true chỉ khi tin nhắn thể hiện nguy hiểm tức thời.\n"
+        f"Tin nhắn: {text}\nKết luận lần một: {assessment.model_dump()}"
+    )
+    try:
+        verifier = get_llm(temperature=0).with_structured_output(EmergencyAssessment)
+        verified = await asyncio.wait_for(
+            verifier.ainvoke([SystemMessage(content=verify_prompt)]),
+            timeout=_LLM_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return False
+    return bool(verified.urgent and verified.confidence >= 0.9)
 
 
 async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
@@ -87,14 +119,9 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
         )
         return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
 
-    medication_reason = match_medication_decision(text)
-    if medication_reason:
-        return SafetyVerdict(
-            escalated=False,
-            blocked=True,
-            reason=f"MEDICATION_POLICY: {medication_reason}",
-            fixed_reply=_MEDICATION_POLICY_REPLY,
-        )
+    # Medication intent is interpreted by the structured semantic planner and
+    # validated by plan_guard. Blocking here by phrases misclassifies valid
+    # knowledge questions such as "thuốc X để làm gì?".
 
     if await _classify_with_llm(text):
         reason = "SEVERE_SYMPTOM: llm_classified"
