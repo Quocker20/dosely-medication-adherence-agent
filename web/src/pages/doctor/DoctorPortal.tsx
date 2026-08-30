@@ -20,7 +20,7 @@ export type ViewName = "dashboard" | "patients" | "alerts" | "surveys" | "rx";
 const TITLES: Record<ViewName, [string, string]> = {
   dashboard: ["Dashboard", "Tổng quan tuân thủ điều trị theo thời gian thực"],
   patients: ["Danh sách bệnh nhân", "Tìm kiếm và theo dõi bệnh nhân đang điều trị"],
-  alerts: ["Cảnh báo khẩn", "Closed-loop Red Alert · chỉ bác sĩ được đóng cảnh báo"],
+  alerts: ["Cảnh báo khẩn", "Quy trình xử lý khép kín · chỉ bác sĩ được xác nhận đóng cảnh báo"],
   surveys: ["Khảo sát sức khỏe", "Theo dõi khảo sát theo từng bệnh nhân hoặc tổng hợp"],
   rx: ["Kê đơn thuốc điện tử", "Đơn phải được bác sĩ duyệt trước khi sinh lịch nhắc"],
 };
