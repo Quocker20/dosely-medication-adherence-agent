@@ -77,6 +77,15 @@ down_revision = ("0019_user_need_onboarding", "0016_seed_medications")
 
 Empty `upgrade()`/`downgrade()`. Verify with `alembic heads` → exactly one.
 
+> **Superseded on 29/08/2026.** The chatbot work landed `0020_chat_memory`
+> independently, merging the same two parents, so once both branches reached
+> `main` the tree had two heads again (`0020_chat_memory` and
+> `0024_dose_window_scan_idx`). `0025_merge_chat_adherence` rejoins them —
+> that, not `0020_merge_heads`, is what makes `alembic heads` return one today.
+> Two teams merging the same pair in parallel is the failure mode to watch for:
+> check `alembic heads` right after every rebase onto `main`, not just after
+> writing a migration.
+
 ### 1.2 · `0021_prescription_item_is_critical`
 
 ```sql
@@ -259,9 +268,11 @@ In `src/modules/agents/service.py`:
 - **Keep** `mark_overdue_pending_as_missed` (line 512) at its 15-minute
   cadence, untouched. Without it doses sit `PENDING` forever, and
   `apply_dose_action_cas` — which only guards `status='PENDING' AND
-  current_scheduled_at <= now()` — would let a patient mark a three-week-old
-  dose as `TAKEN`. That is silent retroactive-adherence corruption, not a
-  cosmetic issue.
+  current_scheduled_at <= now() + 20 minutes` (the 20-minute
+  `_EARLY_ACTION_GRACE_MINUTES` window absorbs client clock drift and the
+  patient app's own early-unlock UI, not old doses) — would let a patient
+  mark a three-week-old dose as `TAKEN`. That is silent retroactive-adherence
+  corruption, not a cosmetic issue.
 - **Narrow** the streak block (lines 516–552) to critical doses only.
 
 Add to `ScheduledDoseRepository`:
