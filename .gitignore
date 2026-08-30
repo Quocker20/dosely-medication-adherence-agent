@@ -106,5 +106,16 @@ test_fcm_now.py
 
 # Firebase service account credentials — never commit
 firebase-adminsdk.json
+
+# Android release signing — never commit. The keystore is unrecoverable: lose it
+# and no future build can update an already-installed app, because Android only
+# accepts an update signed by the same certificate.
+android/keystore.properties
+*.jks
+*.keystore
+
+# Android Studio's signed-APK wizard writes here, outside build/, so the
+# "build/" rule above does not cover it.
+android/app/release/
 .vercel
 .env*
