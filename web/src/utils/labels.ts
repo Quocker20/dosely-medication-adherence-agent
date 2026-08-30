@@ -3,10 +3,25 @@ import type {
   AlertSeverity,
   AlertStatus,
   AlertTriggeredBy,
+  PrescriptionStatus,
   RemedyClass,
 } from "../types";
 
 type Tone = "crit" | "warn" | "ok";
+
+/** prescriptions.status — khớp (DRAFT | APPROVED | CANCELLED). */
+export const PRESCRIPTION_STATUS: Record<PrescriptionStatus, { label: string; tone: Tone }> = {
+  DRAFT: { label: "Nháp · Chờ duyệt", tone: "warn" },
+  APPROVED: { label: "Đã duyệt", tone: "ok" },
+  CANCELLED: { label: "Đã hủy", tone: "crit" },
+};
+
+export function prescriptionStatusView(
+  status: PrescriptionStatus | string | null | undefined,
+): { label: string; tone: Tone | "" } {
+  if (!status) return { label: "Nháp · Chờ duyệt", tone: "" };
+  return PRESCRIPTION_STATUS[status as PrescriptionStatus] ?? { label: status, tone: "warn" };
+}
 
 /** alerts.status — khớp ck_alerts_status (OPEN | ACKNOWLEDGED | RESOLVED). */
 export const ALERT_STATUS: Record<AlertStatus, { label: string; tone: Tone }> = {
@@ -14,6 +29,34 @@ export const ALERT_STATUS: Record<AlertStatus, { label: string; tone: Tone }> = 
   ACKNOWLEDGED: { label: "Đã tiếp nhận", tone: "warn" },
   RESOLVED: { label: "Đã xử lý", tone: "ok" },
 };
+
+/** agent_runs.status — khớp ck_agent_runs_status (RUNNING | COMPLETED | FAILED | NEEDS_REVIEW). */
+export const AGENT_RUN_STATUS: Record<string, { label: string; tone: Tone }> = {
+  COMPLETED: { label: "Hoàn thành", tone: "ok" },
+  RUNNING: { label: "Đang xử lý", tone: "warn" },
+  FAILED: { label: "Thất bại", tone: "crit" },
+  NEEDS_REVIEW: { label: "Cần xem lại", tone: "warn" },
+};
+
+export function agentRunStatusView(status: string | null | undefined): { label: string; tone: Tone | "" } {
+  if (!status) return { label: "Chưa chạy", tone: "" };
+  return AGENT_RUN_STATUS[status] ?? { label: status, tone: "warn" };
+}
+
+/** scheduled_doses.status (SCHEDULED | PENDING | TAKEN | SKIPPED | MISSED | SNOOZED). */
+export const DOSE_STATUS: Record<string, string> = {
+  SCHEDULED: "Chưa đến giờ",
+  PENDING: "Đang chờ",
+  TAKEN: "Đã uống",
+  SKIPPED: "Đã bỏ qua",
+  MISSED: "Đã bỏ lỡ",
+  SNOOZED: "Đã hoãn",
+};
+
+export function doseStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  return DOSE_STATUS[status.toUpperCase()] ?? status;
+}
 
 /** alerts.severity — khớp ck_alerts_severity. */
 export const ALERT_SEVERITY: Record<AlertSeverity, { label: string; tone: Tone }> = {
