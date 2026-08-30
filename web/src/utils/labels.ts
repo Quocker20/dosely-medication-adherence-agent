@@ -90,6 +90,58 @@ export const ALERT_TRIGGER: Record<AlertTriggeredBy, string> = {
   ADHERENCE_REVIEW: "Đánh giá tuân thủ hàng đêm",
 };
 
+export const ALERT_TYPE: Record<string, string> = {
+  RED_ALERT: "Cảnh báo khẩn",
+  ADHERENCE_REVIEW: "Đánh giá tuân thủ",
+};
+
+export function alertTypeLabel(type: string): string {
+  return ALERT_TYPE[type] ?? type;
+}
+
+export const SYMPTOM_LABELS: Record<string, string> = {
+  FATIGUE: "Mệt mỏi",
+  DIZZINESS: "Chóng mặt",
+  NAUSEA: "Buồn nôn",
+  HEADACHE: "Đau đầu",
+  VOMITING: "Nôn mửa",
+  FEVER: "Sốt",
+  INSOMNIA: "Mất ngủ",
+  RASH: "Phát ban",
+  CHEST_PAIN: "Đau ngực",
+  SHORTNESS_OF_BREATH: "Khó thở",
+  STOMACH_ACHE: "Đau dạ dày / Đau bụng",
+  DIARRHEA: "Tiêu chảy",
+  ALLERGY: "Dị ứng",
+  NONE: "Không có",
+  OTHER: "Khác",
+};
+
+export function symptomLabel(code: string): string {
+  if (!code) return "";
+  const upper = code.trim().toUpperCase();
+  return SYMPTOM_LABELS[upper] ?? code;
+}
+
+export function formatAlertMessage(message: string | null | undefined): string {
+  if (!message || !message.trim()) return "Không có mô tả kèm theo.";
+
+  // Pattern: "Severe symptom(s) reported: FATIGUE, NAUSEA"
+  const severeMatch = message.match(/Severe symptom\(?s?\)?\s*(?:reported|detected):\s*(.+)/i);
+  if (severeMatch) {
+    const rawCodes = severeMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+    const translated = rawCodes.map((code) => symptomLabel(code)).join(", ");
+    return `Ghi nhận triệu chứng nặng: ${translated}`;
+  }
+
+  // Pattern: "Emergency SOS button triggered by patient"
+  if (/emergency sos/i.test(message)) {
+    return "Bệnh nhân đã bấm nút khẩn cấp SOS";
+  }
+
+  return message;
+}
+
 export const REVIEW_SEVERITY: Record<AdherenceReviewSeverity, { label: string; tone: Tone }> = {
   MILD: { label: "Nhẹ", tone: "warn" },
   MODERATE: { label: "Trung bình", tone: "warn" },
