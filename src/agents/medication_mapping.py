@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from src.rag_retrieval.service import DrugRAG
 
 _STRENGTH = re.compile(
-    r"\b\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|g|ml|iu|ui|%|billion\s+spores?)\b",
+    r"(?<!\w)\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|g|ml|iu|ui|%|billion\s+spores?)"
+    r"(?:\s*(?:w/w|w/v|v/v|mg/g|mg/ml))?(?=\s|$|[),;+])",
     re.IGNORECASE,
 )
 

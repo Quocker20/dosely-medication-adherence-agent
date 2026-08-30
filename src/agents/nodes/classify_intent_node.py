@@ -221,6 +221,11 @@ def _repair_prompt_encoding(value: str) -> str:
 
 def _validated_intent(analysis: IntentClassification) -> str:
     """Reject a schedule route when time is only a reference to a drug."""
+    # A dose-status request is itself a schedule query. A period such as
+    # ``morning`` filters the schedule; it does not turn the question into a
+    # request for formulary information about a prescribed drug.
+    if analysis.intent == "ask_schedule" and "dose_status" in analysis.topics:
+        return "ask_schedule"
     medication_topics = {
         "indication", "administration", "adverse_effect", "interaction", "contraindication"
     }
