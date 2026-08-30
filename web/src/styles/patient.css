@@ -91,7 +91,7 @@
 .patient-web-shell .dose-locked-note { display: flex; align-items: center; gap: 6px; margin-top: 15px; color: var(--p-muted); font-size: 11px; font-weight: 650; }
 .patient-web-shell .dose-done-mark.locked { color: var(--p-muted); background: #eef1f5; }
 @media (max-width: 1120px) { .patient-kpi-grid { grid-template-columns: repeat(2,1fr); }.dashboard-columns { grid-template-columns: 1fr; }.today-preview { overflow-x: auto; }.dose-table-head,.today-preview .patient-dose { min-width: 820px; }.sos-page { grid-template-columns: 1fr; }.sos-action-panel { min-height: 470px; } }
-@media (max-width: 760px) { .patient-web-shell { display: block; height: auto; min-height: 100vh; overflow: visible; }.patient-workspace { display: block; height: auto; }.patient-sidebar { position: fixed; inset: auto 0 0; width: auto; height: 68px; padding: 0; border: 0; border-top: 1px solid var(--p-border); }.patient-sidebar .patient-brand,.patient-nav-label,.patient-safe-card,.patient-theme-toggle,.patient-account { display: none; }.patient-side-nav { height: 100%; flex-direction: row; justify-content: space-around; gap: 0; }.patient-side-nav button { width: auto; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 5px 10px; text-align: center; }.patient-side-nav button:hover { transform: none; }.patient-side-nav .nav-icon { width: auto; height: auto; background: transparent!important; }.patient-side-nav button small,.patient-side-nav button em { display: none; }.patient-side-nav button b { font-size: 9px; }.patient-header { height: 56px; padding: 0 16px; }.patient-header-actions .sync-state { display: none; }.patient-content { flex: none; min-height: 0; overflow-y: visible; padding: 21px 14px 95px; }.web-welcome { align-items: flex-end; }.web-welcome h2 { font-size: 20px; }.web-welcome button { padding: 9px; font-size: 0; }.web-welcome button svg { margin: 0; }.patient-kpi-grid { grid-template-columns: 1fr 1fr; gap: 9px; }.patient-kpi-grid article { padding: 13px; }.patient-kpi-grid strong { font-size: 20px; }.kpi-icon { width: 34px; height: 34px; }.patient-kpi-grid p { display: none; }.dashboard-columns { gap: 12px; }.schedule-timeline { padding: 15px; }.timeline-row { grid-template-columns: 56px minmax(0,1fr); gap: 8px; }.timeline-row .patient-dose { grid-template-columns: 1fr; }.timeline-row .dose-status { margin-top: 5px; }.timeline-row .patient-dose .dose-actions { justify-content: flex-start; flex-wrap: wrap; }.form-submit-row { align-items: stretch; flex-direction: column; }.form-submit-row .survey-submit { width: 100%; }.sos-page { min-height: auto; }.sos-info-panel { padding: 30px 23px; }.sos-action-panel { min-height: 470px; }.patient-web-shell .patient-toast { bottom: 82px; } }
+@media (max-width: 760px) { .patient-web-shell { display: block; height: auto; min-height: 100vh; overflow: visible; }.patient-workspace { display: block; height: auto; }.patient-sidebar { position: fixed; inset: auto 0 0; width: auto; height: 68px; padding: 0; border: 0; border-top: 1px solid var(--p-border); }.patient-sidebar .patient-brand,.patient-nav-label,.patient-safe-card,.patient-theme-toggle,.patient-account { display: none; }.patient-side-nav { height: 100%; flex-direction: row; justify-content: space-around; gap: 0; }.patient-side-nav button { width: auto; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 5px 10px; text-align: center; }.patient-side-nav button:hover { transform: none; }.patient-side-nav .nav-icon { width: auto; height: auto; background: transparent!important; }.patient-side-nav button small,.patient-side-nav button em { display: none; }.patient-side-nav button b { font-size: 9px; }.patient-header { height: 56px; padding: 0 16px; }.patient-header-actions .sync-state { display: none; }.patient-content { flex: none; min-height: 0; overflow-y: visible; padding: 21px 14px 95px; }.web-welcome { align-items: flex-end; }.web-welcome h2 { font-size: 20px; }.web-welcome button { padding: 9px; font-size: 0; }.web-welcome button svg { margin: 0; }.patient-kpi-grid { grid-template-columns: 1fr 1fr; gap: 9px; }.patient-kpi-grid article { padding: 13px; }.patient-kpi-grid strong { font-size: 20px; }.kpi-icon { width: 34px; height: 34px; }.patient-kpi-grid p { display: none; }.dashboard-columns { gap: 12px; }.schedule-timeline { padding: 15px; }.timeline-row { grid-template-columns: 56px minmax(0,1fr); gap: 8px; }.timeline-row .patient-dose { grid-template-columns: 1fr; }.timeline-row .dose-status { margin-top: 5px; }.timeline-row .patient-dose .dose-actions { justify-content: flex-start; flex-wrap: wrap; }.form-submit-row { align-items: stretch; flex-direction: column; }.form-submit-row .survey-submit { width: 100%; }.sos-page { min-height: auto; }.sos-info-panel { padding: 30px 23px; }.sos-action-panel { min-height: 470px; }.patient-web-shell .patient-toast { bottom: 82px; }.dose-reminder-stack { top: 62px; right: 12px; left: 12px; width: auto; }.notification-panel { right: -8px; width: calc(100vw - 32px); max-width: 320px; } }
 
 /* Patient AI assistant */
 .chat-layout { width: 100%; flex: 1 1 auto; min-height: 0; }
@@ -111,7 +111,192 @@
 .chat-composer { position: relative; display: grid; grid-template-columns: minmax(0,1fr) 40px 40px; gap: 8px; padding: 10px 14px 22px; background: #fafbfc; }.chat-composer textarea { min-height: 42px; max-height: 110px; resize: none; padding: 10px 12px; border-color: #dfe3ea; border-radius: 11px; background: #fff; font-size: 11.5px; line-height: 1.45; }.chat-composer textarea:focus { border-color: #6f56c7; box-shadow: 0 0 0 3px #f0edff; }.chat-composer > button { width: 40px; height: 40px; display: grid; place-items: center; align-self: start; border: 0; border-radius: 11px; color: #fff; background: #6f56c7; cursor: pointer; }.chat-composer > button:disabled { opacity: .42; cursor: not-allowed; }.chat-composer .chat-mic { color: #6f56c7; background: #fff; border: 1px solid #ddd7f5; }.chat-composer .chat-mic.recording { color: #fff; background: var(--p-danger); border-color: var(--p-danger); animation: chat-recording-pulse 1.1s infinite; }.chat-composer small { position: absolute; left: 16px; bottom: 6px; color: #98a2b3; font-size: 8.5px; } @keyframes chat-recording-pulse { 50% { box-shadow: 0 0 0 5px rgba(180,35,24,.16); } }
 @media (max-width: 760px) { .patient-content.chat-content { display: block; overflow: visible; }.chat-layout { height: calc(100vh - 185px); min-height: 520px; }.chat-panel-head > button { font-size: 0; }.chat-panel-head > button:after { content: "+"; font-size: 16px; }.chat-warning { align-items: flex-start; }.chat-bubble { max-width: 88%; }.chat-suggestions { padding-bottom: 8px; }.chat-composer { padding-bottom: 20px; } }
 
+/* Dose reminders & Notification panel */
+@keyframes dose-reminder-in {
+  from {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes dose-reminder-out {
+  to {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+.dose-reminder-stack {
+  position: fixed;
+  top: 74px;
+  right: clamp(16px, 3vw, 40px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.dose-reminder-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--p-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px -25px rgba(20, 30, 50, 0.35);
+  animation: dose-reminder-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--p-ink);
+}
+.dose-reminder-card.leaving {
+  animation: dose-reminder-out 0.22s ease forwards;
+}
+.dose-reminder-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--p-primary-tint, #ebf5fa);
+  color: var(--p-primary, #1976d2);
+  display: grid;
+  place-items: center;
+}
+.dose-reminder-content {
+  flex: 1;
+  min-width: 0;
+}
+.dose-reminder-title {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--p-ink);
+  margin-bottom: 3px;
+  line-height: 1.35;
+}
+.dose-reminder-body {
+  margin: 0;
+  font-size: 12px;
+  color: var(--p-muted);
+  line-height: 1.4;
+}
+.dose-reminder-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  color: var(--p-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.dose-reminder-close:hover {
+  color: var(--p-ink);
+}
+.header-bell-wrap {
+  position: relative;
+}
+.notification-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--p-danger, #ef4444);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+.notification-panel {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  width: 320px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--p-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px -25px rgba(20, 30, 50, 0.35);
+  z-index: 30;
+  color: var(--p-ink);
+}
+.notification-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--p-border);
+  font-size: 13.5px;
+}
+.notification-panel-count {
+  font-size: 11px;
+  color: var(--p-muted);
+  font-weight: 600;
+}
+.notification-panel-list {
+  padding: 8px 0;
+}
+.notification-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  transition: background 0.15s ease;
+}
+.notification-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.notification-item.unread {
+  background: rgba(25, 118, 210, 0.05);
+}
+.notification-item-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-primary, #1976d2);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.notification-item.read .notification-item-dot {
+  background: transparent;
+}
+.notification-item-content {
+  flex: 1;
+  min-width: 0;
+}
+.notification-item-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--p-ink);
+  margin-bottom: 2px;
+}
+.notification-item-body {
+  font-size: 11.5px;
+  color: var(--p-muted);
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+.notification-item-time {
+  font-size: 10px;
+  color: var(--p-muted);
+}
+.notification-empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--p-muted);
+}
+
 /* Patient portal dark theme support */
+
 :root[data-theme="dark"] .patient-web-shell {
   --p-bg: #0b0f14;
   --p-ink: #eef1f4;
@@ -134,7 +319,9 @@
 :root[data-theme="dark"] .chat-composer textarea,
 :root[data-theme="dark"] .routine-form label,
 :root[data-theme="dark"] .patient-topbar,
-:root[data-theme="dark"] .patient-empty {
+:root[data-theme="dark"] .patient-empty,
+:root[data-theme="dark"] .dose-reminder-card,
+:root[data-theme="dark"] .notification-panel {
   background: #12171d;
 }
 :root[data-theme="dark"] .patient-header {
@@ -205,6 +392,12 @@
 :root[data-theme="dark"] .patient-nav {
   background: rgba(18, 23, 29, 0.95);
 }
+:root[data-theme="dark"] .notification-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+:root[data-theme="dark"] .notification-item.unread {
+  background: rgba(56, 166, 255, 0.08);
+}
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .patient-web-shell {
@@ -229,7 +422,9 @@
   :root:not([data-theme="light"]) .chat-composer textarea,
   :root:not([data-theme="light"]) .routine-form label,
   :root:not([data-theme="light"]) .patient-topbar,
-  :root:not([data-theme="light"]) .patient-empty {
+  :root:not([data-theme="light"]) .patient-empty,
+  :root:not([data-theme="light"]) .dose-reminder-card,
+  :root:not([data-theme="light"]) .notification-panel {
     background: #12171d;
   }
   :root:not([data-theme="light"]) .patient-header {
@@ -300,5 +495,12 @@
   :root:not([data-theme="light"]) .patient-nav {
     background: rgba(18, 23, 29, 0.95);
   }
+  :root:not([data-theme="light"]) .notification-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  :root:not([data-theme="light"]) .notification-item.unread {
+    background: rgba(56, 166, 255, 0.08);
+  }
 }
+
 
