@@ -8,7 +8,7 @@ from functools import lru_cache
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.patient_presentation import patient_facing_text
-from src.agents.medication_mapping import resolve_catalog_medication
+from src.agents.medication_mapping import ingredient_candidates, resolve_catalog_medication
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
@@ -102,30 +102,46 @@ def _format_effect_answer(answer: str, drug_name: str) -> str:
     return _format_topic_answer(answer, drug_name, "effect", "Tác dụng hoặc chỉ định chính")
 
 
-async def _resolve_named_drug(rag: SafeDrugRAG, name: str) -> tuple[tuple[str, str] | None, dict | None]:
+async def _resolve_named_drug(
+    rag: SafeDrugRAG, name: str
+) -> tuple[list[tuple[str, str]], dict | None]:
     """Resolve a formulary name or an exact catalog brand before retrieval."""
     if not name:
-        return None, None
+        return [], None
     normalized, display = rag.rag.infer_drug(name)
     if normalized and display:
-        return (normalized, display), None
+        return [(normalized, display)], None
     try:
         page = await get("/medications", params={"search": name, "size": 10})
     except BackendAPIError:
-        return None, None
+        return [], None
     entries = list((page or {}).get("content") or [])
     wanted = fold(name)
     exact = [entry for entry in entries if fold(str(entry.get("name") or "")) == wanted]
     if len(exact) != 1:
-        return None, None
+        return [], None
     entry = exact[0]
+    composition = str(entry.get("composition") or "")
+    ingredients = ingredient_candidates(composition)
     identities = resolve_catalog_medication(
-        str(entry.get("name") or name), str(entry.get("composition") or ""), rag.rag
+        str(entry.get("name") or name), composition, rag.rag
     )
-    if len(identities) != 1:
-        return None, entry
-    identity = identities[0]
-    return (identity.normalized_drug_name, identity.formulary_name), entry
+    # A combination product is safe to answer only when every catalogued
+    # active ingredient maps to a reviewed formulary heading.
+    if not ingredients or len(identities) != len(ingredients):
+        return [], entry
+    return [
+        (identity.normalized_drug_name, identity.formulary_name)
+        for identity in identities
+    ], entry
+
+
+async def _query_resolved_drugs(rag: SafeDrugRAG, question: str, drugs: list[tuple[str, str]]):
+    if not drugs:
+        return await asyncio.to_thread(rag.query, question)
+    if len(drugs) == 1:
+        return await asyncio.to_thread(rag.query, question, context_drug=drugs[0])
+    return await asyncio.to_thread(rag.query, question, context_drugs=drugs)
 
 
 async def drug_rag_node(state: AgentState) -> dict:
@@ -139,7 +155,7 @@ async def drug_rag_node(state: AgentState) -> dict:
         ))]}
     try:
         rag = _get_rag_service()
-        context_drug = None
+        context_drugs: list[tuple[str, str]] = []
         catalog_entry = None
         memory = state.get("memory_context") or {}
         current = memory.get("current_medication") if isinstance(memory, dict) else None
@@ -147,12 +163,12 @@ async def drug_rag_node(state: AgentState) -> dict:
             display_name = str(current.get("display_name") or "")
             normalized, canonical = rag.rag.infer_drug(display_name)
             if normalized and canonical:
-                context_drug = (normalized, canonical)
-        if context_drug is None:
-            context_drug, catalog_entry = await _resolve_named_drug(
+                context_drugs = [(normalized, canonical)]
+        if not context_drugs:
+            context_drugs, catalog_entry = await _resolve_named_drug(
                 rag, str(analysis.get("drug_name") or "").strip()
             )
-        result = await asyncio.to_thread(rag.query, question, context_drug=context_drug) if context_drug else await asyncio.to_thread(rag.query, question)
+        result = await _query_resolved_drugs(rag, question, context_drugs)
         if result.status in {"needs_drug_name", "out_of_scope", "unsupported_language", "no_data"}:
             catalog_name = str(analysis.get("drug_name") or "").strip()
             if catalog_name:
@@ -168,14 +184,14 @@ async def drug_rag_node(state: AgentState) -> dict:
                         identities = resolve_catalog_medication(
                             str(entry.get("name") or catalog_name), composition, rag.rag
                         )
-                        if len(identities) == 1:
-                            identity = identities[0]
-                            context_drug = (
-                                identity.normalized_drug_name,
-                                identity.formulary_name,
-                            )
-                            result = await asyncio.to_thread(
-                                rag.query, question, context_drug=context_drug
+                        ingredients = ingredient_candidates(composition)
+                        if ingredients and len(identities) == len(ingredients):
+                            context_drugs = [
+                                (identity.normalized_drug_name, identity.formulary_name)
+                                for identity in identities
+                            ]
+                            result = await _query_resolved_drugs(
+                                rag, question, context_drugs
                             )
                     if result.status != "answered":
                         details = [f"Thông tin từ danh mục thuốc\n- Tên: {entry.get('name')}"]
@@ -195,11 +211,11 @@ async def drug_rag_node(state: AgentState) -> dict:
             "grounding_errors": ["rag_unavailable"],
         }
 
-    if context_drug and result.sources:
-        expected = context_drug[0]
+    if context_drugs and result.sources:
+        expected = {drug[0] for drug in context_drugs}
         mismatched = [
             source.drug_name for source in result.sources
-            if fold(str(source.drug_name)).replace(" ", "") != expected
+            if fold(str(source.drug_name)).replace(" ", "") not in expected
         ]
         if mismatched:
             return {
