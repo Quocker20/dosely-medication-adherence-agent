@@ -58,6 +58,23 @@ export function doseStatusLabel(status: string | null | undefined): string {
   return DOSE_STATUS[status.toUpperCase()] ?? status;
 }
 
+/** health_surveys.status (SUBMITTED | COMPLETED | PENDING | DRAFT). */
+export const SURVEY_STATUS: Record<string, { label: string; tone: Tone }> = {
+  SUBMITTED: { label: "Đã nộp", tone: "ok" },
+  COMPLETED: { label: "Hoàn thành", tone: "ok" },
+  PENDING: { label: "Đang chờ", tone: "warn" },
+  DRAFT: { label: "Bản nháp", tone: "warn" },
+};
+
+export function surveyStatusView(status: string | null | undefined): { label: string; tone: Tone | "" } {
+  if (!status) return { label: "", tone: "" };
+  return SURVEY_STATUS[status.toUpperCase()] ?? { label: status, tone: "ok" };
+}
+
+export function surveyStatusLabel(status: string | null | undefined): string {
+  return surveyStatusView(status).label;
+}
+
 /** alerts.severity — khớp ck_alerts_severity. */
 export const ALERT_SEVERITY: Record<AlertSeverity, { label: string; tone: Tone }> = {
   CRITICAL: { label: "Nguy kịch", tone: "crit" },
