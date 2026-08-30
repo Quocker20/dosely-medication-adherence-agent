@@ -42,6 +42,8 @@ DRUG_ALIASES = {
     # International spelling; the Vietnamese formulary heading uses one "l".
     "amoxicillin": "amoxicilin",
     "doxycycline": "doxycyclin",
+    "nicotinamide": "nicotinamid",
+    "niacinamide": "nicotinamid",
     # OCR in the source heading produced WAREARIN NATRI.
     "warfarin": "warearinnatri",
     # English catalog names -> Vietnamese formulary headings.

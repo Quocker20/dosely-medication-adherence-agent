@@ -1,19 +1,26 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
 
 from src.agents.nodes import drug_rag_node as module
-from src.agents.nodes.classify_intent_node import classify_intent_node
+from src.agents.nodes.classify_intent_node import IntentClassification, classify_intent_node
 
 
 class FakeRag:
     def __init__(self, result):
         self.result = result
 
-    def query(self, _question):
+    def query(self, _question, **_kwargs):
         return self.result
+
+
+def _semantic_parser(result: IntentClassification):
+    parser = AsyncMock()
+    parser.ainvoke.return_value = result
+    llm = SimpleNamespace(with_structured_output=lambda _schema: parser)
+    return llm
 
 
 def _result(answer: str):
@@ -22,7 +29,7 @@ def _result(answer: str):
         status="answered",
         grounding_valid=True,
         grounding_errors=[],
-        sources=[SimpleNamespace(drug_name="Paracetamol")],
+        sources=[SimpleNamespace(drug_name="Paracetamol", citation="Dược thư", section="indications", excerpt="Paracetamol")],
     )
 
 
@@ -86,33 +93,46 @@ def test_drug_topics_have_distinct_headings(question: str, heading: str):
     "Warfarin có tương tác gì?",
     "Metformin bảo quản thế nào?",
 ])
-async def test_clear_drug_questions_route_without_llm_classifier(question: str):
-    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+async def test_clear_drug_questions_route_through_semantic_parser(question: str):
+    analysis = IntentClassification(
+        intent="ask_drug_info", topics=["indication"],
+        reference_type="drug_name", drug_name="Paracetamol", confidence=0.98,
+    )
+    with patch("src.agents.nodes.classify_intent_node.get_llm", return_value=_semantic_parser(analysis)) as get_llm:
         result = await classify_intent_node({"messages": [HumanMessage(content=question)]})
     assert result["intent"] == "ask_drug_info"
-    get_llm.assert_not_called()
+    get_llm.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_named_drug_how_to_use_routes_without_llm_classifier():
-    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+async def test_named_drug_how_to_use_routes_through_semantic_parser():
+    analysis = IntentClassification(
+        intent="ask_drug_info", topics=["administration"],
+        reference_type="drug_name", drug_name="Paracetamol", confidence=0.98,
+    )
+    with patch("src.agents.nodes.classify_intent_node.get_llm", return_value=_semantic_parser(analysis)) as get_llm:
         result = await classify_intent_node({
             "messages": [HumanMessage(content="Paracetamol dùng như thế nào?")]
         })
     assert result["intent"] == "ask_drug_info"
-    get_llm.assert_not_called()
+    get_llm.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_missed_morning_dose_question_routes_to_schedule_status_without_llm():
-    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+async def test_missed_morning_dose_question_routes_from_semantic_parser():
+    analysis = IntentClassification(
+        intent="ask_schedule", topics=["dose_status"], reference_type="dose_period",
+        dose_period="morning", date_reference="today", requested_action="view_schedule",
+        confidence=0.98,
+    )
+    with patch("src.agents.nodes.classify_intent_node.get_llm", return_value=_semantic_parser(analysis)) as get_llm:
         result = await classify_intent_node({
             "messages": [HumanMessage(content="sáng hôm nay tôi có bỏ qua thuốc nào ko?")]
         })
     assert result["intent"] == "ask_schedule"
     assert result["intent_analysis"]["topics"] == ["dose_status"]
     assert result["intent_analysis"]["dose_period"] == "morning"
-    get_llm.assert_not_called()
+    get_llm.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -121,12 +141,16 @@ async def test_missed_morning_dose_question_routes_to_schedule_status_without_ll
     ("Tôi dùng Paracetamol nhưng bị dị ứng thì phải làm sao?", "adverse_effect"),
 ])
 async def test_explicit_drug_questions_do_not_route_to_schedule_reference(question, topic):
-    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+    analysis = IntentClassification(
+        intent="ask_drug_info", topics=[topic], reference_type="drug_name",
+        drug_name="A Doxid 100mg Capsule", confidence=0.98,
+    )
+    with patch("src.agents.nodes.classify_intent_node.get_llm", return_value=_semantic_parser(analysis)) as get_llm:
         result = await classify_intent_node({"messages": [HumanMessage(content=question)]})
     assert result["intent"] == "ask_drug_info"
     assert result["intent_analysis"]["reference_type"] == "drug_name"
     assert topic in result["intent_analysis"]["topics"]
-    get_llm.assert_not_called()
+    get_llm.assert_called_once()
 
 
 @pytest.mark.asyncio

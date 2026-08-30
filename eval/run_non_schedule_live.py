@@ -1,13 +1,16 @@
 """100 non-schedule semantic cases, executed through the real LLM graph."""
 from __future__ import annotations
 import asyncio, json, os, sys
+from datetime import datetime
 from pathlib import Path
 
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 os.environ["LANGSMITH_TRACING"] = "false"
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
 from src.agents.graph import agent
+from src.modules.planning.core.llm import get_llm
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +41,41 @@ VALUES = [
 ]
 
 
+class HallucinationVerdict(BaseModel):
+    applicable: bool
+    hallucinated: bool
+    confidence: float = Field(ge=0, le=1)
+    unsupported_claims: list[str] = Field(default_factory=list)
+    reason: str
+
+
+JUDGE_PROMPT = """Bạn là giám khảo factuality cho chatbot y tế. So sánh CÂU TRẢ LỜI với NGUỒN.
+Tuyệt đối không được lấy nội dung hoặc tiền đề trong CÂU HỎI làm claim của chatbot.
+unsupported_claims chỉ được chép các mệnh đề thực sự xuất hiện trong CÂU TRẢ LỜI.
+Không xem lời cảnh báo chung, yêu cầu hỏi lại hoặc thông báo không đủ dữ liệu là hallucination.
+Với kiến thức thuốc, mọi khẳng định y khoa cụ thể phải được nguồn hỗ trợ. Nếu không có nguồn mà câu trả lời
+vẫn khẳng định công dụng/tác dụng phụ/chống chỉ định/tương tác thì hallucinated=true.
+Với báo cáo triệu chứng, chỉ chấm việc chatbot có bịa triệu chứng, thuốc, nguyên nhân hay chẩn đoán hay không.
+Không suy diễn kiến thức ngoài phần NGUỒN. Trả kết quả đúng schema."""
+
+
+async def judge_hallucination(case: dict, row: dict) -> HallucinationVerdict:
+    if row.get("actual_intent") in {"general", "clarify"}:
+        return HallucinationVerdict(applicable=False, hallucinated=False, confidence=1,
+                                    reason="Không có khẳng định y khoa cần đối chiếu.")
+    sources = row.get("rag_sources") or []
+    payload = {
+        "question": case["question"], "intent": row.get("actual_intent"),
+        "answer": row.get("answer"), "grounding_valid": row.get("grounding_valid"),
+        "sources": sources,
+    }
+    judge = get_llm(temperature=0).with_structured_output(HallucinationVerdict)
+    return await judge.ainvoke([
+        {"role": "system", "content": JUDGE_PROMPT},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ])
+
+
 def cases():
     return [{"id": f"NS{idx*10+j+1:03d}", "expected_intent": intent,
              "question": template.format(**value)}
@@ -62,18 +100,31 @@ async def main():
             answer = str(state.get("messages", [])[-1].content)
             actual = state.get("intent")
             passed = actual == case["expected_intent"] and bool(answer.strip())
-            row = {**case, "actual_intent":actual, "answer":answer, "passed":passed, "error":None}
+            row = {**case, "actual_intent":actual, "answer":answer, "passed":passed,
+                   "grounding_valid":state.get("grounding_valid"),
+                   "grounding_errors":state.get("grounding_errors") or [],
+                   "rag_sources":state.get("rag_sources") or [], "error":None}
         except Exception as exc:
             row = {**case, "actual_intent":None, "answer":"", "passed":False,
                    "error":f"{type(exc).__name__}: {exc}"}
+        try:
+            verdict = await judge_hallucination(case, row)
+            row["hallucination"] = verdict.model_dump()
+        except Exception as exc:
+            row["hallucination"] = {"applicable":True, "hallucinated":None,
+                                      "confidence":0, "unsupported_claims":[],
+                                      "reason":f"judge_error: {type(exc).__name__}: {exc}"}
         results.append(row)
         print(f"[{row['id']}] {'PASS' if row['passed'] else 'FAIL'} {row['actual_intent']} | {row['question']}")
-    out = ROOT / "eval" / "results" / "non_schedule_100_live.json"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = ROOT / "eval" / "results" / f"non_schedule_100_live_{stamp}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     passed = sum(x["passed"] for x in results)
+    hallucinated = sum(x.get("hallucination", {}).get("hallucinated") is True for x in results)
     total = len(results)
     print(f"SCORE={passed}/{total} ({round(100 * passed / total) if total else 0}%) RESULT={out}")
+    print(f"HALLUCINATION={hallucinated}/{total}")
 
 if __name__ == "__main__":
     asyncio.run(main())
