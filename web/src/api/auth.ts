@@ -26,4 +26,12 @@ export const authApi = {
       body: { current_password: currentPassword, new_password: newPassword },
       accessToken,
     }),
+
+  registerDeviceToken: (fcmToken: string, deviceName?: string, accessToken?: string) =>
+    request<null>("/auth/device-token", {
+      method: "POST",
+      body: { fcm_token: fcmToken, device_name: deviceName },
+      accessToken,
+    }),
 };
+
