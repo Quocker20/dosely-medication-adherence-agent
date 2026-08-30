@@ -65,7 +65,7 @@ async def adverse_event_node(state: AgentState) -> dict:
     symptoms = list(analysis.get("symptoms") or [])
     raw = _last_text(state)
     pending = (state.get("memory_context") or {}).get("pending_adverse_event")
-    if pending and _is_confirmation(raw):
+    if pending and (state.get("intent") == "report_adverse_event"):
         symptoms = pending.get("symptoms") or symptoms
         raw = pending.get("raw_text") or raw
     if _is_question_not_report(raw):
