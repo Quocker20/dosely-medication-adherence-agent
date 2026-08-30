@@ -91,3 +91,53 @@ async def test_clear_drug_questions_route_without_llm_classifier(question: str):
         result = await classify_intent_node({"messages": [HumanMessage(content=question)]})
     assert result["intent"] == "ask_drug_info"
     get_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_named_drug_how_to_use_routes_without_llm_classifier():
+    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+        result = await classify_intent_node({
+            "messages": [HumanMessage(content="Paracetamol dùng như thế nào?")]
+        })
+    assert result["intent"] == "ask_drug_info"
+    get_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missed_morning_dose_question_routes_to_schedule_status_without_llm():
+    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+        result = await classify_intent_node({
+            "messages": [HumanMessage(content="sáng hôm nay tôi có bỏ qua thuốc nào ko?")]
+        })
+    assert result["intent"] == "ask_schedule"
+    assert result["intent_analysis"]["topics"] == ["dose_status"]
+    assert result["intent_analysis"]["dose_period"] == "morning"
+    get_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("question", "topic"), [
+    ("A Doxid 100mg Capsule uống lúc nào?", "administration"),
+    ("Tôi dùng Paracetamol nhưng bị dị ứng thì phải làm sao?", "adverse_effect"),
+])
+async def test_explicit_drug_questions_do_not_route_to_schedule_reference(question, topic):
+    with patch("src.agents.nodes.classify_intent_node.get_llm") as get_llm:
+        result = await classify_intent_node({"messages": [HumanMessage(content=question)]})
+    assert result["intent"] == "ask_drug_info"
+    assert result["intent_analysis"]["reference_type"] == "drug_name"
+    assert topic in result["intent_analysis"]["topics"]
+    get_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bare_drug_name_asks_which_information_is_wanted():
+    result = await module.drug_rag_node({
+        "messages": [HumanMessage(content="A Doxid 100mg Capsule")],
+        "intent_analysis": {
+            "drug_name": "A Doxid 100mg Capsule", "needs_clarification": True
+        },
+    })
+    answer = result["messages"][0].content
+    assert "công dụng" in answer
+    assert "cách dùng" in answer
+    assert "tác dụng phụ" in answer

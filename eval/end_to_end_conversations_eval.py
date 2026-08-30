@@ -11,6 +11,7 @@ demo, khong phai loi luong.
 Chay: python -m eval.end_to_end_conversations_eval
 """
 import asyncio
+import sys
 
 from langchain_core.messages import HumanMessage
 
@@ -31,6 +32,11 @@ SCENARIOS = [
 
 
 async def main() -> None:
+    # Windows PowerShell may default to cp1252; keep real LLM Vietnamese output intact.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     passed = 0
     for name, text, expect in SCENARIOS:
         result = await agent.ainvoke(
