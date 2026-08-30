@@ -65,9 +65,15 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
   const completed = doses.filter((dose) => dose.status.toUpperCase() === "TAKEN").length;
   const adherence = Math.round(summary?.adherence_rate ?? 0);
 
-  function logout() {
-    try { window.sessionStorage.removeItem(chatStorageKey(patientId)); } catch { /* Storage may be unavailable. */ }
-    setSession(null);
+  async function logout() {
+    try {
+      window.sessionStorage.removeItem(chatStorageKey(patientId));
+      await api.logout(session.refreshToken);
+    } catch {
+      /* Session cục bộ vẫn phải bị xóa khi token server đã hết hạn hoặc offline. */
+    } finally {
+      setSession(null);
+    }
   }
 
   async function action(dose: ScheduledDoseRow, type: "TAKEN" | "SNOOZE" | "SKIPPED") {
