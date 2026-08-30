@@ -42,6 +42,7 @@ class AgentState(TypedDict, total=False):
     semantic_plan_valid: bool
     use_legacy_classifier: bool
     plan_errors: list[str]
+    parser_degraded: bool
     # Result of SafeDrugRAG's citation and factual-grounding validation.
     grounding_valid: bool
     grounding_errors: list[str]

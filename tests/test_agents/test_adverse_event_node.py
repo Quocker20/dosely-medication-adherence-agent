@@ -17,7 +17,11 @@ async def test_adverse_event_node_records_structured_event_and_never_claims_caus
             "patient_id": "00000000-0000-0000-0000-000000000001",
             "conversation_id": "00000000-0000-0000-0000-000000000002",
             "messages": [HumanMessage(content="Tôi hơi buồn nôn sau khi uống thuốc")],
-            "intent_analysis": {"symptoms": [{"name": "buồn nôn", "severity": "MILD"}]},
+            "intent_analysis": {
+                "symptoms": [{"name": "buồn nôn", "severity": "MILD"}],
+                "is_personal_report": True,
+                "confirmation_state": "confirmed",
+            },
         })
     payload = post.await_args.kwargs["json"]
     assert payload["risk_level"] == "LOW"

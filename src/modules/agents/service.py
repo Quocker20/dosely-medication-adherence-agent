@@ -724,6 +724,8 @@ class ChatService:
             working["has_unreviewed_adverse_event"] = metadata.get("adverse_event_review_status") != "REVIEWED"
         if "pending_adverse_event" in metadata:
             working["pending_adverse_event"] = metadata["pending_adverse_event"]
+        elif metadata.get("clear_pending_adverse_event"):
+            working.pop("pending_adverse_event", None)
         elif result.get("intent") == "report_adverse_event" and working.get("pending_adverse_event"):
             working.pop("pending_adverse_event", None)
         working["last_intent"] = result.get("intent")

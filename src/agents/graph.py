@@ -35,14 +35,14 @@ def _route_after_scope_guard(state: AgentState) -> str:
 
 
 def _route_after_semantic_planner(state: AgentState) -> str:
-    return "classify_intent" if state.get("use_legacy_classifier") else "plan_guard"
+    return "clarification" if state.get("use_legacy_classifier") else "plan_guard"
 
 
 def _route_after_plan_guard(state: AgentState) -> str:
     if state.get("safety_blocked"):
         return "output_guard"
     if not state.get("semantic_plan_valid"):
-        return "classify_intent"
+        return "clarification"
     return _route_after_classify_intent(state)
 
 
@@ -109,12 +109,12 @@ def build_graph() -> CompiledStateGraph:
     )
     graph.add_conditional_edges(
         "semantic_planner", _route_after_semantic_planner,
-        {"plan_guard": "plan_guard", "classify_intent": "classify_intent"},
+        {"plan_guard": "plan_guard", "clarification": "clarification"},
     )
     graph.add_conditional_edges(
         "plan_guard", _route_after_plan_guard,
         {
-            "output_guard": "output_guard", "classify_intent": "classify_intent",
+            "output_guard": "output_guard", "clarification": "clarification",
             "rescheduling": "rescheduling", "drug_rag": "drug_rag",
             "adverse_event": "adverse_event",
             "recent_adverse_event": "recent_adverse_event",

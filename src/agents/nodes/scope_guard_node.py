@@ -143,21 +143,12 @@ def _recent_conversation(state: AgentState, limit: int = 5) -> str:
 
 async def scope_guard_node(state: AgentState) -> dict:
     text = _last_human_text(state)
-    normalized = fold(text)
-    category = _obviously_allowed(normalized)
-    if category is None and _looks_like_drug_query(text, normalized):
-        category = "medication"
-    if category is None:
-        context = _recent_conversation(state)
-        result = await _classify_scope(
+    context = _recent_conversation(state)
+    result = await _classify_scope(
             f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
         )
-        category = result.category if result is not None else "out_of_scope"
+    category = result.category if result is not None else "unknown"
 
-    if category == "out_of_scope":
-        return {
-            "messages": [AIMessage(content=_OUT_OF_SCOPE_REPLY)],
-            "scope_blocked": True,
-            "scope_category": category,
-        }
+    # Scope is advisory. The main semantic parser owns intent/out-of-scope
+    # understanding so an unusual valid phrasing is never rejected here.
     return {"scope_blocked": False, "scope_category": category}

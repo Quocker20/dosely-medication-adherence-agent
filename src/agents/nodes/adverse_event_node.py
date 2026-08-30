@@ -65,6 +65,16 @@ async def adverse_event_node(state: AgentState) -> dict:
     symptoms = list(analysis.get("symptoms") or [])
     raw = _last_text(state)
     pending = (state.get("memory_context") or {}).get("pending_adverse_event")
+    confirmation = analysis.get("confirmation_state", "not_applicable")
+    if confirmation == "denied":
+        return {"messages": [AIMessage(content="Mình đã hủy bản nháp triệu chứng và không gửi cho bác sĩ.")],
+                "metadata": {"clear_pending_adverse_event": True}}
+    if analysis.get("is_hypothetical") or not analysis.get("is_personal_report", False):
+        return {"messages": [AIMessage(content="Mình hiểu đây chưa phải xác nhận bạn đang gặp triệu chứng. Bạn đang hỏi kiến thức chung hay thực sự có triệu chứng cần ghi nhận?")]}
+    if not pending and confirmation != "confirmed" and symptoms:
+        names = ", ".join(str(item.get("name", "")) for item in symptoms if item.get("name"))
+        return {"messages": [AIMessage(content=f"Mình hiểu bạn đang báo triệu chứng: {names or 'chưa rõ'}. Bạn xác nhận muốn ghi nhận để bác sĩ xem xét chứ?")],
+                "metadata": {"pending_adverse_event": {"raw_text": raw, "symptoms": symptoms}}}
     if pending and (state.get("intent") == "report_adverse_event"):
         symptoms = pending.get("symptoms") or symptoms
         raw = pending.get("raw_text") or raw
