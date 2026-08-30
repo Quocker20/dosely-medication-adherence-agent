@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.patient_presentation import patient_facing_text
 from src.agents.state import AgentState
+from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
 from src.rag_retrieval.input_guardrail import is_contextual_drug_reference
 
@@ -97,6 +98,13 @@ def _format_effect_answer(answer: str, drug_name: str) -> str:
 
 async def drug_rag_node(state: AgentState) -> dict:
     question = _last_human_text(state)
+    analysis = state.get("intent_analysis") or {}
+    if analysis.get("needs_clarification"):
+        name = str(analysis.get("drug_name") or "thuốc này").strip()
+        return {"messages": [AIMessage(content=(
+            f"Bạn muốn biết thông tin nào về {name}: công dụng, cách dùng, tác dụng phụ, "
+            "chống chỉ định hay tương tác thuốc?"
+        ))]}
     try:
         rag = _get_rag_service()
         context_drug = None
@@ -108,6 +116,30 @@ async def drug_rag_node(state: AgentState) -> dict:
             if normalized and canonical:
                 context_drug = (normalized, canonical)
         result = await asyncio.to_thread(rag.query, question, context_drug=context_drug) if context_drug else await asyncio.to_thread(rag.query, question)
+        if result.status in {"needs_drug_name", "out_of_scope", "unsupported_language", "no_data"}:
+            catalog_name = str(analysis.get("drug_name") or "").strip()
+            if catalog_name:
+                try:
+                    page = await get("/medications", params={"search": catalog_name, "size": 3})
+                    entries = list((page or {}).get("content") or [])
+                except BackendAPIError:
+                    entries = []
+                if len(entries) == 1:
+                    entry = entries[0]
+                    composition = str(entry.get("composition") or "").strip()
+                    if composition:
+                        result = await asyncio.to_thread(rag.query, f"{composition}. {question}")
+                    if result.status != "answered":
+                        details = [f"Thông tin từ danh mục thuốc\n- Tên: {entry.get('name')}"]
+                        if composition:
+                            details.append(f"- Hoạt chất/thành phần: {composition}")
+                        if entry.get("uses"):
+                            details.append(f"- Công dụng: {entry['uses']}")
+                        if entry.get("side_effects"):
+                            details.append(f"- Tác dụng phụ: {entry['side_effects']}")
+                        details.append(f"- Nguồn danh mục: {entry.get('source_name') or 'chưa rõ'}")
+                        details.append("Thông tin danh mục không thay thế chỉ dẫn trong đơn đã được bác sĩ duyệt.")
+                        return {"messages": [AIMessage(content="\n".join(details))], "grounding_valid": True, "grounding_errors": []}
     except Exception:
         return {
             "messages": [AIMessage(content=_UNAVAILABLE_REPLY)],

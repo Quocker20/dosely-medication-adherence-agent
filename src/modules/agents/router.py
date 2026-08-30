@@ -1,8 +1,9 @@
 import uuid
 from datetime import date, datetime
 from typing import Annotated, Optional
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,7 @@ from src.api.deps import get_db, oauth2_scheme, require_roles
 from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
-from src.core.security import reset_actor_token, set_actor_token
+from src.core.security import create_access_token, reset_actor_token, set_actor_token
 from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import ChatRequest, GenerateScheduleRequest, RescheduleRequest
 from src.modules.agents.service import ChatService, SchedulingService
@@ -45,6 +46,39 @@ RawTokenDep = Annotated[Optional[str], Depends(oauth2_scheme)]
 schedules_router = APIRouter(tags=["Schedules & AI Agents"])
 agent_runs_router = APIRouter(tags=["Schedules & AI Agents"])
 chat_router = APIRouter(tags=["Schedules & AI Agents"])
+
+
+@chat_router.post("/dev/chat", include_in_schema=False)
+async def local_dev_chat(request_body: ChatRequest, request: Request, service: ChatServiceDep) -> JSONResponse:
+    """No-login test endpoint: explicit dev flag + loopback + fixed patient only."""
+    settings = get_settings()
+    client_host = request.client.host if request.client else ""
+    if settings.app_env != "development" or not settings.enable_local_chat_test:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Not found")
+    if client_host not in {"127.0.0.1", "::1", "localhost", "testclient"}:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Local chat test is loopback-only")
+    browser_origin = request.headers.get("origin") or request.headers.get("referer")
+    if browser_origin and (urlparse(browser_origin).hostname or "") not in {"127.0.0.1", "localhost", "::1", "testserver"}:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Local chat test rejects non-loopback browser origins")
+    try:
+        patient_id = str(uuid.UUID(settings.dev_chat_patient_id))
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="DEV_CHAT_PATIENT_ID is not configured")
+    token = create_access_token(user_id=patient_id, role="PATIENT", phone_number="local-test")
+    handle = set_actor_token(token)
+    try:
+        result = await service.handle_text_chat(
+            message=request_body.message, patient_id=patient_id,
+            client_date=request_body.client_date, client_datetime=request_body.client_datetime,
+            conversation_id=request_body.conversation_id,
+        )
+    finally:
+        reset_actor_token(handle)
+    return success_response(data=result.model_dump(mode="json"), message="Local chat test reply generated")
 
 
 @schedules_router.post(

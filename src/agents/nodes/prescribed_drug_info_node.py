@@ -5,7 +5,10 @@ import asyncio
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.nodes.scheduled_drug_info_node import _lookup_exact_drug
+from src.agents.nodes.scheduled_drug_info_node import (
+    _lookup_exact_drug,
+    lookup_prescribed_drug_information,
+)
 from src.agents.prescribed_drug_resolver import ResolutionStatus, resolve_prescribed_drug
 from src.agents.state import AgentState
 
@@ -59,6 +62,8 @@ async def prescribed_drug_info_node(state: AgentState) -> dict:
 
     try:
         information, grounded = await asyncio.to_thread(_lookup_exact_drug, name, _question(state))
+        if not grounded and medication.get("medication_id"):
+            information, grounded = await lookup_prescribed_drug_information(medication, _question(state))
     except Exception:
         information, grounded = "Hiện không thể kết nối tới Dược Thư.", False
     lines.extend(["", "**Thông tin thuốc theo nội dung bạn hỏi**", information])

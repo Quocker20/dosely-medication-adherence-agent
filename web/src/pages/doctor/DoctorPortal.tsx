@@ -6,7 +6,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
 import { setSession, type Session } from "../../session";
 import { normalizeSearchQuery } from "../../components/auth/phone";
-import type { AlertDetail, DashboardPatientListItem } from "../../types";
+import type { AlertDetail, DashboardPatientListItem, SuspectedAdverseEvent } from "../../types";
 import { paginationRange } from "../../utils/labels";
 import AlertsView from "./components/AlertsView";
 import KpiRow from "./components/KpiRow";
@@ -55,6 +55,7 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
   const [patients, setPatients] = useState<DashboardPatientListItem[]>([]);
   const [totalPatients, setTotalPatients] = useState(0);
   const [alerts, setAlerts] = useState<AlertDetail[]>([]);
+  const [adverseEvents, setAdverseEvents] = useState<SuspectedAdverseEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -90,7 +91,7 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
   // }, []);
 
   const refresh = useCallback(async () => {
-    const [patientPageResult, alertPage] = await Promise.all([
+    const [patientPageResult, alertPage, adversePage] = await Promise.all([
       api.dashboardPatients({
         page: patientPage,
         size: 20,
@@ -99,10 +100,12 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
         adherenceBand: adherenceFilter || undefined,
       }),
       api.alerts({ size: 50, status: alertFilter || undefined }),
+      api.adverseEvents({ size: 50 }),
     ]);
     setPatients(patientPageResult.content);
     setTotalPatients(patientPageResult.total_elements);
     setAlerts(alertPage.content);
+    setAdverseEvents(adversePage.content);
   }, [adherenceFilter, alertFilter, debouncedPatientSearch, patientPage]);
 
   useEffect(() => {
@@ -207,6 +210,13 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
     } finally {
       setAlertBusyId(null);
     }
+  }
+
+  async function reviewAdverseEvent(id: string, causality: string, note: string) {
+    setAlertBusyId(id);
+    try { await api.reviewAdverseEvent(id, causality, note); await refresh(); toast("Đã lưu đánh giá triệu chứng nghi ngờ"); }
+    catch (error) { toast(error instanceof ApiError ? error.message : "Không lưu được đánh giá"); }
+    finally { setAlertBusyId(null); }
   }
 
   async function logout() {
@@ -495,11 +505,13 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
           {view === "alerts" && (
             <AlertsView
               alerts={alerts}
+              adverseEvents={adverseEvents}
               patients={patients}
               busyId={alertBusyId}
               onAcknowledge={acknowledgeAlert}
               onResolve={resolveAlert}
               onOpenPatient={onOpenPatient}
+              onReviewAdverseEvent={reviewAdverseEvent}
             />
           )}
 

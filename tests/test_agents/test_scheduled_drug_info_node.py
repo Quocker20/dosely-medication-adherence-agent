@@ -112,3 +112,36 @@ async def test_multiple_drugs_at_same_time_requires_clarification(monkeypatch):
     answer = result["messages"][0].content
     assert "Drug A" in answer and "Drug B" in answer
     assert "thuốc nào" in answer
+
+
+@pytest.mark.asyncio
+async def test_catalog_composition_bridges_brand_name_to_formulary(monkeypatch):
+    async def backend_get(path, params=None):
+        if path.startswith("/medications/"):
+            return {
+                "name": "A Doxid 100mg Capsule",
+                "composition": "Doxycycline 100mg",
+                "uses": "Điều trị một số nhiễm khuẩn",
+                "source_name": "Medication catalog",
+            }
+        return {
+            "date": "2026-08-29", "timezone": "Asia/Bangkok",
+            "doses": [{
+                "medication_id": "med-1", "medication_name": "A Doxid 100mg Capsule",
+                "current_scheduled_at": "2026-08-29T07:00:00+07:00",
+            }],
+        }
+    monkeypatch.setattr(module, "get", backend_get)
+    seen = {}
+    def lookup(name, question):
+        seen["name"] = name
+        return ("Thông tin Dược thư của doxycycline.", True)
+    monkeypatch.setattr(module, "_lookup_exact_drug", lookup)
+
+    result = await module.scheduled_drug_info_node({
+        "patient_id": "patient-1", "client_date": "2026-08-29",
+        "messages": [HumanMessage(content="Thuốc cữ 7h có tác dụng gì?")],
+    })
+
+    assert seen["name"] == "DOXYCYCLIN"
+    assert "Thông tin Dược thư của doxycycline" in result["messages"][0].content

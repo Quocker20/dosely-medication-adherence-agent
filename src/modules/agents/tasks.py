@@ -13,9 +13,10 @@ connection doing one task anyway.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select, update
 from sqlalchemy.pool import NullPool
 
 from src.core.celery_app import celery_app
@@ -23,6 +24,7 @@ from src.core.config import get_settings
 from src.modules.adherence.fcm_service import FCMService
 from src.modules.adherence.notification_service import NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
+from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.service import (
     AgentRunLeaseBusyError,
@@ -154,6 +156,44 @@ async def _execute_scan_due_doses() -> None:
 @celery_app.task(name="agents.scan_due_doses")
 def scan_due_doses_task() -> None:
     asyncio.run(_execute_scan_due_doses())
+
+
+async def _execute_daily_adverse_event_summary() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
+    try:
+        async with session_factory() as session:
+            async with session.begin():
+                rows = list((await session.execute(
+                    select(SuspectedAdverseEvent).where(
+                        SuspectedAdverseEvent.daily_notified_at.is_(None),
+                        SuspectedAdverseEvent.review_status == "NEW",
+                        SuspectedAdverseEvent.risk_level.in_(["LOW", "MODERATE"]),
+                        SuspectedAdverseEvent.reported_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                    ).order_by(SuspectedAdverseEvent.patient_id, SuspectedAdverseEvent.reported_at)
+                )).scalars().all())
+                grouped: dict[uuid.UUID, list[SuspectedAdverseEvent]] = {}
+                for row in rows: grouped.setdefault(row.patient_id, []).append(row)
+                now = datetime.now(timezone.utc)
+                for patient_id, events in grouped.items():
+                    names = sorted({str(s.get("name")) for event in events for s in event.symptoms if s.get("name")})
+                    alert = await AlertRepository(session).create_alert(
+                        patient_id=patient_id, triggered_by_type="ADVERSE_EVENT",
+                        alert_type="SUSPECTED_ADVERSE_EVENT", severity="MEDIUM",
+                        message=f"Tổng hợp {len(events)} ghi nhận triệu chứng trong ngày: {', '.join(names)}",
+                        metadata={"adverse_event_ids": [str(event.id) for event in events], "symptoms": names, "summary_type": "DAILY"},
+                    )
+                    await session.execute(update(SuspectedAdverseEvent).where(
+                        SuspectedAdverseEvent.id.in_([event.id for event in events])
+                    ).values(daily_notified_at=now, alert_id=alert.id))
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="agents.summarize_daily_adverse_events")
+def summarize_daily_adverse_events_task() -> None:
+    asyncio.run(_execute_daily_adverse_event_summary())
 
 
 async def _execute_send_notification(delivery_id_str: str) -> None:

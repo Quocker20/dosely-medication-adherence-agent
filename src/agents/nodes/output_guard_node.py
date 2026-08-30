@@ -18,6 +18,10 @@ _DANGEROUS_DIRECTIVE = re.compile(
     re.I,
 )
 _OUT_OF_SCOPE = re.compile(r"\b(?:world cup|bóng đá|chính trị|bài thơ|giá vàng)\b", re.I)
+_ENGLISH_UI_LABEL = re.compile(
+    r"(?im)^\s*(?:[-*•]\s*)?(?:drug|medicine|schedule|status|next dose|dose status|"
+    r"taken|pending|missed|skipped|source|instructions?|result)\s*(?:[:：-]|$)"
+)
 
 
 def validate_patient_output(text: str) -> list[str]:
@@ -30,6 +34,8 @@ def validate_patient_output(text: str) -> list[str]:
         errors.append("unsafe_treatment_directive")
     if _OUT_OF_SCOPE.search(text):
         errors.append("out_of_scope_output")
+    if _ENGLISH_UI_LABEL.search(text):
+        errors.append("english_patient_facing_label")
     if "�" in text:
         errors.append("encoding_corruption")
     return errors
