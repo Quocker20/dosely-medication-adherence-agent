@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "../../../api";
 import GuardBanner from "../../../components/shared/GuardBanner";
+import { normalizeSearchQuery } from "../../../components/auth/phone";
 import type {
   DashboardPatientListItem,
   HealthSurveyFullDetail,
@@ -118,6 +119,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
   const [patientSearch, setPatientSearch] = useState("");
   const [debouncedPatientSearch, setDebouncedPatientSearch] = useState("");
   const [patientOptions, setPatientOptions] = useState<DashboardPatientListItem[]>(patients);
+  const [searchResults, setSearchResults] = useState<DashboardPatientListItem[] | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -163,17 +165,23 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
 
   useEffect(() => {
     const query = debouncedPatientSearch.trim();
-    if (query.length < 2) return;
+    if (query.length < 2) {
+      setSearchResults(null);
+      return;
+    }
 
     let cancelled = false;
     setIsSearching(true);
     api
-      .dashboardPatients({ search: query, size: 25 })
+      .dashboardPatients({ search: normalizeSearchQuery(query), size: 25 })
       .then((result) => {
-        if (!cancelled) setPatientOptions((current) => mergePatients(current, result.content));
+        if (!cancelled) {
+          setSearchResults(result.content);
+          setPatientOptions((current) => mergePatients(current, result.content));
+        }
       })
       .catch(() => {
-        // Survey list vẫn hoạt động; search bệnh nhân sẽ thử lại ở lần nhập sau.
+        if (!cancelled) setSearchResults([]);
       })
       .finally(() => {
         if (!cancelled) setIsSearching(false);
@@ -184,7 +192,10 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
     };
   }, [debouncedPatientSearch]);
 
-  const filteredPatients = useMemo(() => {
+  const displayedPatients = useMemo(() => {
+    if (searchResults !== null) {
+      return searchResults;
+    }
     const q = normalizeText(patientSearch);
     if (!q) return patientOptions;
     return patientOptions.filter((p) => {
@@ -192,7 +203,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
       const idNorm = normalizeText(p.patient_id);
       return nameNorm.includes(q) || idNorm.includes(q);
     });
-  }, [patientOptions, patientSearch]);
+  }, [searchResults, patientOptions, patientSearch]);
 
   const selectedPatient = useMemo(
     () => patientOptions.find((patient) => patient.patient_id === selectedPatientId) ?? null,
@@ -401,7 +412,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                     <span>Tìm bệnh nhân</span>
                     <div className="survey-patient-input-wrap">
                       <input
-                        placeholder="Nhập tên bệnh nhân…"
+                        placeholder="Nhập tên hoặc số điện thoại bệnh nhân…"
                         value={patientSearch}
                         onChange={(event) => {
                           const val = event.target.value;
@@ -421,6 +432,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                           title="Xóa tìm kiếm"
                           onClick={() => {
                             setPatientSearch("");
+                            setSearchResults(null);
                             setSelectedPatientId("");
                             setIsDropdownOpen(false);
                           }}
@@ -436,10 +448,10 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                       {isSearching && (
                         <li className="survey-patient-empty">Đang tìm kiếm trên hệ thống…</li>
                       )}
-                      {!isSearching && filteredPatients.length === 0 && (
+                      {!isSearching && displayedPatients.length === 0 && (
                         <li className="survey-patient-empty">Không tìm thấy bệnh nhân phù hợp</li>
                       )}
-                      {filteredPatients.map((p) => {
+                      {displayedPatients.map((p) => {
                         const isSelected = p.patient_id === selectedPatientId;
                         return (
                           <li

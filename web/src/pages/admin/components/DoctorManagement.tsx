@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { api } from "../../../api";
+import { normalizeSearchQuery } from "../../../components/auth/phone";
 import type { DoctorDetail, PageResponse } from "../../../types";
 import { ErrorPanel, errorLines } from "./ErrorPanel";
 
@@ -32,7 +33,7 @@ export default function DoctorManagement({ toast }: { toast: (message: string) =
 
   const load = useCallback(async () => {
     setError(null);
-    try { setData(await api.adminDoctors({ page, size: 10, search })); }
+    try { setData(await api.adminDoctors({ page, size: 10, search: normalizeSearchQuery(search) })); }
     catch (cause) { setError(errorLines(cause)); }
   }, [page, search]);
   useEffect(() => { load().catch(() => undefined); }, [load]);
