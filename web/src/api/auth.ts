@@ -10,6 +10,13 @@ export const authApi = {
       anonymous: true,
     }),
 
+  refresh: (refreshToken: string) =>
+    request<AuthTokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: { refresh_token: refreshToken },
+      anonymous: true,
+    }),
+
   logout: (refreshToken: string) =>
     request<null>("/auth/logout", { method: "POST", body: { refresh_token: refreshToken } }),
 
