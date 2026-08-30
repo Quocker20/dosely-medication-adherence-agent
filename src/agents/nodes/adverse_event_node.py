@@ -12,6 +12,18 @@ def _last_text(state: AgentState) -> str:
     return ""
 
 
+def _is_question_not_report(text: str) -> bool:
+    """Prevent a knowledge/triage question from being persisted as an event."""
+    t = " ".join(text.lower().split())
+    question = "?" in t or any(p in t for p in ("phải làm sao", "nên làm gì", "có ... không"))
+    hypothetical = any(p in t for p in ("có đau", "có gây", "có bị", "tác dụng phụ", "có phải do"))
+    explicit_report = any(p in t for p in ("tôi bị", "mình bị", "tôi đang bị", "mình đang bị", "đã bị", "bị đau"))
+    return question and hypothetical and not explicit_report
+
+def _is_confirmation(text: str) -> bool:
+    return text.strip().lower() in {"có", "co", "đúng", "dung", "xác nhận", "xac nhan", "đồng ý", "dong y"}
+
+
 async def _medication_context(state: AgentState) -> list[dict]:
     patient_id = state.get("patient_id")
     result: list[dict] = []
@@ -52,6 +64,26 @@ async def adverse_event_node(state: AgentState) -> dict:
     analysis = state.get("intent_analysis") or {}
     symptoms = list(analysis.get("symptoms") or [])
     raw = _last_text(state)
+    pending = (state.get("memory_context") or {}).get("pending_adverse_event")
+    confirmation = analysis.get("confirmation_state", "not_applicable")
+    if confirmation == "denied":
+        return {"messages": [AIMessage(content="Mình đã hủy bản nháp triệu chứng và không gửi cho bác sĩ.")],
+                "metadata": {"clear_pending_adverse_event": True}}
+    if analysis.get("is_hypothetical") or not analysis.get("is_personal_report", False):
+        return {"messages": [AIMessage(content="Mình hiểu đây chưa phải xác nhận bạn đang gặp triệu chứng. Bạn đang hỏi kiến thức chung hay thực sự có triệu chứng cần ghi nhận?")]}
+    if not pending and confirmation != "confirmed" and symptoms:
+        names = ", ".join(str(item.get("name", "")) for item in symptoms if item.get("name"))
+        return {"messages": [AIMessage(content=f"Mình hiểu bạn đang báo triệu chứng: {names or 'chưa rõ'}. Bạn xác nhận muốn ghi nhận để bác sĩ xem xét chứ?")],
+                "metadata": {"pending_adverse_event": {"raw_text": raw, "symptoms": symptoms}}}
+    if pending and (state.get("intent") == "report_adverse_event"):
+        symptoms = pending.get("symptoms") or symptoms
+        raw = pending.get("raw_text") or raw
+    if _is_question_not_report(raw):
+        return {"messages": [AIMessage(content=(
+            "Mình hiểu đây là câu hỏi về khả năng tác dụng phụ/cách xử trí, chưa phải xác nhận bạn đang mắc triệu chứng. "
+            "Bạn có đang thực sự bị đau bụng hoặc triệu chứng nào khác không? Nếu có, hãy cho biết triệu chứng, thời điểm bắt đầu và mức độ; "
+            "mình chỉ ghi nhận gửi bác sĩ sau khi bạn xác nhận."
+        ))], "metadata": {"pending_adverse_event": {"raw_text": raw, "symptoms": symptoms}}}
     if not symptoms:
         return {"messages": [AIMessage(content="Bạn đang gặp triệu chứng gì, mức độ ra sao và bắt đầu từ khi nào?")]}
     risk = classify_adverse_event_risk(raw, symptoms)

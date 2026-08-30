@@ -38,6 +38,9 @@ class SemanticStep(BaseModel):
     statuses: list[Literal["PENDING", "TAKEN", "MISSED", "SKIPPED"]] = Field(default_factory=list)
     drug_name: str | None = None
     symptoms: list[SemanticSymptom] = Field(default_factory=list)
+    is_personal_report: bool = False
+    is_hypothetical: bool = False
+    confirmation_state: Literal["not_applicable", "pending", "confirmed", "denied", "unclear"] = "not_applicable"
     drug_reference_type: Literal[
         "none", "drug_name", "schedule_time", "dose_period", "next_dose",
         "recent_dose", "meal_relation", "prescription_ordinal", "recent_context",
