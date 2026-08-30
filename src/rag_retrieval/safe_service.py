@@ -95,6 +95,7 @@ class SafeDrugRAG:
         *,
         top_k: int = 5,
         context_drug: tuple[str, str] | None = None,
+        context_drugs: list[tuple[str, str]] | None = None,
     ) -> SafeRAGResult:
         question = question.strip()
         infer_drug = getattr(self.rag, "infer_drug", None)
@@ -122,9 +123,12 @@ class SafeDrugRAG:
         # An upstream catalog->ingredient resolution is authoritative even
         # when the question contains an explicit brand name. Brand names do
         # not necessarily exist as formulary headings.
-        using_context = bool(context_drug)
+        resolved_contexts = list(
+            context_drugs or ([] if context_drug is None else [context_drug])
+        )
+        using_context = bool(resolved_contexts)
         if using_context:
-            resolved_drug = context_drug
+            resolved_drug = resolved_contexts[0]
         recognized_drug = bool(resolved_drug[0])
         route = route_input(question, recognized_drug=recognized_drug)
         if route.intent != "drug_query":
@@ -149,9 +153,12 @@ class SafeDrugRAG:
                 sources=[],
             )
         if using_context:
-            normalized, display = resolved_drug
-            retrieval_question = f"{display}: {question}"
-            hits = self.rag.retrieve(retrieval_question, top_k=top_k, drug=display)
+            hits = []
+            for _normalized, display in resolved_contexts:
+                retrieval_question = f"{display}: {question}"
+                hits.extend(
+                    self.rag.retrieve(retrieval_question, top_k=top_k, drug=display)
+                )
         else:
             hits = self.rag.retrieve(question, top_k=top_k)
         if not hits:
