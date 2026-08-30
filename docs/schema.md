@@ -508,6 +508,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 * **Cấu trúc thuộc tính**:
   * `id` (UUID): Mã cảnh báo.
   * `patient_id` (UUID): Mã bệnh nhân.
+  * `patient_name` (Optional[str]): Tên bệnh nhân, ghép thêm ở tầng service (không có trên model `Alert` — bảng `alerts` không lưu tên). `AlertService.list_alerts`/`trigger_sos`/`acknowledge_alert`/`resolve_alert` tra qua `PatientRepository`; `DashboardService.get_patient_detail` điền thẳng từ tên đã biết sẵn của trang đó, không tra thêm. `null` chỉ khi bệnh nhân đã bị xoá.
   * `assigned_doctor_id` (Optional[UUID]): Mã bác sĩ tiếp nhận.
   * `triggered_by_type` (str): Nguồn kích hoạt (`SOS_BUTTON`, `SEVERE_SYMPTOM`, `MISSED_DOSES`, `ADHERENCE_REVIEW`). Giá trị cuối do đánh giá tuân thủ hàng đêm (Slice 7a) sinh ra khi hành động là `DOCTOR_WARNING`/`DOCTOR_ALERT`.
   * `alert_type` (str): Loại cảnh báo (`RED_ALERT`, `WARNING`).

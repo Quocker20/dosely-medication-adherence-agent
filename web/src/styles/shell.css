@@ -74,29 +74,31 @@ p {
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 6px;
+  gap: 11px;
+  padding: 4px 6px;
 }
 .brand-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   background: var(--accent);
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   flex: none;
 }
 .brand-name {
-  font-size: 15px;
-  font-weight: 660;
-  letter-spacing: -0.01em;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 .brand-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-2);
+  margin-top: 1px;
 }
 
 .doctor {
@@ -1229,13 +1231,11 @@ tr.sev-red .who .avatar {
   font-size: 21px;
 }
 .survey-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.82fr);
-  gap: 16px;
-  align-items: start;
+  display: block;
+  width: 100%;
 }
-.survey-list-card,
-.survey-detail-card {
+.survey-list-card {
+  width: 100%;
   min-width: 0;
 }
 .survey-controls {
@@ -1247,15 +1247,76 @@ tr.sev-red .who .avatar {
 .survey-mode {
   align-self: end;
 }
-.survey-patient-search,
-.survey-patient-select {
-  min-width: 0;
+.survey-patient-picker {
+  grid-column: 1 / -1;
+  position: relative;
+  margin-top: 4px;
 }
-.survey-patient-search {
-  grid-column: span 2;
+.survey-patient-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
-.survey-patient-select {
-  grid-column: span 2;
+.survey-patient-input-wrap input {
+  width: 100%;
+  padding-right: 32px;
+}
+.survey-patient-clear-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 14px;
+  border-radius: 4px;
+}
+.survey-patient-clear-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.survey-patient-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 35;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.survey-patient-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.survey-patient-item:hover,
+.survey-patient-item.is-selected {
+  background: var(--surface-2);
+}
+.survey-patient-item .who-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.survey-patient-item .who-meta {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.survey-patient-empty {
+  padding: 12px 14px;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
 }
 .survey-table {
   min-width: 900px;
@@ -1311,11 +1372,98 @@ tr.sev-red .who .avatar {
   overflow-wrap: anywhere;
 }
 @media (max-width: 1180px) {
-  .survey-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .survey-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- survey detail popup modal ---------- */
+.survey-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 20, 18, 0.48);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: surveyModalFadeIn 0.15s ease-out;
+}
+.survey-modal-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: min(580px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  animation: surveyModalPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.survey-modal-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+}
+.survey-modal-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+.survey-modal-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.survey-modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.survey-modal-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.survey-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@keyframes surveyModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes surveyModalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -1918,6 +2066,202 @@ pre {
 .med-empty-hint {
   font-size: 12px;
   color: var(--text-2);
+}
+
+/* Emergency Realtime Alert Modal Overlay */
+.emergency-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.68);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: emergencyModalFadeIn 0.25s ease-out;
+}
+
+.emergency-modal-card {
+  position: relative;
+  width: min(620px, 100%);
+  background: var(--surface);
+  border: 2px solid var(--crit, #dc2626);
+  border-radius: 16px;
+  box-shadow: 0 25px 65px -12px rgba(220, 38, 38, 0.4), 0 10px 30px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: emergencyModalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.emergency-modal-head {
+  padding: 20px 24px;
+  background: var(--crit-tint, #fef2f2);
+  border-bottom: 1.5px solid rgba(220, 38, 38, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.emergency-pulse-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--crit, #dc2626);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7);
+  animation: pulseCritBadge 1.8s infinite;
+}
+
+.emergency-modal-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.emergency-modal-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--crit, #dc2626);
+  letter-spacing: -0.01em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.emergency-modal-subtitle {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.emergency-modal-close-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.emergency-modal-close-btn:hover {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--crit, #dc2626);
+}
+
+.emergency-modal-body {
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.emergency-modal-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0;
+}
+
+.emergency-modal-hint {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-left: 4px solid var(--crit, #dc2626);
+  margin: 0;
+}
+
+.emergency-modal-foot {
+  padding: 18px 24px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.emergency-btn-primary {
+  background: var(--crit, #dc2626);
+  color: #ffffff;
+  border: 0;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.emergency-btn-primary:hover {
+  opacity: 0.94;
+  transform: translateY(-1px);
+}
+
+.emergency-btn-secondary {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.emergency-btn-secondary:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+@keyframes emergencyModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes emergencyModalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes pulseCritBadge {
+  0% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7);
+  }
+  70% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+  }
+  100% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
 }
 
 

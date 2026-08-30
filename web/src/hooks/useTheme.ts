@@ -14,7 +14,7 @@ export const THEME_LABEL: Record<ThemeMode, string> = {
   dark: "tối",
 };
 
-/** Dùng chung cho Doctor và Admin portal — Patient portal không có nút đổi giao diện. */
+/** Dùng chung cho Doctor, Admin và Patient portal — mặc định là "system" (theo hệ thống). */
 export function useTheme() {
   const [theme, setTheme] = useState<ThemeMode>("system");
 

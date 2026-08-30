@@ -139,6 +139,18 @@ class PatientRepository:
             return None
         return row[0], row[1]
 
+    async def get_names_by_ids(self, patient_ids: List[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch name lookup for annotating a page of rows that reference
+        patient_id (e.g. GET /alerts) without one query per row. Empty input
+        short-circuits to an empty dict rather than issuing `WHERE ... IN ()`."""
+        if not patient_ids:
+            return {}
+        stmt = select(PatientProfile.user_id, PatientProfile.name).where(
+            PatientProfile.user_id.in_(patient_ids)
+        )
+        result = await self._db.execute(stmt)
+        return {row[0]: row[1] for row in result.all()}
+
     async def list_patients(
         self,
         doctor_id: Optional[uuid.UUID] = None,

@@ -295,6 +295,7 @@ class RemindRxApiServiceContractTest {
             part,
             okhttp3.RequestBody.create(null, "2026-08-29"),
             okhttp3.RequestBody.create(null, "2026-08-29T23:30:00+07:00"),
+            okhttp3.RequestBody.create(null, "conversation-1"),
         ).data
 
         val request = server.takeRequest()

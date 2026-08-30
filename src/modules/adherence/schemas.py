@@ -162,6 +162,11 @@ class AlertDetailResponse(BaseModel):
 
     id: uuid.UUID
     patient_id: uuid.UUID
+    # Not on the Alert ORM model (no relationship — see structure.md's
+    # "no implicit lazy loading" convention); the service attaches this
+    # after model_validate via PatientRepository, batched for list_alerts so
+    # a page of N alerts costs one extra query, not N.
+    patient_name: Optional[str] = None
     assigned_doctor_id: Optional[uuid.UUID] = None
     triggered_by_type: str
     alert_type: str

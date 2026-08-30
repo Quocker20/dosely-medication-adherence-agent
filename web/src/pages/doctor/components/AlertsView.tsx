@@ -4,6 +4,8 @@ import {
   alertSeverityView,
   alertStatusView,
   alertTriggerLabel,
+  alertTypeLabel,
+  formatAlertMessage,
   formatDateTime,
   patientDisplayName,
 } from "../../../utils/labels";
@@ -31,20 +33,20 @@ export default function AlertsView({
 }: Props) {
   const byId = new Map(patients.map((patient) => [patient.patient_id, patient]));
 
-  // Backend đòi resolution_note không rỗng, nên phải nhập trước khi đóng.
+  // Backend yêu cầu resolution_note không rỗng khi đóng cảnh báo.
   const [notes, setNotes] = useState<Record<string, string>>({});
 
   return (
     <section className="view">
-      <GuardBanner title="Closed-loop Red Alert">
+      <GuardBanner title="Quy trình xử lý cảnh báo khẩn cấp">
         <li>
-          Kích hoạt khi <b>bỏ liều liên tiếp</b>, bệnh nhân bấm <b>SOS</b>, hoặc agent phát hiện <b>triệu chứng nặng</b>.
+          Kích hoạt khi bệnh nhân <b>bỏ liều liên tiếp</b>, bấm <b>SOS</b>, hoặc hệ thống phát hiện <b>triệu chứng nặng</b>.
         </li>
         <li>
-          Cảnh báo chỉ đóng khi <b>bác sĩ xác nhận</b> kèm ghi chú xử lý — hệ thống không tự resolve.
+          Cảnh báo chỉ được đóng khi <b>bác sĩ xác nhận</b> kèm ghi chú xử lý — hệ thống không tự ý đóng cảnh báo.
         </li>
         <li>
-          Dashboard đếm cả <b>OPEN</b> và <b>ACKNOWLEDGED</b> là chưa xong: đã xem không có nghĩa đã xử lý.
+          Trạng thái <b>Đang mở</b> và <b>Đã tiếp nhận</b> đều được tính là chưa hoàn tất: tiếp nhận chỉ ghi nhận đã xem, bác sĩ cần xử lý và nhập ghi chú để đóng cảnh báo.
         </li>
       </GuardBanner>
 
@@ -66,14 +68,14 @@ export default function AlertsView({
                 <div style={{ minWidth: 0 }}>
                   <div className="alert-title">
                     {alertTriggerLabel(alert.triggered_by_type)} —{" "}
-                    {patient ? patientDisplayName(patient.patient_name) : alert.patient_id}
+                    {patientDisplayName(alert.patient_name ?? patient?.patient_name ?? null)}
                   </div>
                   <div className="alert-sub">
-                    mở lúc {formatDateTime(alert.created_at)} · <span className="mono">{alert.id.slice(0, 8)}</span>
+                    Phát hiện lúc {formatDateTime(alert.created_at)}
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span className="pill mono">{alert.alert_type}</span>
+                  <span className="pill mono">{alertTypeLabel(alert.alert_type)}</span>
                   <span className={`pill ${severityView.tone}`}>{severityView.label}</span>
                   <span className={`pill ${statusView.tone}`}>
                     <span className="dot" />
@@ -86,14 +88,16 @@ export default function AlertsView({
                 {alert.triggered_by_type === "ADHERENCE_REVIEW" ? (
                   <div className="chan" style={{ alignItems: "flex-start", gap: 8 }}>
                     <span className="pill accent" style={{ padding: "1px 6px", fontSize: "11px", flexShrink: 0 }}>
-                      AI
+                      Hệ thống phân tích
                     </span>
                     <p style={{ margin: 0, fontSize: "13px", color: "var(--text)" }}>
-                      {alert.message ?? "Không có mô tả kèm theo."}
+                      {formatAlertMessage(alert.message)}
                     </p>
                   </div>
                 ) : (
-                  <p className="alert-sub">{alert.message ?? "Không có mô tả kèm theo."}</p>
+                  <p className="alert-sub" style={{ color: "var(--text)", fontSize: "13px" }}>
+                    {formatAlertMessage(alert.message)}
+                  </p>
                 )}
               </div>
 
@@ -124,17 +128,20 @@ export default function AlertsView({
                   </>
                 )}
 
-                <button className="btn sm ghost" onClick={() => onOpenPatient(alert.patient_id)}>
+                <button className="btn sm" onClick={() => onOpenPatient(alert.patient_id)}>
                   Mở hồ sơ bệnh nhân
                 </button>
 
                 <div className="state-flow">
-                  {FLOW.map((state, index) => (
-                    <span key={state}>
-                      {index > 0 && <span> · </span>}
-                      {alert.status === state ? <b>{state}</b> : <span>{state}</span>}
-                    </span>
-                  ))}
+                  {FLOW.map((state, index) => {
+                    const stView = alertStatusView(state);
+                    return (
+                      <span key={state}>
+                        {index > 0 && <span> · </span>}
+                        {alert.status === state ? <b>{stView.label}</b> : <span>{stView.label}</span>}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             </article>
