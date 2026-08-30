@@ -1,14 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "../../../api";
 import GuardBanner from "../../../components/shared/GuardBanner";
+import { normalizeSearchQuery } from "../../../components/auth/phone";
 import type {
   DashboardPatientListItem,
   HealthSurveyFullDetail,
   HealthSurveyListItem,
   HealthSurveySeverity,
 } from "../../../types";
-import { formatDate, formatDateTime, initialsOf, isoDate, paginationRange, patientDisplayName } from "../../../utils/labels";
+import {
+  formatDate,
+  formatDateTime,
+  initialsOf,
+  isoDate,
+  paginationRange,
+  patientDisplayName,
+  surveyStatusView,
+} from "../../../utils/labels";
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .trim();
+}
 
 type SurveyMode = "all" | "patient";
 
@@ -60,16 +79,30 @@ function severityView(severity: string | null): { label: string; tone: "crit" | 
 
 function answerLabel(key: string): string {
   const labels: Record<string, string> = {
-    mood: "Điểm cảm nhận",
-    mood_score: "Điểm cảm nhận",
+    mood: "Cảm nhận",
+    mood_score: "Cảm nhận",
     free_text: "Ghi chú",
     notes: "Ghi chú",
   };
   return labels[key] ?? key.replace(/_/g, " ");
 }
 
-function renderAnswerValue(value: unknown): string {
+const MOOD_LEVELS: Record<number, string> = {
+  1: "Rất tệ (1)",
+  2: "Kém (2)",
+  3: "Trung bình (3)",
+  4: "Tốt (4)",
+  5: "Rất tốt (5)",
+};
+
+function renderAnswerValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (key === "mood" || key === "mood_score") {
+    const num = Number(value);
+    if (num in MOOD_LEVELS) {
+      return MOOD_LEVELS[num];
+    }
+  }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -86,7 +119,11 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
   const [patientSearch, setPatientSearch] = useState("");
   const [debouncedPatientSearch, setDebouncedPatientSearch] = useState("");
   const [patientOptions, setPatientOptions] = useState<DashboardPatientListItem[]>(patients);
+  const [searchResults, setSearchResults] = useState<DashboardPatientListItem[] | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
 
   const [surveys, setSurveys] = useState<HealthSurveyListItem[]>([]);
   const [totalSurveys, setTotalSurveys] = useState(0);
@@ -96,6 +133,26 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
   const [detail, setDetail] = useState<HealthSurveyFullDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeModal();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [modalOpen]);
 
   useEffect(() => {
     setPatientOptions((current) => mergePatients(current, patients));
@@ -108,22 +165,45 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
 
   useEffect(() => {
     const query = debouncedPatientSearch.trim();
-    if (query.length < 2) return;
+    if (query.length < 2) {
+      setSearchResults(null);
+      return;
+    }
 
     let cancelled = false;
+    setIsSearching(true);
     api
-      .dashboardPatients({ search: query, size: 25 })
+      .dashboardPatients({ search: normalizeSearchQuery(query), size: 25 })
       .then((result) => {
-        if (!cancelled) setPatientOptions((current) => mergePatients(current, result.content));
+        if (!cancelled) {
+          setSearchResults(result.content);
+          setPatientOptions((current) => mergePatients(current, result.content));
+        }
       })
       .catch(() => {
-        // Survey list vẫn hoạt động; search bệnh nhân sẽ thử lại ở lần nhập sau.
+        if (!cancelled) setSearchResults([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsSearching(false);
       });
 
     return () => {
       cancelled = true;
     };
   }, [debouncedPatientSearch]);
+
+  const displayedPatients = useMemo(() => {
+    if (searchResults !== null) {
+      return searchResults;
+    }
+    const q = normalizeText(patientSearch);
+    if (!q) return patientOptions;
+    return patientOptions.filter((p) => {
+      const nameNorm = normalizeText(p.patient_name);
+      const idNorm = normalizeText(p.patient_id);
+      return nameNorm.includes(q) || idNorm.includes(q);
+    });
+  }, [searchResults, patientOptions, patientSearch]);
 
   const selectedPatient = useMemo(
     () => patientOptions.find((patient) => patient.patient_id === selectedPatientId) ?? null,
@@ -184,6 +264,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
   }, [refreshSurveys]);
 
   async function openSurvey(surveyId: string) {
+    setModalOpen(true);
     setDetailBusy(true);
     setDetailError(null);
     try {
@@ -197,6 +278,12 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
     }
   }
 
+  function closeModal() {
+    setModalOpen(false);
+    setDetail(null);
+    setDetailError(null);
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalSurveys / PAGE_SIZE));
   const severeOnPage = surveys.filter((survey) => survey.max_severity === "SEVERE").length;
   const latestSurvey = surveys[0]?.survey_date ?? null;
@@ -206,7 +293,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
     <section className="view">
       <GuardBanner title="Theo dõi khảo sát sức khỏe">
         <li>
-          Dữ liệu survey giúp bác sĩ theo dõi triệu chứng và mức độ khó chịu của bệnh nhân theo thời gian.
+          Dữ liệu khảo sát giúp bác sĩ theo dõi triệu chứng và mức độ khó chịu của bệnh nhân theo thời gian.
         </li>
         <li>
           Triệu chứng nặng chỉ tạo cảnh báo để bác sĩ xử lý; hệ thống không tự đổi thuốc, đổi liều hay ngưng thuốc.
@@ -261,6 +348,9 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                   className={mode === "all" ? "active" : ""}
                   onClick={() => {
                     setMode("all");
+                    setSelectedPatientId("");
+                    setPatientSearch("");
+                    setIsDropdownOpen(false);
                     setPage(1);
                   }}
                 >
@@ -317,40 +407,82 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
               </label>
 
               {mode === "patient" && (
-                <>
-                  <label className="survey-patient-search">
+                <div className="survey-patient-picker" ref={comboboxRef}>
+                  <label>
                     <span>Tìm bệnh nhân</span>
-                    <input
-                      placeholder="Tên hoặc SĐT"
-                      value={patientSearch}
-                      onChange={(event) => setPatientSearch(event.target.value)}
-                    />
+                    <div className="survey-patient-input-wrap">
+                      <input
+                        placeholder="Nhập tên hoặc số điện thoại bệnh nhân…"
+                        value={patientSearch}
+                        onChange={(event) => {
+                          const val = event.target.value;
+                          setPatientSearch(val);
+                          setIsDropdownOpen(true);
+                          if (!val.trim()) {
+                            setSelectedPatientId("");
+                          }
+                        }}
+                        onFocus={() => setIsDropdownOpen(true)}
+                      />
+                      {patientSearch && (
+                        <button
+                          type="button"
+                          className="survey-patient-clear-btn"
+                          aria-label="Xóa tìm kiếm"
+                          title="Xóa tìm kiếm"
+                          onClick={() => {
+                            setPatientSearch("");
+                            setSearchResults(null);
+                            setSelectedPatientId("");
+                            setIsDropdownOpen(false);
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </label>
-                  <label className="survey-patient-select">
-                    <span>Bệnh nhân</span>
-                    <select
-                      value={selectedPatientId}
-                      onChange={(event) => {
-                        setSelectedPatientId(event.target.value);
-                        setPage(1);
-                        setDetail(null);
-                      }}
-                    >
-                      <option value="">Chọn bệnh nhân</option>
-                      {patientOptions.map((patient) => (
-                        <option key={patient.patient_id} value={patient.patient_id}>
-                          {patientDisplayName(patient.patient_name)} · {patient.patient_id.slice(0, 8)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
+
+                  {isDropdownOpen && (
+                    <ul className="survey-patient-dropdown" role="listbox">
+                      {isSearching && (
+                        <li className="survey-patient-empty">Đang tìm kiếm trên hệ thống…</li>
+                      )}
+                      {!isSearching && displayedPatients.length === 0 && (
+                        <li className="survey-patient-empty">Không tìm thấy bệnh nhân phù hợp</li>
+                      )}
+                      {displayedPatients.map((p) => {
+                        const isSelected = p.patient_id === selectedPatientId;
+                        return (
+                          <li
+                            key={p.patient_id}
+                            className={`survey-patient-item ${isSelected ? "is-selected" : ""}`}
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setSelectedPatientId(p.patient_id);
+                              setPatientSearch(patientDisplayName(p.patient_name));
+                              setIsDropdownOpen(false);
+                              setPage(1);
+                            }}
+                          >
+                            <div className="avatar sm">{initialsOf(p.patient_name)}</div>
+                            <div>
+                              <div className="who-name">{patientDisplayName(p.patient_name)}</div>
+                              <div className="who-meta mono">{p.patient_id.slice(0, 8)}</div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               )}
             </div>
 
             {loadError && (
               <div className="errors">
-                <b>Không tải được dữ liệu survey</b>
+                <b>Không tải được dữ liệu khảo sát</b>
                 <ul>
                   <li>{loadError}</li>
                 </ul>
@@ -364,7 +496,7 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                     <th>Bệnh nhân</th>
                     <th>Ngày khảo sát</th>
                     <th>Triệu chứng</th>
-                    <th>Mức cao nhất</th>
+                    <th>Mức độ</th>
                     <th>Đã nộp</th>
                     <th>Trạng thái</th>
                   </tr>
@@ -417,7 +549,9 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                           <span className="cell-note">{formatDateTime(survey.submitted_at)}</span>
                         </td>
                         <td>
-                          <span className="pill mono">{survey.status}</span>
+                          <span className={`pill mono ${surveyStatusView(survey.status).tone}`}>
+                            {surveyStatusView(survey.status).label}
+                          </span>
                         </td>
                       </tr>
                     );
@@ -426,7 +560,11 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
                   {!loading && surveys.length === 0 && (
                     <tr>
                       <td colSpan={6}>
-                        <p className="empty">Không có khảo sát trong phạm vi đã chọn.</p>
+                        <p className="empty">
+                          {mode === "patient" && !selectedPatientId
+                            ? "Vui lòng chọn hoặc tìm kiếm bệnh nhân để xem lịch sử khảo sát."
+                            : "Không có khảo sát trong phạm vi đã chọn."}
+                        </p>
                       </td>
                     </tr>
                   )}
@@ -477,95 +615,114 @@ export default function SurveyView({ patients, onOpenPatient, onToast }: Props) 
             </nav>
           </div>
         </div>
+      </div>
 
-        <aside className="card survey-detail-card" aria-label="Chi tiết khảo sát">
-          <div className="card-head">
-            <h2>Chi tiết</h2>
-            <div className="spacer" />
-            {detail && (
-              <button className="btn sm ghost" onClick={() => onOpenPatient(detail.patient_id)}>
-                Mở hồ sơ
-              </button>
-            )}
-          </div>
-          <div className="card-body">
-            {detailBusy && <p className="empty">Đang tải chi tiết…</p>}
-            {detailError && (
-              <div className="errors">
-                <b>Không mở được chi tiết</b>
-                <ul>
-                  <li>{detailError}</li>
-                </ul>
+      {modalOpen && (
+        <div className="survey-modal-overlay" onClick={closeModal}>
+          <div
+            className="survey-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Chi tiết khảo sát"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="survey-modal-head">
+              <h2>Chi tiết khảo sát</h2>
+              <div className="survey-modal-actions">
+                {detail && (
+                  <button
+                    className="btn sm"
+                    onClick={() => {
+                      closeModal();
+                      onOpenPatient(detail.patient_id);
+                    }}
+                  >
+                    Mở hồ sơ
+                  </button>
+                )}
+                <button className="survey-modal-close" onClick={closeModal} aria-label="Đóng" title="Đóng">
+                  ✕
+                </button>
               </div>
-            )}
-            {!detailBusy && !detailError && !detail && (
-              <p className="empty">Chọn một khảo sát để xem câu trả lời và triệu chứng.</p>
-            )}
+            </div>
 
-            {!detailBusy && detail && (
-              <>
-                <div className="survey-detail-head">
-                  <div className="who">
-                    <div className="avatar">{initialsOf(detail.patient_name)}</div>
-                    <div>
-                      <div className="who-name">{patientDisplayName(detail.patient_name)}</div>
-                      <div className="who-meta mono">{detail.patient_id.slice(0, 8)}</div>
+            <div className="survey-modal-body">
+              {detailBusy && <p className="empty">Đang tải chi tiết khảo sát…</p>}
+              {detailError && (
+                <div className="errors">
+                  <b>Không mở được chi tiết</b>
+                  <ul>
+                    <li>{detailError}</li>
+                  </ul>
+                </div>
+              )}
+
+              {!detailBusy && detail && (
+                <>
+                  <div className="survey-detail-head">
+                    <div className="who">
+                      <div className="avatar">{initialsOf(detail.patient_name)}</div>
+                      <div>
+                        <div className="who-name">{patientDisplayName(detail.patient_name)}</div>
+                      </div>
+                    </div>
+                    <div className="routine">
+                      <span className="pill mono">{formatDate(detail.survey_date)}</span>
+                      <span className={`pill mono ${surveyStatusView(detail.status).tone}`}>
+                        {surveyStatusView(detail.status).label}
+                      </span>
                     </div>
                   </div>
-                  <div className="routine">
-                    <span className="pill mono">{formatDate(detail.survey_date)}</span>
-                    <span className="pill mono">{detail.status}</span>
-                  </div>
-                </div>
 
-                <div className="drawer-sec">
-                  <div className="eyebrow">Câu trả lời</div>
-                  <div className="survey-answer-list">
-                    {Object.entries(detail.answers_json).length === 0 ? (
-                      <p className="rail-note">Không có câu trả lời dạng JSON.</p>
+                  <div className="drawer-sec">
+                    <div className="eyebrow">Câu trả lời</div>
+                    <div className="survey-answer-list">
+                      {Object.entries(detail.answers_json).length === 0 ? (
+                        <p className="rail-note">Không có câu trả lời chi tiết.</p>
+                      ) : (
+                        Object.entries(detail.answers_json).map(([key, value]) => (
+                          <div className="survey-answer-row" key={key}>
+                            <span>{answerLabel(key)}</span>
+                            <b>{renderAnswerValue(key, value)}</b>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="drawer-sec">
+                    <div className="eyebrow">Triệu chứng</div>
+                    {detail.symptoms.length === 0 ? (
+                      <p className="rail-note">Không ghi nhận triệu chứng.</p>
                     ) : (
-                      Object.entries(detail.answers_json).map(([key, value]) => (
-                        <div className="survey-answer-row" key={key}>
-                          <span>{answerLabel(key)}</span>
-                          <b>{renderAnswerValue(value)}</b>
-                        </div>
-                      ))
+                      <div className="log">
+                        {detail.symptoms.map((symptom) => {
+                          const symptomSeverity = severityView(symptom.severity);
+                          return (
+                            <div className="log-row survey-symptom-row" key={symptom.id}>
+                              <div className="log-time">{formatDateTime(symptom.reported_at)}</div>
+                              <div className="log-what">
+                                <div className="survey-symptom-title">
+                                  <b>{SYMPTOM_LABELS[symptom.symptom_code] ?? symptom.symptom_code}</b>
+                                  <span className={`pill flat ${symptomSeverity.tone}`}>
+                                    {symptomSeverity.tone && <span className="dot" />}
+                                    {symptomSeverity.label}
+                                  </span>
+                                </div>
+                                {symptom.description && <p>{symptom.description}</p>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                </div>
-
-                <div className="drawer-sec">
-                  <div className="eyebrow">Triệu chứng</div>
-                  {detail.symptoms.length === 0 ? (
-                    <p className="rail-note">Không ghi nhận triệu chứng.</p>
-                  ) : (
-                    <div className="log">
-                      {detail.symptoms.map((symptom) => {
-                        const symptomSeverity = severityView(symptom.severity);
-                        return (
-                          <div className="log-row survey-symptom-row" key={symptom.id}>
-                            <div className="log-time">{formatDateTime(symptom.reported_at)}</div>
-                            <div className="log-what">
-                              <div className="survey-symptom-title">
-                                <b>{SYMPTOM_LABELS[symptom.symptom_code] ?? symptom.symptom_code}</b>
-                                <span className={`pill flat ${symptomSeverity.tone}`}>
-                                  {symptomSeverity.tone && <span className="dot" />}
-                                  {symptomSeverity.label}
-                                </span>
-                              </div>
-                              {symptom.description && <p>{symptom.description}</p>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
-        </aside>
-      </div>
+        </div>
+      )}
     </section>
   );
 }
