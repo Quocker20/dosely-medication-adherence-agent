@@ -26,10 +26,9 @@ interface Props {
 }
 
 const MEAL_RELATIONS: { value: string; label: string }[] = [
-  { value: "", label: "Không quy định" },
+  { value: "", label: "Chọn thời điểm" },
   { value: "BEFORE_MEAL", label: "Trước ăn" },
   { value: "AFTER_MEAL", label: "Sau ăn" },
-  { value: "WITH_MEAL", label: "Trong bữa ăn" },
 ];
 
 const ROUTES: { value: string; label: string }[] = [
@@ -56,16 +55,45 @@ const EMPTY_PATIENT: PatientForm = { name: "", dob: "", sex: "MALE", emergency_n
 /** Ô nào backend đã có dữ liệu thì khoá; ô rỗng vẫn để bác sĩ điền. */
 type LockedFields = Partial<Record<keyof PatientForm, boolean>>;
 
+export function validatePrescriptionItems(items: PrescriptionItemIn[]): string[] {
+  const errors: string[] = [];
+
+  if (items.length === 0) {
+    errors.push("Đơn thuốc phải có ít nhất một loại thuốc.");
+    return errors;
+  }
+
+  items.forEach((item, index) => {
+    const label = `Thuốc ${String(index + 1).padStart(2, "0")}`;
+
+    if (!item.medication_id) {
+      errors.push(`${label}: Vui lòng chọn thuốc trong danh mục.`);
+    }
+
+    const doses = [item.morning_dose, item.noon_dose, item.evening_dose, item.bedtime_dose];
+    const hasPositiveDose = doses.some((dose) => typeof dose === "number" && dose > 0);
+    if (!hasPositiveDose) {
+      errors.push(`${label}: Cần nhập ít nhất một cữ thuốc (Sáng, Trưa, Chiều hoặc Trước ngủ) lớn hơn 0.`);
+    }
+
+    if (item.meal_relation !== "BEFORE_MEAL" && item.meal_relation !== "AFTER_MEAL") {
+      errors.push(`${label}: Vui lòng chọn thời điểm uống (Trước ăn hoặc Sau ăn).`);
+    }
+  });
+
+  return errors;
+}
+
 function emptyItem(): PrescriptionItemIn {
   return {
     medication_id: "",
     dose_unit: "Viên",
-    morning_dose: 1,
+    morning_dose: null,
     noon_dose: null,
     evening_dose: null,
     bedtime_dose: null,
     route: "ORAL",
-    meal_relation: "AFTER_MEAL",
+    meal_relation: null,
     minimum_interval_minutes: null,
     start_date: isoDate(new Date()),
     end_date: null,
@@ -247,14 +275,17 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
       onToast("Nhập số điện thoại bệnh nhân trước");
       return;
     }
-    if (items.some((item) => !item.medication_id)) {
-      onToast("Mỗi dòng phải chọn một thuốc trong danh mục");
-      return;
-    }
     // Chặn tại chỗ thay vì để backend trả 422: 3 trường này là bắt buộc trong
     // CreatePrescriptionRequest, báo sớm đỡ mất một vòng gọi mạng.
     if (!patient.name.trim() || !patient.dob || !patient.sex) {
       onToast("Cần đủ họ tên, ngày sinh và giới tính của bệnh nhân");
+      return;
+    }
+
+    const validationErrors = validatePrescriptionItems(items);
+    if (validationErrors.length > 0) {
+      setErrorDetails(validationErrors);
+      onToast("Thông tin đơn thuốc chưa hợp lệ — kiểm tra bên dưới form");
       return;
     }
 
