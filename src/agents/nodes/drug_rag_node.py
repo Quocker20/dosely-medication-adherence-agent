@@ -8,10 +8,12 @@ from functools import lru_cache
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.patient_presentation import patient_facing_text
+from src.agents.medication_mapping import resolve_catalog_medication
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
 from src.rag_retrieval.input_guardrail import is_contextual_drug_reference
+from src.rag_retrieval.service import fold
 
 _CITATION = re.compile(r"\s*\[Nguồn\s+\d+]", re.IGNORECASE)
 _EFFECT_QUERY = re.compile(r"\b(?:tác dụng|công dụng|chỉ định|dùng để làm gì|used for|indication)\b", re.IGNORECASE)
@@ -39,6 +41,10 @@ _SCOPES = {
 _UNAVAILABLE_REPLY = (
     "Mình chưa thể tra cứu Dược Thư Quốc gia lúc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ "
     "trước khi thay đổi điều trị."
+)
+_IDENTITY_MISMATCH_REPLY = (
+    "Mình chưa tìm thấy đoạn Dược thư khớp đúng với thuốc hoặc hoạt chất đã xác định. "
+    "Mình sẽ không dùng thông tin của thuốc khác để trả lời; bạn vui lòng kiểm tra lại tên trên nhãn thuốc."
 )
 
 
@@ -96,6 +102,32 @@ def _format_effect_answer(answer: str, drug_name: str) -> str:
     return _format_topic_answer(answer, drug_name, "effect", "Tác dụng hoặc chỉ định chính")
 
 
+async def _resolve_named_drug(rag: SafeDrugRAG, name: str) -> tuple[tuple[str, str] | None, dict | None]:
+    """Resolve a formulary name or an exact catalog brand before retrieval."""
+    if not name:
+        return None, None
+    normalized, display = rag.rag.infer_drug(name)
+    if normalized and display:
+        return (normalized, display), None
+    try:
+        page = await get("/medications", params={"search": name, "size": 10})
+    except BackendAPIError:
+        return None, None
+    entries = list((page or {}).get("content") or [])
+    wanted = fold(name)
+    exact = [entry for entry in entries if fold(str(entry.get("name") or "")) == wanted]
+    if len(exact) != 1:
+        return None, None
+    entry = exact[0]
+    identities = resolve_catalog_medication(
+        str(entry.get("name") or name), str(entry.get("composition") or ""), rag.rag
+    )
+    if len(identities) != 1:
+        return None, entry
+    identity = identities[0]
+    return (identity.normalized_drug_name, identity.formulary_name), entry
+
+
 async def drug_rag_node(state: AgentState) -> dict:
     question = _last_human_text(state)
     analysis = state.get("intent_analysis") or {}
@@ -108,6 +140,7 @@ async def drug_rag_node(state: AgentState) -> dict:
     try:
         rag = _get_rag_service()
         context_drug = None
+        catalog_entry = None
         memory = state.get("memory_context") or {}
         current = memory.get("current_medication") if isinstance(memory, dict) else None
         if is_contextual_drug_reference(question) and isinstance(current, dict):
@@ -115,6 +148,10 @@ async def drug_rag_node(state: AgentState) -> dict:
             normalized, canonical = rag.rag.infer_drug(display_name)
             if normalized and canonical:
                 context_drug = (normalized, canonical)
+        if context_drug is None:
+            context_drug, catalog_entry = await _resolve_named_drug(
+                rag, str(analysis.get("drug_name") or "").strip()
+            )
         result = await asyncio.to_thread(rag.query, question, context_drug=context_drug) if context_drug else await asyncio.to_thread(rag.query, question)
         if result.status in {"needs_drug_name", "out_of_scope", "unsupported_language", "no_data"}:
             catalog_name = str(analysis.get("drug_name") or "").strip()
@@ -128,7 +165,18 @@ async def drug_rag_node(state: AgentState) -> dict:
                     entry = entries[0]
                     composition = str(entry.get("composition") or "").strip()
                     if composition:
-                        result = await asyncio.to_thread(rag.query, f"{composition}. {question}")
+                        identities = resolve_catalog_medication(
+                            str(entry.get("name") or catalog_name), composition, rag.rag
+                        )
+                        if len(identities) == 1:
+                            identity = identities[0]
+                            context_drug = (
+                                identity.normalized_drug_name,
+                                identity.formulary_name,
+                            )
+                            result = await asyncio.to_thread(
+                                rag.query, question, context_drug=context_drug
+                            )
                     if result.status != "answered":
                         details = [f"Thông tin từ danh mục thuốc\n- Tên: {entry.get('name')}"]
                         if composition:
@@ -147,6 +195,19 @@ async def drug_rag_node(state: AgentState) -> dict:
             "grounding_errors": ["rag_unavailable"],
         }
 
+    if context_drug and result.sources:
+        expected = context_drug[0]
+        mismatched = [
+            source.drug_name for source in result.sources
+            if fold(str(source.drug_name)).replace(" ", "") != expected
+        ]
+        if mismatched:
+            return {
+                "messages": [AIMessage(content=_IDENTITY_MISMATCH_REPLY)],
+                "grounding_valid": False,
+                "grounding_errors": ["drug_identity_mismatch"],
+                "rag_sources": [],
+            }
     answer = patient_facing_text(result.answer)
     topic = _drug_topic(question)
     if result.status == "answered" and result.grounding_valid and topic:
@@ -156,4 +217,13 @@ async def drug_rag_node(state: AgentState) -> dict:
         "messages": [AIMessage(content=answer)],
         "grounding_valid": result.grounding_valid,
         "grounding_errors": result.grounding_errors,
+        "rag_sources": [
+            {
+                "citation": source.citation,
+                "drug_name": source.drug_name,
+                "section": source.section,
+                "excerpt": source.excerpt,
+            }
+            for source in result.sources
+        ],
     }
