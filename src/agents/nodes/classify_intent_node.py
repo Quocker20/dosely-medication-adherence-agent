@@ -68,10 +68,18 @@ _TODAY_SCHEDULE_PHRASES = (
     "my schedule today",
 )
 
+_DOSE_STATUS_QUESTION_MARKERS = (
+    "bỏ qua thuốc", "bỏ qua cữ", "bỏ lỡ thuốc", "bỏ lỡ cữ",
+    "quên uống thuốc", "quên cữ", "có quên thuốc", "đã uống chưa",
+    "missed any medicine", "missed any medication", "skipped any dose",
+)
+
 _DRUG_INFO_MARKERS = (
     "tác dụng", "công dụng", "chỉ định", "chống chỉ định", "tác dụng phụ",
     "phản ứng bất lợi", "tương tác", "cách dùng", "đường dùng", "bảo quản",
     "quên liều", "mang thai", "thai kỳ", "cho con bú", "used for",
+    "dùng như thế nào", "uống như thế nào", "dùng thế nào", "uống thế nào", "uống lúc nào",
+    "dị ứng", "mẫn cảm", "phát ban", "nổi mẩn", "ngứa",
     "side effect", "contraindication", "interaction", "how to take", "storage",
 )
 
@@ -113,6 +121,10 @@ Quy tắc phân biệt bắt buộc:
    chứng gì, uống đói/no có đúng chỉ dẫn không -> ask_scheduled_drug_info.
 4. Intent phản ánh thông tin cần có trong CÂU TRẢ LỜI, không phải dữ kiện phụ.
 5. Không tự suy ra tên thuốc từ giờ; để reference_type=schedule_time cho backend xác minh.
+6. Nếu người dùng nêu rõ tên thuốc, kể cả tên thương mại, reference_type=drug_name và giữ
+   nguyên tên đó trong drug_name. Không đổi sang tham chiếu cữ nếu câu không dùng giờ/cữ để tìm thuốc.
+7. Nếu tin nhắn chỉ là tên thuốc mà chưa nói muốn biết gì, vẫn chọn ask_drug_info,
+   reference_type=drug_name, needs_clarification=true; không coi là sai ngôn ngữ.
 
 Ví dụ câu "Tôi đau bụng, chắc do uống lúc đói; thuốc cữ 7h30 dùng vậy có sai
 không?" phải là ask_scheduled_drug_info, topics=[administration, adverse_effect],
@@ -172,6 +184,40 @@ Quy tắc cho câu hỏi thuốc gián tiếp:
   đặt reference_type=none và needs_clarification=true; tuyệt đối không đoán tên thuốc.
 """
 
+# Clean UTF-8 classifier instructions. Keep this separate from the legacy
+# constants above, which contain historical mojibake and are used only by the
+# deterministic fallback compatibility layer.
+_CLEAN_CLASSIFY_PROMPT = """
+Bạn là bộ phân tích mục đích cho chatbot RemindRx. Chỉ phân tích tin nhắn cuối
+dựa trên tối đa 6 lượt hội thoại gần nhất; không trả lời nội dung y tế.
+
+Chọn đúng một intent:
+- ask_schedule: xem lịch/cữ/trạng thái đã uống, chưa uống, bỏ qua; có thể kèm ngày,
+  buổi hoặc giờ. Nếu người dùng hỏi 'giờ X có thuốc gì/cần uống gì không' thì luôn là ask_schedule.
+- ask_next_dose: hỏi liều hoặc cữ kế tiếp.
+- ask_my_medications: hỏi danh sách thuốc hiện đang được kê/đang dùng.
+- explain_my_medications: giải thích cách dùng các thuốc trong đơn của chính người dùng.
+- ask_drug_info: hỏi thông tin của thuốc/hoạt chất được nêu trực tiếp (công dụng,
+  tác dụng phụ, tương tác, chống chỉ định, bảo quản).
+- ask_prescribed_drug_info: hỏi thông tin một thuốc trong đơn nhưng chỉ tham chiếu
+  bằng giờ, buổi, cữ, thứ tự hoặc ngữ cảnh gần đây; không được đoán tên thuốc.
+- report_meal_shift: báo bữa ăn hôm nay lệch giờ.
+- general: chào hỏi hoặc ngoài phạm vi.
+
+Ưu tiên ngữ nghĩa của toàn câu, không chọn intent chỉ vì thấy từ 'thuốc', 'giờ'
+hoặc 'cữ'. Nếu câu vừa hỏi lịch vừa hỏi thông tin thuốc, chọn intent phản ánh
+mục tiêu chính và ghi đủ topics. Nếu thiếu tên thuốc/giờ cần thiết, đặt
+needs_clarification=true. Câu không dấu hoặc sai chính tả vẫn phải hiểu theo ngữ cảnh.
+Giữ nguyên drug_name nếu người dùng nêu; không tự bịa tên thuốc.
+"""
+
+def _repair_prompt_encoding(value: str) -> str:
+    """Decode legacy UTF-8-as-Latin-1 text embedded in old prompt constants."""
+    try:
+        return value.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return value
+
 
 def _validated_intent(analysis: IntentClassification) -> str:
     """Reject a schedule route when time is only a reference to a drug."""
@@ -190,6 +236,17 @@ def _validated_intent(analysis: IntentClassification) -> str:
     return analysis.intent
 
 
+def _semantic_consistency_override(text: str, analysis: IntentClassification) -> str:
+    """Correct only unambiguous schedule-vs-drug contradictions from the LLM."""
+    folded = " ".join(text.casefold().split())
+    asks_what_to_take = bool(re.search(r"(?:có|can|cần|phải)\s+thuốc|uống thuốc nào|thuốc nào.*(?:chưa uống|cần uống)", folded))
+    has_time_or_day = bool(re.search(r"\b\d{1,2}\s*(?:giờ|h)(?:\s*(?:sáng|trưa|chiều|tối))?|hôm nay|ngày mai|sáng nay|chiều nay|tối nay", folded))
+    asks_drug_properties = any(term in folded for term in ("tác dụng", "công dụng", "tác dụng phụ", "cách dùng", "tương tác", "chống chỉ định"))
+    if asks_what_to_take and has_time_or_day and not asks_drug_properties:
+        return "ask_schedule"
+    return _validated_intent(analysis)
+
+
 def _fallback_scheduled_drug_intent(normalized: str) -> bool:
     """Fallback only when LLM semantic parsing is unavailable."""
     has_reference = bool(
@@ -206,6 +263,14 @@ def _last_human_text(state: AgentState) -> str:
         if isinstance(message, HumanMessage):
             return str(message.content)
     return ""
+
+
+def _recent_conversation(state: AgentState, limit: int = 6) -> str:
+    lines = []
+    for message in list(state.get("messages") or [])[-limit:]:
+        role = "Người dùng" if isinstance(message, HumanMessage) else "Trợ lý"
+        lines.append(f"{role}: {message.content}")
+    return "\n".join(lines)
 
 
 def _fallback_indirect_reference(normalized: str) -> dict | None:
@@ -228,7 +293,7 @@ def _deterministic_topics(normalized: str) -> list[str]:
         ("identity", ("thuốc gì", "tên gì", "là thuốc gì")),
         ("indication", ("tác dụng", "công dụng", "dùng để", "chữa bệnh gì")),
         ("administration", ("cách dùng", "uống lúc", "trước hay sau ăn", "lúc đói", "dùng cùng")),
-        ("adverse_effect", ("tác dụng phụ", "phản ứng bất lợi", "chóng mặt", "buồn nôn", "do thuốc")),
+        ("adverse_effect", ("tác dụng phụ", "phản ứng bất lợi", "dị ứng", "mẫn cảm", "phát ban", "nổi mẩn", "ngứa", "chóng mặt", "buồn nôn", "do thuốc")),
         ("interaction", ("tương tác", "dùng cùng", "uống cùng")),
         ("contraindication", ("chống chỉ định", "không được dùng")),
         ("missed_dose", ("quên uống", "quên liều", "uống bù", "quá giờ")),
@@ -265,11 +330,58 @@ def _deterministic_indirect_analysis(normalized: str) -> dict | None:
 async def classify_intent_node(state: AgentState) -> dict:
     text = _last_human_text(state)
     normalized = " ".join(text.casefold().split())
+    # This module historically contains UTF-8 text that was accidentally
+    # persisted as Latin-1 mojibake (e.g. ``lịch`` -> ``lÃ¬ch``).  Keep the
+    # semantic parser on the real user text, but normalize the deterministic
+    # compatibility layer to the same representation as its legacy markers.
+    try:
+        normalized = normalized.encode("utf-8").decode("latin-1")
+    except UnicodeError:
+        pass
+
+    # Primary path: let the semantic LLM classify the complete message and
+    # nearby conversation context. Keyword rules below are compatibility
+    # fallbacks only and must never override a successful LLM parse.
+    try:
+        llm = get_llm(temperature=0).with_structured_output(IntentClassification)
+        result = await llm.ainvoke(
+            [
+                {"role": "system", "content": _CLEAN_CLASSIFY_PROMPT},
+                {"role": "user", "content": (
+                    "Phân tích mục đích của TIN NHẮN CUỐI dựa trên ngữ cảnh gần nhất. "
+                    "Không trả lời nội dung.\n" + _recent_conversation(state)
+                )},
+            ]
+        )
+        intent = _semantic_consistency_override(text, result)
+        return {"intent": intent, "intent_analysis": result.model_dump()}
+    except Exception:
+        # Continue to the deterministic compatibility fallback below.
+        pass
     requires_semantic_analysis = _fallback_scheduled_drug_intent(normalized) or any(
         marker in normalized for marker in _INDIRECT_DRUG_REFERENCE_MARKERS
     ) or any(marker in normalized for marker in ("thuốc của tôi", "đang uống", "đang dùng"))
     has_drug_information_topic = any(marker in normalized for marker in _DRUG_INFO_MARKERS)
     deterministic_indirect = _deterministic_indirect_analysis(normalized)
+    # Status questions ask which scheduled doses were taken/missed, not which
+    # medicines exist in the prescription. Keep this ahead of all medication
+    # list and indirect-drug branches so wording such as "bỏ qua thuốc nào"
+    # cannot be mistaken for ask_my_medications.
+    if any(marker in normalized for marker in _DOSE_STATUS_QUESTION_MARKERS):
+        period = None
+        if "sáng" in normalized:
+            period = "morning"
+        elif "trưa" in normalized:
+            period = "noon"
+        elif "chiều" in normalized or "tối" in normalized:
+            period = "evening"
+        return {"intent": "ask_schedule", "intent_analysis": {
+            "intent": "ask_schedule", "reference_type": "dose_period" if period else "current_medications",
+            "dose_period": period, "topics": ["dose_status"],
+            "date_reference": "today" if "hôm nay" in normalized or "nay" in normalized else None,
+            "requested_action": "view_schedule", "confidence": 1.0,
+            "parser": "deterministic_status_question",
+        }}
     if deterministic_indirect:
         return {"intent": "ask_prescribed_drug_info", "intent_analysis": deterministic_indirect}
     asks_to_explain_prescription = (
@@ -309,7 +421,11 @@ async def classify_intent_node(state: AgentState) -> dict:
     # user to provide one; it never performs an unscoped retrieval.
     if not requires_semantic_analysis and any(marker in normalized for marker in _DRUG_INFO_MARKERS):
         topics = _deterministic_topics(normalized)
-        drug_name = normalized.split(" có ", 1)[0].strip().title() if " có " in normalized else None
+        drug_name = normalized
+        for marker in sorted(_DRUG_INFO_MARKERS, key=len, reverse=True):
+            drug_name = drug_name.replace(marker, " ")
+        drug_name = re.sub(r"\b(?:thuốc|tôi|đang|dùng|bị|thì|phải|làm|sao|không|ko)\b", " ", drug_name)
+        drug_name = " ".join(drug_name.split()).strip(" ?.,").title() or None
         return {"intent": "ask_drug_info", "intent_analysis": {
             "intent": "ask_drug_info", "reference_type": "drug_name",
             "drug_name": drug_name, "topics": topics,
@@ -318,11 +434,14 @@ async def classify_intent_node(state: AgentState) -> dict:
         llm = get_llm(temperature=0).with_structured_output(IntentClassification)
         result = await llm.ainvoke(
             [
-                {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT + _INDIRECT_REFERENCE_PROMPT},
-                {"role": "user", "content": text},
+                {"role": "system", "content": _CLEAN_CLASSIFY_PROMPT},
+                {"role": "user", "content": (
+                    "Phân tích mục đích của TIN NHẮN CUỐI dựa trên ngữ cảnh gần nhất. "
+                    "Không trả lời nội dung.\n" + _recent_conversation(state)
+                )},
             ]
         )
-        intent = _validated_intent(result)
+        intent = _semantic_consistency_override(text, result)
         return {"intent": intent, "intent_analysis": result.model_dump()}
     except Exception:  # noqa: BLE001 — lỗi phân loại -> "general", để agent_node xử lý an toàn
         if _fallback_scheduled_drug_intent(normalized):

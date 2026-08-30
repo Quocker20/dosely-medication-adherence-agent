@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    # Explicit local-only chatbot test surface. It is disabled by default and
+    # the endpoint additionally rejects every non-loopback client.
+    enable_local_chat_test: bool = False
+    dev_chat_patient_id: str = ""
 
     # PostgreSQL Database
     # Defaults are the host-side view (pytest/alembic/uvicorn run on the

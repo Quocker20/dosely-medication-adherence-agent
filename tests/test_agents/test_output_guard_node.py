@@ -9,6 +9,11 @@ def test_output_guard_blocks_direct_medication_change_advice():
     assert not validate_patient_output("Không tự ngừng thuốc hoặc đổi liều.")
 
 
+def test_output_guard_blocks_english_patient_facing_labels_but_allows_drug_names():
+    assert "english_patient_facing_label" in validate_patient_output("Status: PENDING")
+    assert not validate_patient_output("07:00 - Paracetamol - Chưa uống")
+
+
 @pytest.mark.asyncio
 async def test_output_guard_replaces_unsafe_answer():
     result = await output_guard_node({"messages": [AIMessage(content="Bạn có thể uống bù liều.")]})

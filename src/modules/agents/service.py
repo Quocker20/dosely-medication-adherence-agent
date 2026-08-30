@@ -699,6 +699,7 @@ class ChatService:
             {
                 "messages": history + [HumanMessage(content=message)],
                 "patient_id": patient_id,
+                "conversation_id": str(conversation.id),
                 "patient_address": patient_address,
                 "client_date": client_date.isoformat() if client_date else None,
                 "client_datetime": client_datetime.isoformat() if client_datetime else None,
@@ -715,6 +716,12 @@ class ChatService:
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         if metadata.get("resolved_medication"):
             working["current_medication"] = metadata["resolved_medication"]
+        if metadata.get("adverse_event_id"):
+            # Redis only keeps a short-lived pointer. Clinical symptom data
+            # remains in PostgreSQL and is never copied wholesale into prompts.
+            working["last_adverse_event_id"] = metadata["adverse_event_id"]
+            working["last_adverse_event_at"] = metadata.get("adverse_event_reported_at")
+            working["has_unreviewed_adverse_event"] = metadata.get("adverse_event_review_status") != "REVIEWED"
         working["last_intent"] = result.get("intent")
         if persistence_available:
             await save_working_memory(str(patient_id), str(conversation.id), working)
