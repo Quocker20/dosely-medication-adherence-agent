@@ -119,3 +119,5 @@ android/keystore.properties
 android/app/release/
 .vercel
 .env*
+!.env.example
+!*.env.example
