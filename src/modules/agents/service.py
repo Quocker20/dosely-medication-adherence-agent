@@ -3,7 +3,7 @@ import logging
 import time as time_module
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
-from enum import Enum
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from fastapi import status
@@ -29,18 +29,27 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from src.core.cache import invalidate_prefix
+from src.common.schemas import PageResponse
+from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.grouping import schedule_rows_hmac
 from src.modules.agents.planner import PlanningNeedsReviewError
-from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
+from src.modules.agents.repository import (
+    AgentRunRepository,
+    ChatMemoryRepository,
+    ScheduledDoseRepository,
+    generate_conversation_title,
+)
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
+    ChatConversationDetailResponse,
+    ChatConversationListItem,
+    ChatMessageItem,
     ChatResponse,
     GenerateScheduleRequest,
     NextDoseResponse,
@@ -65,7 +74,7 @@ class AgentRunLeaseBusyError(RuntimeError):
     """A redelivered task arrived before the previous claim expired."""
 
 
-class AutoscheduleOutcome(str, Enum):
+class AutoscheduleOutcome(StrEnum):
     """Why an automatic planning trigger did or didn't start a run."""
 
     DISPATCHED = "DISPATCHED"
@@ -260,9 +269,7 @@ class SchedulingService:
             doses=doses,
         )
 
-    async def get_next_dose_for_patient(
-        self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> NextDoseResponse:
+    async def get_next_dose_for_patient(self, patient_id: uuid.UUID, actor_payload: dict) -> NextDoseResponse:
         """Return a structured next-dose state using the patient's timezone.
 
         Identity is supplied by the authenticated route, never by chat text.
@@ -270,9 +277,7 @@ class SchedulingService:
         exist but none remain actionable in the future today.
         """
         actor_id = uuid.UUID(actor_payload["sub"])
-        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(
-            patient_id, actor_id
-        )
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
         if patient_timezone is None:
             local_date = datetime.now(UTC).date()
             return NextDoseResponse(status="NO_SCHEDULE", local_date=local_date)
@@ -281,23 +286,14 @@ class SchedulingService:
         now = datetime.now(UTC)
         local_date = now.astimezone(tz).date()
         range_start = datetime.combine(local_date, time.min, tzinfo=tz).astimezone(UTC)
-        range_end = datetime.combine(
-            local_date + timedelta(days=1), time.min, tzinfo=tz
-        ).astimezone(UTC)
-        rows = await self._dose_repo.get_schedule_in_range(
-            patient_id, range_start, range_end, actor_id=actor_id
-        )
+        range_end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC)
+        rows = await self._dose_repo.get_schedule_in_range(patient_id, range_start, range_end, actor_id=actor_id)
         if not rows:
-            return NextDoseResponse(
-                status="NO_SCHEDULE", local_date=local_date, timezone=patient_timezone
-            )
+            return NextDoseResponse(status="NO_SCHEDULE", local_date=local_date, timezone=patient_timezone)
 
         resolved_statuses = {"TAKEN", "SKIPPED", "MISSED"}
         for dose, display_name in rows:
-            if (
-                dose.current_scheduled_at >= now
-                and dose.status.upper() not in resolved_statuses
-            ):
+            if dose.current_scheduled_at >= now and dose.status.upper() not in resolved_statuses:
                 return NextDoseResponse(
                     status="UPCOMING",
                     local_date=local_date,
@@ -312,9 +308,7 @@ class SchedulingService:
                         "status": dose.status,
                     },
                 )
-        return NextDoseResponse(
-            status="NO_UPCOMING", local_date=local_date, timezone=patient_timezone
-        )
+        return NextDoseResponse(status="NO_UPCOMING", local_date=local_date, timezone=patient_timezone)
 
     async def get_today_schedule_for_patient(
         self, patient_id: uuid.UUID, actor_payload: dict
@@ -326,9 +320,7 @@ class SchedulingService:
         path, which prevents cross-patient reads and server-timezone drift.
         """
         actor_id = uuid.UUID(actor_payload["sub"])
-        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(
-            patient_id, actor_id
-        )
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
         if patient_timezone is None:
             return ActiveScheduleResponse(
                 patient_id=patient_id,
@@ -638,12 +630,112 @@ class ChatService:
     async def handle_text_chat(
         self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
     ) -> ChatResponse:
-        response_text, conversation_id = await self._run_agent(message, patient_id, client_date, client_datetime, conversation_id)
+        response_text, conversation_id = await self._run_agent(
+            message, patient_id, client_date, client_datetime, conversation_id
+        )
         return ChatResponse(response=response_text, conversationId=conversation_id)
 
+    async def list_conversations(
+        self,
+        actor: dict,
+        page: int = 1,
+        size: int = 20,
+    ) -> PageResponse[ChatConversationListItem]:
+        patient_id = uuid.UUID(str(actor["sub"]))
+        cache_key = build_cache_key(
+            "chat:conversations:list",
+            actor=actor,
+            params={"page": page, "size": size},
+        )
+        ttl = get_settings().cache_ttl_chat_seconds
+
+        async def _load() -> PageResponse[ChatConversationListItem]:
+            if self._db is None or self._memory is None:
+                return PageResponse(
+                    content=[],
+                    page_no=page,
+                    page_size=size,
+                    total_elements=0,
+                    total_pages=0,
+                    last=True,
+                )
+            rows, total = await self._memory.list_conversations(patient_id, page=page, size=size)
+            items = [ChatConversationListItem.model_validate(r) for r in rows]
+            total_pages = (total + size - 1) // size if total > 0 else 0
+            return PageResponse(
+                content=items,
+                page_no=page,
+                page_size=size,
+                total_elements=total,
+                total_pages=total_pages,
+                last=page >= total_pages if total_pages > 0 else True,
+            )
+
+        return await cached_model(cache_key, ttl, PageResponse[ChatConversationListItem], _load)
+
+    async def get_conversation_detail(
+        self,
+        actor: dict,
+        conversation_id: uuid.UUID,
+        limit: int = 50,
+        before: str | None = None,
+    ) -> ChatConversationDetailResponse:
+        patient_id = uuid.UUID(str(actor["sub"]))
+        cache_key = build_cache_key(
+            "chat:conversations:detail",
+            actor=actor,
+            params={"conversation_id": str(conversation_id), "limit": limit, "before": before},
+        )
+        ttl = get_settings().cache_ttl_chat_seconds
+
+        async def _load() -> ChatConversationDetailResponse:
+            if self._db is None or self._memory is None:
+                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
+            try:
+                conv = await self._memory.get_conversation(patient_id, conversation_id)
+            except PermissionError as exc:
+                raise ForbiddenException(message="Không có quyền truy cập cuộc trò chuyện này") from exc
+
+            if conv is None:
+                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
+
+            messages, has_more, next_cursor = await self._memory.get_messages_paginated(
+                conversation_id=conversation_id,
+                limit=limit,
+                before=before,
+            )
+            msg_items = [
+                ChatMessageItem(
+                    id=m.id,
+                    role=m.role,
+                    content=m.content,
+                    intent=m.intent,
+                    created_at=m.created_at,
+                )
+                for m in messages
+            ]
+            preview = messages[-1].content if messages else None
+            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
+            return ChatConversationDetailResponse(
+                id=conv.id,
+                title=title,
+                created_at=conv.created_at,
+                updated_at=conv.updated_at,
+                messages=msg_items,
+                has_more=has_more,
+                next_cursor=next_cursor,
+            )
+
+        return await cached_model(cache_key, ttl, ChatConversationDetailResponse, _load)
+
     async def handle_voice_chat(
-        self, audio_bytes: bytes, filename: str, patient_id: str,
-        client_date=None, client_datetime=None, conversation_id=None,
+        self,
+        audio_bytes: bytes,
+        filename: str,
+        patient_id: str,
+        client_date=None,
+        client_datetime=None,
+        conversation_id=None,
     ) -> VoiceChatResponse:
         try:
             transcript = await transcribe_audio(audio_bytes, filename=filename)
@@ -653,7 +745,9 @@ class ChatService:
         if not transcript:
             raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
 
-        response_text, conversation_id = await self._run_agent(transcript, patient_id, client_date, client_datetime, conversation_id)
+        response_text, conversation_id = await self._run_agent(
+            transcript, patient_id, client_date, client_datetime, conversation_id
+        )
 
         audio_base64 = None
         try:
@@ -664,36 +758,37 @@ class ChatService:
             # text answer they already have.
             logger.warning("TTS failed, returning text-only reply")
 
-        return VoiceChatResponse(transcript=transcript, response=response_text, audio_base64=audio_base64, conversationId=conversation_id)
+        return VoiceChatResponse(
+            transcript=transcript, response=response_text, audio_base64=audio_base64, conversationId=conversation_id
+        )
 
-    async def _run_agent(self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None) -> tuple[str, uuid.UUID]:
+    async def _run_agent(
+        self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
+    ) -> tuple[str, uuid.UUID]:
         persistence_available = self._db is not None and self._memory is not None
+        actual_conv_id: uuid.UUID
         if self._db is not None and self._memory is not None:
             try:
                 async with self._db.begin():
                     conversation = await self._memory.get_or_create(uuid.UUID(str(patient_id)), conversation_id)
-                    history_rows = await self._memory.recent_messages(conversation.id, limit=10)
+                    actual_conv_id = conversation.id
+                    history_rows = await self._memory.recent_messages(actual_conv_id, limit=10)
             except PermissionError as exc:
                 raise ForbiddenException(message=str(exc)) from exc
             except Exception:  # memory outage must not make medication chat unavailable
                 logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
-                conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+                actual_conv_id = conversation_id or uuid.uuid4()
                 history_rows = []
                 persistence_available = False
         else:  # isolated unit/eval mode; production DI always supplies persistence
-            conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+            actual_conv_id = conversation_id or uuid.uuid4()
             history_rows = []
-        working = (
-            await load_working_memory(str(patient_id), str(conversation.id))
-            if persistence_available else {}
-        )
+        working = await load_working_memory(str(patient_id), str(actual_conv_id)) if persistence_available else {}
         history = [
             HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
             for row in history_rows
         ]
-        reference_date = client_date or (
-            client_datetime.date() if client_datetime is not None else date.today()
-        )
+        reference_date = client_date or (client_datetime.date() if client_datetime is not None else date.today())
         patient_address = await get_patient_address(patient_id, reference_date)
         result = await agent.ainvoke(
             {
@@ -712,7 +807,8 @@ class ChatService:
         response_text = patient_facing_text(result["messages"][-1].content)
         if persistence_available:
             async with self._db.begin():
-                await self._memory.append_exchange(conversation.id, message, response_text, result.get("intent"))
+                await self._memory.append_exchange(actual_conv_id, message, response_text, result.get("intent"))
+            await invalidate_prefix("chat:conversations")
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         if metadata.get("resolved_medication"):
             working["current_medication"] = metadata["resolved_medication"]
@@ -730,11 +826,11 @@ class ChatService:
             working.pop("pending_adverse_event", None)
         working["last_intent"] = result.get("intent")
         if persistence_available:
-            await save_working_memory(str(patient_id), str(conversation.id), working)
+            await save_working_memory(str(patient_id), str(actual_conv_id), working)
         log_turn(
             patient_id=patient_id,
             intent=result.get("intent"),
             escalated=bool(result.get("escalated")),
             response_length=len(response_text),
         )
-        return response_text, conversation.id
+        return response_text, actual_conv_id

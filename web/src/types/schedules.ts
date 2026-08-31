@@ -48,5 +48,6 @@ export interface ActiveSchedule {
 export interface VoiceChatResponse {
   transcript: string;
   response: string;
+  conversationId?: string;
   audio_base64: string | null;
 }
