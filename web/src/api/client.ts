@@ -158,3 +158,28 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   return unwrap<T>(response);
 }
+
+/**
+ * Như request<T> (cùng cơ chế single-flight refresh trên 401) nhưng trả
+ * Blob thay vì bóc envelope — dùng cho endpoint trả binary trực tiếp
+ * (ví dụ GET .../pdf, ngoại lệ duy nhất không bọc JSON envelope trên
+ * response thành công; lỗi vẫn là envelope JSON nên nhánh !response.ok vẫn
+ * gọi lại unwrap để tái dùng logic đọc message/errors).
+ */
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  let response = await rawRequest(path, options);
+
+  if (response.status === 401 && !options.anonymous && getSession()) {
+    const refreshed = await refreshSession();
+    if (!refreshed) {
+      throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại");
+    }
+    response = await rawRequest(path, options);
+  }
+
+  if (!response.ok) {
+    await unwrap(response); // luôn throw ApiError với message từ envelope lỗi
+  }
+
+  return response.blob();
+}

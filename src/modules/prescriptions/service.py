@@ -7,6 +7,7 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Optional, Tuple
 
+import anyio
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,14 @@ from src.modules.auth.repository import AuthRepository
 from src.modules.patients.constants import DEFAULT_ROUTINE
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
+from src.modules.prescriptions.pdf import (
+    PdfDoctor,
+    PdfItem,
+    PdfPatient,
+    PdfSeeds,
+    PrescriptionPdfData,
+    render_prescription_pdf,
+)
 from src.modules.prescriptions.repository import MedicationRepository, PrescriptionRepository
 from src.modules.prescriptions.schemas import (
     CancelPrescriptionRequest,
@@ -370,6 +379,140 @@ class PrescriptionService:
             raise NotFoundException(message="Prescription not found")
         items = await self._rx_repo.get_items(prescription_id)
         return self._to_detail(prescription, items)
+
+    async def export_pdf(
+        self,
+        prescription_id: uuid.UUID,
+        actor_payload: dict,
+        ip_address: Optional[str] = None,
+    ) -> bytes:
+        """Render an APPROVED prescription as a PDF (Phụ lục I, TT
+        26/2025/TT-BYT layout) — see docs/prescription-pdf-export-plan.md.
+
+        Access matches get_prescription exactly (self / doctor-prescribed /
+        active-caregiver, out-of-scope -> 404) so the two rules cannot drift
+        apart. DRAFT/CANCELLED -> 422, checked only after the access gate so
+        an out-of-scope caller learns nothing about a prescription's status.
+        """
+        role = actor_payload.get("role")
+        actor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
+
+        prescription = await self._rx_repo.get_by_id(prescription_id, actor_id=actor_id)
+        if prescription is None:
+            raise NotFoundException(message="Prescription not found")
+        if prescription.status != "APPROVED":
+            raise ValidationException(
+                message="Only an approved prescription can be exported"
+            )
+
+        items = await self._rx_repo.get_items(prescription_id)
+
+        patient_row = await self._patient_repo.get_patient_with_user(
+            prescription.patient_id, requesting_doctor_id=None
+        )
+        if patient_row is None:
+            raise NotFoundException(message="Prescription not found")
+        patient_profile, patient_user = patient_row
+
+        pdf_doctor: Optional[PdfDoctor] = None
+        if prescription.doctor_id is not None:
+            doctor_row = await self._doctor_repo.get_doctor_with_user(
+                prescription.doctor_id
+            )
+            if doctor_row is not None:
+                doctor_profile, _doctor_user = doctor_row
+                pdf_doctor = PdfDoctor(
+                    name=doctor_profile.name,
+                    license_no=doctor_profile.license_no,
+                    specialty=doctor_profile.specialty,
+                )
+
+        med_ids = [i.medication_id for i in items if i.medication_id is not None]
+        medications = await self._medication_repo.list_by_ids(med_ids)
+
+        pdf_data = PrescriptionPdfData(
+            prescription_id=prescription.id,
+            approved_at=prescription.approved_at or prescription.created_at,
+            diagnosis_note=prescription.diagnosis_note,
+            patient=PdfPatient(
+                name=patient_profile.name,
+                dob=patient_profile.dob,
+                sex=patient_profile.sex,
+                phone=patient_user.phone,
+                timezone=patient_profile.timezone,
+                emergency_note=patient_profile.emergency_note,
+            ),
+            doctor=pdf_doctor,
+            items=tuple(
+                PdfItem(
+                    display_name=item.display_name,
+                    composition=(
+                        medications[item.medication_id].composition
+                        if item.medication_id in medications
+                        else None
+                    ),
+                    dose_unit=item.dose_unit,
+                    morning=item.morning_dose,
+                    noon=item.noon_dose,
+                    evening=item.evening_dose,
+                    bedtime=item.bedtime_dose,
+                    route=item.route,
+                    meal_relation=item.meal_relation,
+                    start_date=item.start_date,
+                    end_date=item.end_date,
+                    instructions=item.instructions,
+                    is_critical=item.is_critical,
+                )
+                for item in items
+            ),
+        )
+
+        settings = get_settings()
+        seeds = PdfSeeds(
+            clinic_name=settings.clinic_name,
+            clinic_address=settings.clinic_address,
+            clinic_phone=settings.clinic_phone,
+            clinic_code=settings.clinic_code,
+            patient_id_number=settings.sim_patient_id_number,
+            patient_address=settings.sim_patient_address,
+            patient_insurance_no=settings.sim_patient_insurance_no,
+            patient_weight=settings.sim_patient_weight,
+            followup_note=settings.sim_followup_note,
+            max_free_text_chars=settings.pdf_max_free_text_chars,
+        )
+
+        # fpdf2 is synchronous and CPU-bound; running it inline would stall
+        # the event loop for the render's full duration.
+        pdf_bytes = await anyio.to_thread.run_sync(
+            render_prescription_pdf, pdf_data, seeds
+        )
+
+        # Five reads already ran on this session (get_by_id, get_items,
+        # get_patient_with_user, get_doctor_with_user, list_by_ids), so an
+        # implicit transaction is open — the autobegin trap (CLAUDE.md).
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        # Ordered after the render so a render failure leaves no audit row
+        # claiming an export that never happened. Fail-open on purpose: an
+        # audit-table problem must not withhold a patient's own approved
+        # prescription; the exception is logged so the gap stays visible.
+        try:
+            async with self._db.begin():
+                await self._audit_repo.create_audit_log(
+                    action="EXPORT_PRESCRIPTION_PDF",
+                    entity_type="PRESCRIPTION",
+                    actor_user_id=uuid.UUID(actor_payload["sub"]),
+                    entity_id=prescription_id,
+                    ip_address=ip_address,
+                )
+        except Exception:
+            logger.exception(
+                "Audit write failed for PDF export of prescription %s; export proceeds",
+                prescription_id,
+            )
+
+        return pdf_bytes
 
     async def list_prescriptions(
         self,
