@@ -174,14 +174,6 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
     return () => socket.close();
   }, [session.accessToken, refresh]);
 
-  useEffect(() => {
-    if (!emergencyNotification) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setEmergencyNotification(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [emergencyNotification]);
 
   async function acknowledgeAlert(id: string) {
     setAlertBusyId(id);
@@ -235,12 +227,8 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
           role="dialog"
           aria-modal="true"
           aria-labelledby="emergency-modal-title"
-          onClick={() => setEmergencyNotification(false)}
         >
-          <div
-            className="emergency-modal-card"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="emergency-modal-card">
             <div className="emergency-modal-head">
               <div className="emergency-pulse-badge">🚨</div>
               <div className="emergency-modal-title-wrap">
@@ -251,15 +239,6 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
                   Phát hiện sự kiện cần bác sĩ can thiệp y tế tức thì
                 </div>
               </div>
-              <button
-                type="button"
-                className="emergency-modal-close-btn"
-                aria-label="Đóng hộp thoại"
-                title="Đóng"
-                onClick={() => setEmergencyNotification(false)}
-              >
-                ✕
-              </button>
             </div>
 
             <div className="emergency-modal-body">
@@ -272,13 +251,9 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
             </div>
 
             <div className="emergency-modal-foot">
-              <button
-                type="button"
-                className="emergency-btn-secondary"
-                onClick={() => setEmergencyNotification(false)}
-              >
-                Để sau
-              </button>
+              <span className="emergency-modal-req-note">
+                ⚠️ Bắt buộc xem chi tiết để tiếp tục thao tác
+              </span>
               <button
                 type="button"
                 className="emergency-btn-primary"
