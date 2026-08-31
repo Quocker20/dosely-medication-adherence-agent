@@ -307,13 +307,28 @@ class TestLlmCap:
         assert review_repo.insert_review.await_count == 2
 
 
+def _unique_violation(constraint_name: str) -> IntegrityError:
+    """Mirrors asyncpg.exceptions.UniqueViolationError's shape closely
+    enough for _persist_one's `err.orig.sqlstate` / `.constraint_name`
+    check -- see docs/adherence-review-fix-plan.md Defect 3."""
+    orig = SimpleNamespace(sqlstate="23505", constraint_name=constraint_name)
+    return IntegrityError("stmt", {}, orig)
+
+
+def _check_violation(constraint_name: str) -> IntegrityError:
+    """A CHECK-constraint violation -- also raised as IntegrityError, but
+    NOT the idempotency-guard collision _persist_one exists to swallow."""
+    orig = SimpleNamespace(sqlstate="23514", constraint_name=constraint_name)
+    return IntegrityError("stmt", {}, orig)
+
+
 class TestIdempotentReplay:
     @pytest.mark.asyncio
     async def test_duplicate_review_insert_is_caught_and_nothing_downstream_runs(self):
         patient_id = uuid.uuid4()
         service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
         indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
-        review_repo.insert_review.side_effect = IntegrityError("stmt", {}, Exception("dup"))
+        review_repo.insert_review.side_effect = _unique_violation("uq_adherence_reviews_patient_date")
         patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
         try:
             stats = await service.run_nightly_review(REVIEW_DATE)
@@ -322,8 +337,72 @@ class TestIdempotentReplay:
 
         assert stats["replayed"] == 1
         assert stats["reviewed"] == 0
+        assert stats["failed"] == 0
         # insert_review is called FIRST in _persist_one -- if it raises,
         # neither the alert nor the notification branch should ever run,
         # which is the actual race-safety guarantee (not just a side note).
         alert_repo.create_alert.assert_not_called()
         notification_repo.create_grouped_delivery.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_constraint_violation_is_not_treated_as_a_replay(self):
+        """A CHECK violation (e.g. a triggered_by_type the DB constraint
+        does not accept yet -- exactly what happened in production, see
+        docs/adherence-review-fix-plan.md Defect 2/3) must be counted as a
+        real failure and must not roll a genuine write into a silent
+        no-op success reported as 'replayed'."""
+        patient_id = uuid.uuid4()
+        service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
+        indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
+        review_repo.insert_review.side_effect = _check_violation("ck_alerts_triggered_by_type")
+        patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
+        try:
+            stats = await service.run_nightly_review(REVIEW_DATE)
+        finally:
+            _stop(patchers)
+
+        assert stats["failed"] == 1
+        assert stats["replayed"] == 0
+        assert stats["reviewed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_unique_violation_on_a_different_constraint_is_not_a_replay(self):
+        """Same SQLSTATE as the idempotency guard, but the wrong constraint
+        -- must not be swallowed either. The guard is specific to
+        uq_adherence_reviews_patient_date, not "any 23505"."""
+        patient_id = uuid.uuid4()
+        service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
+        indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
+        review_repo.insert_review.side_effect = _unique_violation("users_phone_key")
+        patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
+        try:
+            stats = await service.run_nightly_review(REVIEW_DATE)
+        finally:
+            _stop(patchers)
+
+        assert stats["failed"] == 1
+        assert stats["replayed"] == 0
+        assert stats["reviewed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_patient_does_not_stop_the_rest_of_the_night(self):
+        """Phase C is per-patient by design (module docstring) -- one
+        patient's write failure must not abort every other patient's."""
+        failing_patient, ok_patient = uuid.uuid4(), uuid.uuid4()
+        service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
+        indicator_repo.get_severity_indicators.return_value = [
+            _severity_row(failing_patient, total=10, taken=2),  # SEVERE
+            _severity_row(ok_patient, total=10, taken=2),  # SEVERE
+        ]
+        review_repo.insert_review.side_effect = [
+            _check_violation("ck_alerts_triggered_by_type"),
+            SimpleNamespace(id=uuid.uuid4()),
+        ]
+        patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
+        try:
+            stats = await service.run_nightly_review(REVIEW_DATE)
+        finally:
+            _stop(patchers)
+
+        assert stats["failed"] == 1
+        assert stats["reviewed"] == 1
