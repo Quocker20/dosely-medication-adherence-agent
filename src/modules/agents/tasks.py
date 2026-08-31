@@ -21,6 +21,13 @@ from sqlalchemy.pool import NullPool
 
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
+
+# Registers every ORM model module before anything below runs a query.
+# Without this, an ORM operation on Alert dies with NoReferencedTableError
+# the first time it needs to resolve assigned_doctor_id's target table --
+# see src/core/models_registry.py and docs/adherence-review-fix-plan.md
+# Defect 1/5.
+from src.core import models_registry as _models_registry  # noqa: F401
 from src.modules.adherence.fcm_service import FCMService
 from src.modules.adherence.notification_service import NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository

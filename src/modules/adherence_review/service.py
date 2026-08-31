@@ -337,6 +337,7 @@ class AdherenceReviewService:
             "reviewed": 0,
             "silenced": 0,
             "replayed": 0,
+            "failed": 0,
         }
 
         # Sort by severity descending before capping LLM calls, so a loose
@@ -373,7 +374,25 @@ class AdherenceReviewService:
                     stats["silenced"] += 1
             analysis = enforce_patient_message_gate(analysis, candidate.escalation.actions)
 
-            replayed = await self._persist_one(review_date, candidate, analysis, settings)
+            try:
+                replayed = await self._persist_one(review_date, candidate, analysis, settings)
+            except IntegrityError:
+                # Anything that reaches here is NOT the idempotent-replay
+                # case -- _persist_one already narrows that one to
+                # uq_adherence_reviews_patient_date and returns True instead
+                # of raising. A genuine constraint violation (e.g. a CHECK
+                # constraint missing a value the code writes, see Defect 2 in
+                # docs/adherence-review-fix-plan.md) must not be swallowed as
+                # a silent no-op success. Phase C is per-patient by design
+                # (module docstring), so one patient's write failure must not
+                # abort the rest of the night's run.
+                logger.exception(
+                    "Adherence review write failed for patient %s on %s -- "
+                    "not an idempotent replay, skipping to the next patient",
+                    candidate.patient_id, review_date,
+                )
+                stats["failed"] += 1
+                continue
             if replayed:
                 stats["replayed"] += 1
             else:
@@ -552,7 +571,23 @@ class AdherenceReviewService:
                         alert_id=alert.id if alert is not None else None,
                         notification_delivery_id=notification.id if notification is not None else None,
                     )
-        except IntegrityError:
+        except IntegrityError as err:
+            # A CHECK-constraint violation is also an IntegrityError. A catch
+            # this broad used to treat one as an idempotent replay too --
+            # rolling the review row back and reporting success while
+            # writing nothing (docs/adherence-review-fix-plan.md Defect 3).
+            # Only the specific unique-key collision this method is actually
+            # guarding against (a duplicate nightly run for this patient/
+            # night, see the module-level race-condition note above) counts
+            # as a replay; anything else must propagate so the caller's loop
+            # (run_nightly_review) logs it and counts it as a real failure.
+            orig = getattr(err, "orig", None)
+            is_replay = (
+                getattr(orig, "sqlstate", None) == "23505"
+                and getattr(orig, "constraint_name", None) == "uq_adherence_reviews_patient_date"
+            )
+            if not is_replay:
+                raise
             logger.info(
                 "Adherence review already exists for patient %s on %s (idempotent replay)",
                 candidate.patient_id, review_date,
