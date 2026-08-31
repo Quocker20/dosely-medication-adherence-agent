@@ -19,3 +19,4 @@ export * from "./admin";
 export * from "./healthSurveys";
 export * from "./adherence";
 export * from "./adverseEvents";
+export * from "./chat";

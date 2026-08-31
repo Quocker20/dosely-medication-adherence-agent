@@ -1,4 +1,4 @@
-export type IconName = "home" | "calendar" | "assistant" | "send" | "mic" | "heart" | "alert" | "pill" | "logout" | "bell" | "check" | "clock" | "shield";
+export type IconName = "home" | "calendar" | "assistant" | "send" | "mic" | "heart" | "alert" | "pill" | "logout" | "bell" | "check" | "clock" | "shield" | "history" | "menu" | "chevron-left";
 
 export default function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -14,6 +14,9 @@ export default function Icon({ name, size = 20 }: { name: IconName; size?: numbe
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
     check: <path d="m5 12 4 4L19 6"/>, clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
+    history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></>,
+    menu: <><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></>,
+    "chevron-left": <path d="m15 18-6-6 6-6"/>,
   };
   return <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }

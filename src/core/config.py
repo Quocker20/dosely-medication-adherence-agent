@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     # Adherence summary for a range that ended before today — the underlying
     # logs are append-only and the range is closed, so this is immutable.
     cache_ttl_adherence_historical_seconds: int = Field(default=86400, ge=0, le=604800)
+    # Chat conversation history list and detail.
+    cache_ttl_chat_seconds: int = Field(default=60, ge=0, le=3600)
 
     # Celery Task Queue
     celery_broker_url: str

@@ -13,7 +13,7 @@ connection doing one task anyway.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy import select, update
@@ -73,9 +73,7 @@ def generate_schedule_task(self, run_id: str, patient_id: str, is_reschedule: bo
         ) from exc
 
 
-async def _execute_autoschedule(
-    patient_id: str, prescription_id: str | None, trigger_type: str
-) -> AutoscheduleOutcome:
+async def _execute_autoschedule(patient_id: str, prescription_id: str | None, trigger_type: str) -> AutoscheduleOutcome:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
@@ -138,9 +136,7 @@ def scan_missed_doses_task() -> None:
 async def _execute_scan_due_doses() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     try:
         async with session_factory() as session:
             service = NotificationDispatchService(
@@ -148,7 +144,7 @@ async def _execute_scan_due_doses() -> None:
                 scheduled_dose_repository=ScheduledDoseRepository(session),
                 notification_repository=NotificationRepository(session),
             )
-            await service.create_consolidated_reminders(datetime.now(timezone.utc))
+            await service.create_consolidated_reminders(datetime.now(UTC))
     finally:
         await engine.dispose()
 
@@ -199,9 +195,7 @@ def summarize_daily_adverse_events_task() -> None:
 async def _execute_send_notification(delivery_id_str: str) -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     delivery_id = uuid.UUID(delivery_id_str)
     try:
         async with session_factory() as session:
@@ -243,5 +237,3 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
 @celery_app.task(name="agents.send_notification")
 def send_notification_task(delivery_id: str) -> None:
     asyncio.run(_execute_send_notification(delivery_id))
-
-
