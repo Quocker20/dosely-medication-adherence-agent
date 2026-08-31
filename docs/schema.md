@@ -337,6 +337,20 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 * **Module**: `src.modules.agents.schemas`
 * **Cấu trúc thuộc tính**:
   * `reason` (Optional[str]): Lý do kích hoạt Agent chạy lại lịch.
+* **Lưu ý**: `RescheduleRequest` regenerate **toàn bộ** các cữ PENDING trong tương lai từ routine hiện hành (bất kể cữ nào bị ảnh hưởng) — dùng cho "đổi hẳn nếp sinh hoạt từ giờ trở đi". Muốn chỉ dời (các) cữ neo vào MỘT mốc sinh hoạt cụ thể cho riêng hôm nay, dùng `ReportRoutineDeviationRequest` (6.1b) thay vì endpoint này.
+
+### 6.1b ReportRoutineDeviationRequest / RecentRoutineOverrideResponse
+* **Mục đích**: Bệnh nhân báo một mốc sinh hoạt (`breakfast`/`lunch`/`dinner`/`sleep`) bị lệch giờ **chỉ trong hôm nay** — qua chatbot hoặc form khảo sát cuối ngày (`SubmitHealthSurveyRequest.routine_deviations`, xem 7.4). Chỉ (các) cữ thuốc neo vào đúng mốc đó, đúng ngày đó bị dời; các cữ/ngày khác không đổi. Vẫn đi qua đúng validator xác định của `planner.py` — vi phạm ràng buộc lâm sàng (khoảng cách tối thiểu...) trả về `NEEDS_REVIEW` như mọi reschedule khác, không tự đoán giờ.
+* **Module**: `src.modules.agents.schemas`
+* **Endpoint**: `POST /patients/{patient_id}/routine-overrides` (202 Accepted / `AgentRunAsyncResponse`, poll qua `GET /agent-runs/{id}` như 6.2/6.3) và `GET /patients/{patient_id}/routine-overrides/recent` (200 OK / `List[RecentRoutineOverrideResponse]`).
+* **`ReportRoutineDeviationRequest`**:
+  * `override_date` (date): Ngày áp dụng — server tự tính "hôm nay" theo timezone bệnh nhân và **từ chối** nếu khác, không tin giá trị client gửi.
+  * `anchor` (Literal: `breakfast`/`lunch`/`dinner`/`sleep`): Mốc sinh hoạt bị lệch. Không có `wake` — không cữ thuốc nào neo vào đó.
+  * `overridden_time` (time): Giờ mới cho mốc đó.
+  * `source` (Literal: `SURVEY`/`CHAT`): Kênh báo cáo.
+  * `reason` (Optional[str]): Lý do/nguyên văn bệnh nhân báo.
+* **`RecentRoutineOverrideResponse`** (item của `GET .../recent`):
+  * `override_date` (date), `overridden_time` (time) — chỉ đọc, dùng để chatbot gợi ý câu hỏi khi bệnh nhân báo lệch giờ mà không nêu giờ cụ thể; không tự động áp dụng.
 
 ### 6.2 AgentRunAsyncResponse
 * **Mục đích**: Phản hồi phản hồi nhanh (202 Accepted) chứa mã tiến trình của AI Agent.
@@ -443,8 +457,9 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 * **Module**: `src.modules.adherence.schemas`
 * **Cấu trúc thuộc tính**:
   * `survey_date` (date): Ngày làm khảo sát.
-  * `answers_json` (Dict[str, Any]): Khối JSON chứa các câu trả lời chỉ số (Huyết áp, đường huyết...).
+  * `answers_json` (Dict[str, Any]): Khối JSON chứa các câu trả lời chỉ số (Huyết áp, đường huyết...). **Không dùng để báo lệch giờ sinh hoạt** — trường này bị loại khỏi mọi aggregation phía sau (xem `adherence_review`), dùng `routine_deviations` bên dưới thay vì nhét vào đây.
   * `symptoms` (List[Dict[str, Any]], default=[]): Danh sách các triệu chứng ghi nhận (Mỗi triệu chứng gồm `symptom_code`, `severity`: `MILD`/`MODERATE`/`SEVERE`, `description`).
+  * `routine_deviations` (List[Dict[str, Any]], default=[]): Danh sách lệch giờ sinh hoạt hôm nay cần điều chỉnh lịch thuốc tạm thời (Mỗi entry gồm `anchor`: `breakfast`/`lunch`/`dinner`/`sleep`, `overridden_time`, `reason` tùy chọn). Mỗi entry được service chuyển thành một `ReportRoutineDeviationRequest(source="SURVEY")` (xem 6.1b) — cùng cơ chế với khi báo qua chatbot, không phải đường xử lý riêng. Nếu `survey_date` không phải hôm nay (khảo sát nộp trễ), phần override bị bỏ qua (fail-open) nhưng khảo sát vẫn được ghi nhận bình thường.
 
 ### 7.5 HealthSurveyDetailResponse
 * **Mục đích**: Phản hồi kết quả ghi nhận khảo sát từ bảng `health_surveys`, dùng cho `POST /patients/{patient_id}/health-surveys`.

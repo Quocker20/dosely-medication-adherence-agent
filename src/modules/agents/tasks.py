@@ -29,7 +29,7 @@ from src.core.config import get_settings
 # Defect 1/5.
 from src.core import models_registry as _models_registry  # noqa: F401
 from src.modules.adherence.fcm_service import FCMService
-from src.modules.adherence.notification_service import NotificationDispatchService
+from src.modules.adherence.notification_service import DOSE_REMINDER_TEMPLATE_CODE, NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
 from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
@@ -211,6 +211,33 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
             if not delivery:
                 logger.warning("Delivery %s not found for push notification", delivery_id)
                 return
+
+            # Celery is at-least-once; a redelivered task must not push twice.
+            if delivery.status != "QUEUED":
+                logger.info("Delivery %s already in status %s; skipping send", delivery_id, delivery.status)
+                return
+
+            # Freshness gate for dose reminders only. Alert/SOS deliveries
+            # carry no doses and must never be held back by this.
+            if delivery.template_code == DOSE_REMINDER_TEMPLATE_CODE:
+                linked, still_due = await notif_repo.count_reminder_doses(delivery.id, delivery.scheduled_at)
+                if linked == 0 or still_due != linked:
+                    # Reminding someone to take a dose that was rescheduled,
+                    # snoozed or already taken is worse than not reminding at
+                    # all: they may take it at the wrong time. The 1-minute
+                    # scan re-derives a correct grouped reminder for whatever
+                    # is still due (a different dose set hashes to a different
+                    # idempotency key), so dropping this one loses nothing.
+                    logger.info(
+                        "Delivery %s superseded: %d of %d linked doses still due at %s",
+                        delivery_id,
+                        still_due,
+                        linked,
+                        delivery.scheduled_at.isoformat(),
+                    )
+                    await notif_repo.update_delivery_status(delivery.id, "SUPERSEDED")
+                    await session.commit()
+                    return
 
             tokens = await notif_repo.get_active_fcm_tokens(delivery.recipient_user_id)
             if tokens:

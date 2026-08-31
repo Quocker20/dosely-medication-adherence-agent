@@ -138,14 +138,23 @@ async def _create_dose(patient_id: uuid.UUID, doctor_id: uuid.UUID, when=None) -
     when = when or (datetime.now(timezone.utc) - timedelta(minutes=30))
     async with AsyncSessionLocal() as db:
         async with db.begin():
-            med = Medication(
-                name="Amlodipin 5mg",
-                source_name="TEST",
-                source_record_key=MED_SOURCE_KEY,
-                is_active=True,
-            )
-            db.add(med)
-            await db.flush()
+            med = (
+                await db.execute(
+                    select(Medication).where(
+                        Medication.source_name == "TEST",
+                        Medication.source_record_key == MED_SOURCE_KEY,
+                    )
+                )
+            ).scalar_one_or_none()
+            if med is None:
+                med = Medication(
+                    name="Amlodipin 5mg",
+                    source_name="TEST",
+                    source_record_key=MED_SOURCE_KEY,
+                    is_active=True,
+                )
+                db.add(med)
+                await db.flush()
 
             rx = Prescription(
                 patient_id=patient_id, doctor_id=doctor_id, status="APPROVED"
@@ -856,6 +865,11 @@ async def _create_doses_at(
     a catalogue entry here would only collide with _create_dose on the
     (source_name, source_record_key) unique index.
     """
+    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+    today = datetime.now(timezone.utc).astimezone(vn_tz).date()
+    today_start = datetime.combine(today, time.min, tzinfo=vn_tz).astimezone(timezone.utc)
+    today_end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=vn_tz).astimezone(timezone.utc)
+
     async with AsyncSessionLocal() as db:
         async with db.begin():
             rx = Prescription(
@@ -869,14 +883,18 @@ async def _create_doses_at(
                 display_name="Amlodipin 5mg",
                 dose_unit="VIEN",
                 morning_dose=1,
-                start_date=date.today(),
+                start_date=today,
             )
             db.add(item)
             await db.flush()
 
             now = datetime.now(timezone.utc)
             for status, offset in doses:
-                at = now + offset
+                raw_at = now + offset
+                if offset < timedelta(0):
+                    at = max(today_start + timedelta(seconds=1), min(raw_at, now - timedelta(seconds=1)))
+                else:
+                    at = min(today_end - timedelta(seconds=1), max(raw_at, now + timedelta(seconds=1)))
                 db.add(
                     ScheduledDose(
                         prescription_item_id=item.id,
@@ -890,7 +908,7 @@ async def _create_doses_at(
 
 
 async def _summary_today(client, patient_id: uuid.UUID, headers: dict) -> dict:
-    today = date.today()
+    today = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence",
         params={"from": today.isoformat(), "to": today.isoformat()},

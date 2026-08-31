@@ -22,10 +22,15 @@ from src.agents.tools.patient_tools import (
     get_current_medications,
     get_patient_profile,
     get_prescriptions,
+    get_recent_routine_overrides,
     get_scheduled_doses,
 )
 from src.agents.tools.safety_tools import trigger_red_alert
-from src.agents.tools.schedule_tools import record_dose_action, reschedule_remaining_doses
+from src.agents.tools.schedule_tools import (
+    record_dose_action,
+    report_routine_deviation,
+    reschedule_remaining_doses,
+)
 
 READ_ONLY_TOOLS = [
     get_current_medications,
@@ -33,12 +38,14 @@ READ_ONLY_TOOLS = [
     get_patient_profile,
     get_scheduled_doses,
     get_adherence_stats,
+    get_recent_routine_overrides,
     search_drug_info,
     search_drug_formulary,
 ]
 
 WRITE_TOOLS = [
     reschedule_remaining_doses,
+    report_routine_deviation,
     record_health_survey,
     trigger_red_alert,
     record_dose_action,
@@ -58,9 +65,11 @@ __all__ = [
     "get_patient_profile",
     "get_scheduled_doses",
     "get_adherence_stats",
+    "get_recent_routine_overrides",
     "search_drug_info",
     "search_drug_formulary",
     "reschedule_remaining_doses",
+    "report_routine_deviation",
     "record_health_survey",
     "trigger_red_alert",
     "record_dose_action",

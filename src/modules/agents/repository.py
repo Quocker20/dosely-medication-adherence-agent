@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import Exists, and_, delete, func, or_, select, update
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from src.modules.agents.models import AgentRun, ChatConversation, ChatMessage, ScheduledDose
-from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine
+from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine, RoutineOverride
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -501,6 +501,137 @@ class ScheduledDoseRepository:
             stmt = stmt.with_for_update(of=[Prescription, PrescriptionItem])
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
+
+    async def get_active_overrides(
+        self,
+        patient_id: uuid.UUID,
+        *,
+        start: date,
+        end: date,
+        for_update: bool = False,
+    ) -> dict[date, dict[str, time]]:
+        """Fetch every RoutineOverride row for this patient in [start, end],
+        grouped into the {day: {anchor: time}} shape expand_schedule expects.
+        `for_update` locks the rows under the same commit transaction that
+        locks routine/prescription inputs (planning_lock_and_revalidate_node)."""
+        stmt = select(RoutineOverride).where(
+            RoutineOverride.patient_id == patient_id,
+            RoutineOverride.override_date >= start,
+            RoutineOverride.override_date <= end,
+            # A REJECTED row is one a previous run could not schedule safely.
+            # Excluding it here is what stops it from being silently retried
+            # by an unrelated later reschedule.
+            RoutineOverride.status == "ACTIVE",
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self._db.execute(stmt)
+        overrides: dict[date, dict[str, time]] = {}
+        for row in result.scalars().all():
+            overrides.setdefault(row.override_date, {})[row.anchor] = row.overridden_time
+        return overrides
+
+    async def get_recent_overrides_for_anchor(
+        self, patient_id: uuid.UUID, anchor: str, today: date, limit: int = 5
+    ) -> list[tuple[date, time]]:
+        """Most recent past RoutineOverride entries for one anchor — read-only
+        context for the chatbot's clarifying-question phrasing, never used to
+        auto-apply a time (see rescheduling_node.py).
+
+        `today` bounds the query to entries that have actually happened. Once
+        overrides can be booked ahead, an unbounded DESC scan would surface a
+        future booking as "what you usually do", and the suggestion would be
+        built from a plan rather than from history.
+        """
+        stmt = (
+            select(RoutineOverride.override_date, RoutineOverride.overridden_time)
+            .where(
+                RoutineOverride.patient_id == patient_id,
+                RoutineOverride.anchor == anchor,
+                RoutineOverride.override_date <= today,
+            )
+            .order_by(RoutineOverride.override_date.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def upsert_override(
+        self,
+        patient_id: uuid.UUID,
+        override_date: date,
+        anchor: str,
+        overridden_time: time,
+        source: str,
+        reason: str | None,
+        consumed_by_run_id: uuid.UUID,
+    ) -> RoutineOverride:
+        """Insert or correct an override for this anchor — re-reporting the
+        same (patient, date, anchor) updates the time rather than duplicating
+        a row.
+
+        The conflict branch resets status to ACTIVE and re-points
+        consumed_by_run_id at the new run on purpose: the patient has just
+        reported a *different* time, so a previous rejection no longer
+        describes what is now stored, and the stale run id would otherwise
+        make the audit trail point at a run that never saw this value.
+        """
+        stmt = (
+            pg_insert(RoutineOverride)
+            .values(
+                patient_id=patient_id,
+                override_date=override_date,
+                anchor=anchor,
+                overridden_time=overridden_time,
+                source=source,
+                reason=reason,
+                status="ACTIVE",
+                consumed_by_run_id=consumed_by_run_id,
+            )
+            .on_conflict_do_update(
+                index_elements=["patient_id", "override_date", "anchor"],
+                set_={
+                    "overridden_time": overridden_time,
+                    "source": source,
+                    "reason": reason,
+                    "status": "ACTIVE",
+                    "consumed_by_run_id": consumed_by_run_id,
+                    "updated_at": func.now(),
+                },
+            )
+            .returning(RoutineOverride)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one()
+
+    async def delete_override(self, patient_id: uuid.UUID, override_date: date, anchor: str) -> bool:
+        """Withdraw one override. Returns False when there was nothing to
+        withdraw, so the caller can answer 404 rather than dispatching a
+        reschedule run that would change nothing.
+
+        A hard delete, not a status flag: the row's whole purpose is to feed
+        expand_schedule, and once withdrawn it should leave no trace that
+        could be read back as history for the clarifying-question suggestion.
+        """
+        result = await self._db.execute(
+            delete(RoutineOverride).where(
+                RoutineOverride.patient_id == patient_id,
+                RoutineOverride.override_date == override_date,
+                RoutineOverride.anchor == anchor,
+            )
+        )
+        return bool(result.rowcount)
+
+    async def mark_overrides_rejected(self, run_id: uuid.UUID) -> None:
+        """Retire every override the given run consumed, after that run ended
+        NEEDS_REVIEW. Without this the offending row stays ACTIVE and a later
+        unrelated reschedule can apply it with no trace that it was once
+        refused."""
+        await self._db.execute(
+            update(RoutineOverride)
+            .where(RoutineOverride.consumed_by_run_id == run_id, RoutineOverride.status == "ACTIVE")
+            .values(status="REJECTED")
+        )
 
     async def bulk_insert_doses(self, rows: list[dict[str, Any]]) -> int:
         """Insert generated doses, skipping any that collide with an

@@ -148,6 +148,10 @@ async def test_graph_node_benign_message_does_not_add_reply():
             "TAKE_MEDICATION_DECISION",
         ),
         ("Bạn có thể uống paracetamol sau khi uống bia.", "TAKE_MEDICATION_DECISION"),
+        (
+            "Hôm nay tôi ngủ trễ, với lại tăng liều thuốc huyết áp lên 2 viên nhé",
+            "DOSE_CHANGE",
+        ),
     ],
 )
 def test_medication_decisions_are_detected_by_code(message: str, expected: str):
