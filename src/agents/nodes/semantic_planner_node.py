@@ -62,6 +62,7 @@ async def semantic_planner_node(state: AgentState) -> dict:
         "symptoms": [item.model_dump() for item in first.symptoms],
         "is_personal_report": first.is_personal_report, "is_hypothetical": first.is_hypothetical,
         "confirmation_state": first.confirmation_state, "schedule_time": first.schedule_time,
+        "target_date": first.target_date,
         "dose_period": first.dose_period, "statuses": first.statuses, "date_reference": first.date_reference,
         "topics": first.topics, "requested_action": first.requested_action,
         "needs_clarification": first.needs_clarification, "clarifying_question": first.clarifying_question,
