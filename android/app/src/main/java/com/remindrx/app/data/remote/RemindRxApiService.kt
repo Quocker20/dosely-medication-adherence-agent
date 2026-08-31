@@ -14,6 +14,9 @@ import retrofit2.http.Query
 
 interface RemindRxApiService {
 
+    @GET("app/latest-version")
+    suspend fun getLatestAppVersion(): ApiEnvelope<LatestAppVersionDto>
+
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequestDto): ApiEnvelope<AuthTokenResponseDto>
 
