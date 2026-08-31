@@ -316,7 +316,7 @@
 
 :root[data-theme="dark"] .patient-web-shell {
   --p-bg: #0b0f14;
-  --p-ink: #eef1f4;
+  --p-ink: #d6dce2;
   --p-muted: #93a0ad;
   --p-border: #232b33;
   --p-primary: #5ab8f2;
@@ -338,11 +338,38 @@
 :root[data-theme="dark"] .patient-topbar,
 :root[data-theme="dark"] .patient-empty,
 :root[data-theme="dark"] .dose-reminder-card,
-:root[data-theme="dark"] .notification-panel {
+:root[data-theme="dark"] .notification-panel,
+:root[data-theme="dark"] .sos-page {
   background: #12171d;
+}
+:root[data-theme="dark"] .sos-page {
+  border-color: #382422;
+}
+:root[data-theme="dark"] .sos-info-panel li {
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .sos-disclaimer {
+  background: #231413;
+  border-color: #482320;
+}
+:root[data-theme="dark"] .sos-disclaimer span {
+  color: #e5b8b4;
 }
 :root[data-theme="dark"] .patient-header {
   background: rgba(18, 23, 29, 0.88);
+}
+:root[data-theme="dark"] .chat-new-btn,
+:root[data-theme="dark"] .chat-toggle-sidebar-btn,
+:root[data-theme="dark"] .chat-composer .chat-mic {
+  background: #1a2128;
+  border-color: #2e3846;
+  color: var(--p-primary);
+}
+:root[data-theme="dark"] .chat-new-btn:hover,
+:root[data-theme="dark"] .chat-toggle-sidebar-btn:hover {
+  background: #232b33;
+  border-color: #38424e;
+  color: var(--p-primary);
 }
 :root[data-theme="dark"] .patient-dose,
 :root[data-theme="dark"] .chat-bubble {
@@ -415,7 +442,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .patient-web-shell {
     --p-bg: #0b0f14;
-    --p-ink: #eef1f4;
+    --p-ink: #d6dce2;
     --p-muted: #93a0ad;
     --p-border: #232b33;
     --p-primary: #5ab8f2;
@@ -437,11 +464,38 @@
   :root:not([data-theme="light"]) .patient-topbar,
   :root:not([data-theme="light"]) .patient-empty,
   :root:not([data-theme="light"]) .dose-reminder-card,
-  :root:not([data-theme="light"]) .notification-panel {
+  :root:not([data-theme="light"]) .notification-panel,
+  :root:not([data-theme="light"]) .sos-page {
     background: #12171d;
+  }
+  :root:not([data-theme="light"]) .sos-page {
+    border-color: #382422;
+  }
+  :root:not([data-theme="light"]) .sos-info-panel li {
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .sos-disclaimer {
+    background: #231413;
+    border-color: #482320;
+  }
+  :root:not([data-theme="light"]) .sos-disclaimer span {
+    color: #e5b8b4;
   }
   :root:not([data-theme="light"]) .patient-header {
     background: rgba(18, 23, 29, 0.88);
+  }
+  :root:not([data-theme="light"]) .chat-new-btn,
+  :root:not([data-theme="light"]) .chat-toggle-sidebar-btn,
+  :root:not([data-theme="light"]) .chat-composer .chat-mic {
+    background: #1a2128;
+    border-color: #2e3846;
+    color: var(--p-primary);
+  }
+  :root:not([data-theme="light"]) .chat-new-btn:hover,
+  :root:not([data-theme="light"]) .chat-toggle-sidebar-btn:hover {
+    background: #232b33;
+    border-color: #38424e;
+    color: var(--p-primary);
   }
   :root:not([data-theme="light"]) .patient-dose,
   :root:not([data-theme="light"]) .chat-bubble {
