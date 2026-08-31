@@ -33,6 +33,7 @@ class SemanticStep(BaseModel):
     tool: SemanticTool
     purpose: str = Field(description="Mục đích riêng của bước này")
     date_reference: str | None = None
+    target_date: str | None = Field(default=None, description="Ngày lịch cụ thể dạng YYYY-MM-DD")
     schedule_time: str | None = None
     dose_period: Literal["morning", "noon", "evening", "bedtime"] | None = None
     statuses: list[Literal["PENDING", "TAKEN", "MISSED", "SKIPPED"]] = Field(default_factory=list)
