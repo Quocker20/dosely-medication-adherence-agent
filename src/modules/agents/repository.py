@@ -1,9 +1,9 @@
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import Exists, delete, func, or_, select, update
+from sqlalchemy import Exists, and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -13,6 +13,16 @@ from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRo
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
+
+
+def generate_conversation_title(message: str, max_length: int = 50) -> str:
+    """Deterministic local summarizer (trim, collapse spaces, limit to max_length)."""
+    cleaned = " ".join(message.strip().split())
+    if not cleaned:
+        return "Cuộc trò chuyện mới"
+    if len(cleaned) <= max_length:
+        return cleaned
+    return cleaned[: max_length - 3].rstrip() + "..."
 
 
 class ChatMemoryRepository:
@@ -36,19 +46,166 @@ class ChatMemoryRepository:
         await self._db.flush()
         return row
 
+    async def get_conversation(self, patient_id: uuid.UUID, conversation_id: uuid.UUID) -> ChatConversation | None:
+        """Fetch a conversation and enforce patient ownership."""
+        row = await self._db.get(ChatConversation, conversation_id)
+        if row is not None and row.patient_id != patient_id:
+            raise PermissionError("Conversation does not belong to the authenticated patient")
+        return row
+
     async def recent_messages(self, conversation_id: uuid.UUID, limit: int = 10) -> list[ChatMessage]:
-        rows = (await self._db.scalars(
-            select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
-            .order_by(ChatMessage.created_at.desc()).limit(limit)
-        )).all()
+        rows = (
+            await self._db.scalars(
+                select(ChatMessage)
+                .where(ChatMessage.conversation_id == conversation_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
         return list(reversed(rows))
 
     async def append_exchange(self, conversation_id: uuid.UUID, question: str, answer: str, intent: str | None) -> None:
-        self._db.add_all([
-            ChatMessage(conversation_id=conversation_id, role="user", content=question, intent=intent),
-            ChatMessage(conversation_id=conversation_id, role="assistant", content=answer, intent=intent),
-        ])
-        await self._db.execute(update(ChatConversation).where(ChatConversation.id == conversation_id).values(updated_at=func.now()))
+        conv = await self._db.get(ChatConversation, conversation_id)
+        if conv is not None:
+            conv.updated_at = datetime.now(UTC)
+            if not conv.summary:
+                conv.summary = generate_conversation_title(question)
+
+        self._db.add_all(
+            [
+                ChatMessage(conversation_id=conversation_id, role="user", content=question, intent=intent),
+                ChatMessage(conversation_id=conversation_id, role="assistant", content=answer, intent=intent),
+            ]
+        )
+        await self._db.flush()
+
+    async def list_conversations(
+        self,
+        patient_id: uuid.UUID,
+        page: int = 1,
+        size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List conversations for the patient, ordered by updated_at desc."""
+        total_stmt = select(func.count(ChatConversation.id)).where(ChatConversation.patient_id == patient_id)
+        total_count = (await self._db.execute(total_stmt)).scalar_one() or 0
+
+        if total_count == 0:
+            return [], 0
+
+        conv_stmt = (
+            select(ChatConversation)
+            .where(ChatConversation.patient_id == patient_id)
+            .order_by(ChatConversation.updated_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        convs = (await self._db.scalars(conv_stmt)).all()
+        conv_ids = [c.id for c in convs]
+
+        counts: dict[uuid.UUID, int] = {}
+        previews: dict[uuid.UUID, str] = {}
+
+        if conv_ids:
+            count_rows = (
+                await self._db.execute(
+                    select(ChatMessage.conversation_id, func.count(ChatMessage.id))
+                    .where(ChatMessage.conversation_id.in_(conv_ids))
+                    .group_by(ChatMessage.conversation_id)
+                )
+            ).all()
+            counts = {row[0]: row[1] for row in count_rows}
+
+            latest_subq = (
+                select(
+                    ChatMessage.conversation_id,
+                    ChatMessage.content,
+                    func.row_number()
+                    .over(
+                        partition_by=ChatMessage.conversation_id,
+                        order_by=ChatMessage.created_at.desc(),
+                    )
+                    .label("rn"),
+                )
+                .where(ChatMessage.conversation_id.in_(conv_ids))
+                .subquery()
+            )
+            latest_rows = (
+                await self._db.execute(
+                    select(latest_subq.c.conversation_id, latest_subq.c.content).where(latest_subq.c.rn == 1)
+                )
+            ).all()
+            previews = {row[0]: row[1] for row in latest_rows}
+
+        result: list[dict[str, Any]] = []
+        for conv in convs:
+            preview = previews.get(conv.id)
+            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
+            result.append(
+                {
+                    "id": conv.id,
+                    "title": title,
+                    "preview": preview,
+                    "message_count": counts.get(conv.id, 0),
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                }
+            )
+
+        return result, total_count
+
+    async def get_messages_paginated(
+        self,
+        conversation_id: uuid.UUID,
+        limit: int = 50,
+        before: str | None = None,
+    ) -> tuple[list[ChatMessage], bool, str | None]:
+        """Fetch messages paginated backwards (cursor based on created_at / id)."""
+        where_clauses = [ChatMessage.conversation_id == conversation_id]
+
+        if before:
+            # Check if before is a UUID or ISO datetime string
+            cursor_dt = None
+            cursor_uuid = None
+            try:
+                cursor_uuid = uuid.UUID(before)
+                cursor_msg = await self._db.get(ChatMessage, cursor_uuid)
+                if cursor_msg is not None:
+                    cursor_dt = cursor_msg.created_at
+            except ValueError:
+                try:
+                    cursor_dt = datetime.fromisoformat(before)
+                except ValueError:
+                    cursor_dt = None
+
+            if cursor_dt is not None:
+                if cursor_uuid is not None:
+                    where_clauses.append(
+                        or_(
+                            ChatMessage.created_at < cursor_dt,
+                            and_(
+                                ChatMessage.created_at == cursor_dt,
+                                ChatMessage.id < cursor_uuid,
+                            ),
+                        )
+                    )
+                else:
+                    where_clauses.append(ChatMessage.created_at < cursor_dt)
+
+        stmt = (
+            select(ChatMessage)
+            .where(*where_clauses)
+            .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+            .limit(limit + 1)
+        )
+        rows = (await self._db.scalars(stmt)).all()
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+
+        # Order messages chronologically (oldest to newest) for presentation
+        messages = list(reversed(page_rows))
+        next_cursor = str(page_rows[-1].id) if has_more and page_rows else None
+
+        return messages, has_more, next_cursor
 
 
 class AgentRunRepository:
@@ -605,9 +762,7 @@ class ScheduledDoseRepository:
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped
 
-    async def get_due_dose_groups(
-        self, cutoff: datetime
-    ) -> Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]]:
+    async def get_due_dose_groups(self, cutoff: datetime) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
         """Fetch all PENDING doses due at or before cutoff, grouped by
         (patient_id, current_scheduled_at). Each group contains the individual
         scheduled doses with medication display name and dosage snapshot,
@@ -629,7 +784,7 @@ class ScheduledDoseRepository:
             )
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]] = {}
+        grouped: dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]] = {}
         for dose, medication_name in result.all():
             key = (dose.patient_id, dose.current_scheduled_at)
             grouped.setdefault(key, []).append(
@@ -648,4 +803,3 @@ class ScheduledDoseRepository:
                 }
             )
         return grouped
-
