@@ -158,10 +158,10 @@ async def scope_guard_node(state: AgentState) -> dict:
             f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
         )
     category = result.category if result is not None else "unknown"
-    if category == "abusive_noise":
+    if category in {"abusive_noise", "out_of_scope"}:
         return {"scope_blocked": True, "scope_category": category, "messages": [AIMessage(content=(
-            "Mình không thể tiếp tục với lời lẽ xúc phạm. Bạn hãy hít thở sâu, bình tĩnh lại "
-            "và đặt một câu hỏi khác về thuốc, đơn thuốc hoặc lịch uống thuốc nhé."
+            "Mình chỉ hỗ trợ tra cứu thông tin về thuốc, đơn thuốc và lịch uống thuốc của bạn. "
+            "Bạn hãy đặt một câu hỏi liên quan đến các nội dung này nhé."
         ))]}
 
     # Scope is advisory. The main semantic parser owns intent/out-of-scope
