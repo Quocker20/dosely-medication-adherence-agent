@@ -60,6 +60,23 @@ async def test_today_schedule_empty_is_not_a_backend_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tomorrow_schedule_uses_next_device_date(monkeypatch):
+    backend = AsyncMock(return_value={"date": "2026-08-30", "timezone": "Asia/Bangkok", "doses": [
+        {"current_scheduled_at": "2026-08-30T07:00:00+07:00", "medication_name": "Tomorrow Drug", "status": "PENDING"},
+    ]})
+    monkeypatch.setattr(module, "get", backend)
+    result = await module.today_schedule_node({
+        "patient_id": "patient-123", "client_date": "2026-08-29",
+        "intent_analysis": {"date_reference": "tomorrow"},
+    })
+    backend.assert_awaited_once_with(
+        "/patients/patient-123/schedules", params={"date": "2026-08-30"}
+    )
+    assert "Lịch uống thuốc ngày 2026-08-30" in result["messages"][0].content
+    assert "Tomorrow Drug" in result["messages"][0].content
+
+
+@pytest.mark.asyncio
 async def test_missed_morning_question_filters_status_and_period(monkeypatch):
     monkeypatch.setattr(module, "get", AsyncMock(return_value={
         "date": "2026-08-29",

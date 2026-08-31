@@ -19,6 +19,15 @@ function isChatMessage(value: unknown): value is ChatMessage {
   return typeof message.id === "string" && (message.role === "user" || message.role === "assistant") && typeof message.content === "string" && typeof message.time === "string";
 }
 
+function deviceDateTime() {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return {
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    datetime: now.toISOString(),
+  };
+}
+
 export default function ChatView({ patientId }: { patientId: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -88,7 +97,8 @@ export default function ChatView({ patientId }: { patientId: string }) {
     setMessages((current) => [...current, userMessage]);
     setInput(""); setError(null); setBusy(true);
     try {
-      const result = await api.patientChat(message, conversationIdRef.current);
+      const device = deviceDateTime();
+      const result = await api.patientChat(message, conversationIdRef.current, device.date, device.datetime);
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: result.response, time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) }]);
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Trợ lý AI chưa thể trả lời. Vui lòng thử lại."); }
     finally { setBusy(false); }
@@ -122,7 +132,8 @@ export default function ChatView({ patientId }: { patientId: string }) {
         }
         setBusy(true);
         try {
-          const result = await api.patientChatVoice(audio, conversationIdRef.current);
+          const device = deviceDateTime();
+          const result = await api.patientChatVoice(audio, conversationIdRef.current, device.date, device.datetime);
           const time = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
           setMessages((current) => [
             ...current,

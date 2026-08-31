@@ -54,19 +54,21 @@ export const alertsApi = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
     }),
 
-  patientChat: (message: string, conversationId?: string) =>
+  patientChat: (message: string, conversationId?: string, clientDate?: string, clientDateTime?: string) =>
     request<{ response: string; conversationId?: string }>("/chat", {
       method: "POST",
-      body: { message, conversationId },
+      body: { message, conversationId, clientDate, clientDateTime },
     }),
 
   patientChatHistory: (conversationId: string) =>
     request<{ conversationId: string; messages: Array<{ id: string; role: "user" | "assistant"; content: string; createdAt: string }> }>(`/chat/${conversationId}`),
 
-  patientChatVoice: (audio: Blob, conversationId?: string) => {
+  patientChatVoice: (audio: Blob, conversationId?: string, clientDate?: string, clientDateTime?: string) => {
     const formData = new FormData();
     formData.append("audio", audio, "voice-message.webm");
     if (conversationId) formData.append("conversationId", conversationId);
+    if (clientDate) formData.append("clientDate", clientDate);
+    if (clientDateTime) formData.append("clientDateTime", clientDateTime);
     return request<VoiceChatResponse>("/chat/voice", {
       method: "POST",
       body: formData,
