@@ -91,9 +91,11 @@ export const ALERT_TRIGGER: Record<AlertTriggeredBy, string> = {
   ADVERSE_EVENT: "Triệu chứng nghi ngờ từ chat",
 };
 
+/** alerts.alert_type — khớp ck_alerts_alert_type (RED_ALERT | WARNING | SUSPECTED_ADVERSE_EVENT). */
 export const ALERT_TYPE: Record<string, string> = {
   RED_ALERT: "Cảnh báo khẩn",
-  ADHERENCE_REVIEW: "Đánh giá tuân thủ",
+  WARNING: "Cảnh báo nhắc nhở",
+  SUSPECTED_ADVERSE_EVENT: "Nghi ngờ tác dụng phụ",
 };
 
 export function alertTypeLabel(type: string): string {
