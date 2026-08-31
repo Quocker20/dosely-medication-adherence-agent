@@ -60,6 +60,9 @@ export const alertsApi = {
       body: { message, conversationId },
     }),
 
+  patientChatHistory: (conversationId: string) =>
+    request<{ conversationId: string; messages: Array<{ id: string; role: "user" | "assistant"; content: string; createdAt: string }> }>(`/chat/${conversationId}`),
+
   patientChatVoice: (audio: Blob, conversationId?: string) => {
     const formData = new FormData();
     formData.append("audio", audio, "voice-message.webm");

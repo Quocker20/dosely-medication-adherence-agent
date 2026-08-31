@@ -43,6 +43,22 @@ class ChatMemoryRepository:
         )).all()
         return list(reversed(rows))
 
+    async def get_history(self, patient_id: uuid.UUID, conversation_id: uuid.UUID) -> list[ChatMessage]:
+        """Load durable history only when the conversation belongs to patient."""
+        conversation = await self._db.scalar(
+            select(ChatConversation).where(
+                ChatConversation.id == conversation_id,
+                ChatConversation.patient_id == patient_id,
+            )
+        )
+        if conversation is None:
+            raise PermissionError("Conversation does not belong to the authenticated patient")
+        rows = (await self._db.scalars(
+            select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
+            .order_by(ChatMessage.created_at.asc())
+        )).all()
+        return list(rows)
+
     async def append_exchange(self, conversation_id: uuid.UUID, question: str, answer: str, intent: str | None) -> None:
         self._db.add_all([
             ChatMessage(conversation_id=conversation_id, role="user", content=question, intent=intent),
