@@ -242,4 +242,14 @@ async def drug_rag_node(state: AgentState) -> dict:
             }
             for source in result.sources
         ],
+        # Persist only the verified identity for follow-up context. Schedule
+        # questions still re-check live patient data; this is not a schedule cache.
+        "metadata": {
+            "resolved_medication": {
+                "display_name": str(analysis.get("drug_name") or (context_drugs[0][1] if context_drugs else "")),
+                "medication_id": str((catalog_entry or {}).get("id") or ""),
+                "resolved_from": "drug_name",
+                "resolved_ingredients": [display for _normalized, display in context_drugs],
+            }
+        } if context_drugs else {},
     }
