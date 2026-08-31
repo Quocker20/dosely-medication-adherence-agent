@@ -29,6 +29,7 @@ import com.remindrx.app.data.Medication
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.GuardrailNote
 import com.remindrx.app.ui.components.PrimaryButton
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.components.TimeChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
@@ -53,26 +54,29 @@ fun MedicationDetailScreen(
     isLoading: Boolean = false,
     error: String? = null,
     onRetry: () -> Unit = {},
+    onRefresh: () -> Unit = onRetry,
     onBack: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        MedicationDetailHeader(onBack)
+    RemindRxPullRefresh(isRefreshing = isLoading, onRefresh = onRefresh) {
+        Column(Modifier.fillMaxSize()) {
+            MedicationDetailHeader(onBack)
 
-        when {
-            isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            when {
+                isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+
+                error != null -> MedicationDetailError(error, onRetry)
+
+                detail == null -> Box(
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Không tìm thấy thông tin thuốc.", style = MaterialTheme.typography.titleMedium)
+                }
+
+                else -> MedicationDetailContent(medication = medication, detail = detail)
             }
-
-            error != null -> MedicationDetailError(error, onRetry)
-
-            detail == null -> Box(
-                modifier = Modifier.fillMaxSize().padding(20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Không tìm thấy thông tin thuốc.", style = MaterialTheme.typography.titleMedium)
-            }
-
-            else -> MedicationDetailContent(medication = medication, detail = detail)
         }
     }
 }

@@ -127,6 +127,30 @@ class SymptomReport(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
+class SuspectedAdverseEvent(Base):
+    """Patient-reported symptom captured from chat; causality is never inferred."""
+
+    __tablename__ = "suspected_adverse_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default="gen_random_uuid()")
+    patient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("patient_profiles.user_id", ondelete="CASCADE"), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    symptoms: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
+    related_medications: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    causality: Mapped[str] = mapped_column(String(30), nullable=False, server_default="'UNASSESSED'")
+    review_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="'NEW'")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="'CHAT'")
+    alert_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
+    clinician_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), server_default="NOW()")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("doctor_profiles.user_id", ondelete="SET NULL"), nullable=True)
+    daily_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), server_default="NOW()")
+
+
 class Alert(Base):
     """Safety alert / escalation record database model."""
 

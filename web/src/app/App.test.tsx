@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ import App from "./App";
 const captured = vi.hoisted(() => ({
   doctor: null as null | Record<string, unknown>,
   patient: null as null | Record<string, unknown>,
+  admin: null as null | Record<string, unknown>,
 }));
 
 vi.mock("../pages/doctor/DoctorPortal", () => ({
@@ -35,25 +36,87 @@ vi.mock("../pages/patient/PatientPortal", () => ({
 }));
 
 vi.mock("../pages/admin/AdminPortal", () => ({
-  default: () => <div data-testid="admin-portal" />,
+  default: (props: Record<string, unknown>) => {
+    captured.admin = props;
+    return <div data-testid="admin-portal" />;
+  },
 }));
 
 const DOCTOR_USER: UserResponse = { id: "doc-1", phone: "0911111111", role: "DOCTOR", status: "ACTIVE" };
 const PATIENT_USER: UserResponse = { id: "pat-1", phone: "0922222222", role: "PATIENT", status: "ACTIVE" };
+const ADMIN_USER: UserResponse = { id: "admin-1", phone: "0933333333", role: "ADMIN", status: "ACTIVE" };
 
 function loginAs(user: UserResponse) {
-  setSession({ accessToken: "access-token", refreshToken: "refresh-token", user });
+  setSession({ accessToken: "access-token", refreshToken: "refresh-token", user, needOnboarding: false });
 }
 
 describe("App routing", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    navigate("/", { replace: true });
     captured.doctor = null;
     captured.patient = null;
+    captured.admin = null;
   });
 
   afterEach(() => {
     setSession(null);
+    navigate("/", { replace: true });
+  });
+
+  it("renders the public landing page at / when no session exists", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Đăng nhập" })).toBeInTheDocument();
+    expect(screen.queryByTestId("doctor-portal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("patient-portal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("admin-portal")).not.toBeInTheDocument();
+  });
+
+  it("shows login for protected portal routes when logged out", async () => {
+    navigate("/patient/schedule");
+
+    render(<App />);
+
+    expect(await screen.findByText("Nhập số điện thoại đã đăng ký để tiếp tục.")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/login"));
+  });
+
+  it("redirects a doctor session from / to the doctor dashboard", async () => {
+    loginAs(DOCTOR_USER);
+    navigate("/");
+
+    render(<App />);
+
+    expect(await screen.findByTestId("doctor-portal")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/doctor/dashboard"));
+    expect(captured.doctor).toMatchObject({ view: "dashboard", patientDetailId: null });
+  });
+
+  it("redirects a logged-in user away from another role portal", async () => {
+    loginAs(DOCTOR_USER);
+    navigate("/patient/dashboard");
+
+    render(<App />);
+
+    expect(await screen.findByTestId("doctor-portal")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/doctor/dashboard"));
+    expect(captured.doctor).toMatchObject({ view: "dashboard", patientDetailId: null });
+  });
+
+  it("routes an admin session to admin views and falls back to overview for unknown tabs", async () => {
+    loginAs(ADMIN_USER);
+    navigate("/admin/audit");
+
+    const { rerender } = render(<App />);
+
+    expect(await screen.findByTestId("admin-portal")).toBeInTheDocument();
+    expect(captured.admin).toMatchObject({ view: "audit" });
+
+    navigate("/admin/not-a-real-tab");
+    rerender(<App />);
+
+    expect(captured.admin).toMatchObject({ view: "overview" });
   });
 
   it("renders the patient detail page with the id from the URL (direct link)", async () => {

@@ -5,7 +5,14 @@
 // alert. Giữ nguyên nhóm này đúng như ranh giới cũ để không bịa ranh giới mới —
 // muốn tách riêng thì làm ở một đợt refactor có chủ đích khác.
 import { request } from "./client";
-import type { AdherenceSummary, AlertDetail, PageResponse, VoiceChatResponse } from "../types";
+import type {
+  AdherenceSummary,
+  AlertDetail,
+  ChatConversationDetailResponse,
+  ChatConversationListItem,
+  PageResponse,
+  VoiceChatResponse,
+} from "../types";
 
 export const alertsApi = {
   alerts: (params: { status?: string; patientId?: string; page?: number; size?: number } = {}) =>
@@ -54,18 +61,29 @@ export const alertsApi = {
       headers: { "Idempotency-Key": crypto.randomUUID() },
     }),
 
-  patientChat: (message: string) =>
-    request<{ response: string }>("/chat", {
+  patientChat: (message: string, conversationId?: string) =>
+    request<{ response: string; conversationId?: string }>("/chat", {
       method: "POST",
-      body: { message },
+      body: { message, conversationId },
     }),
 
-  patientChatVoice: (audio: Blob) => {
+  patientChatVoice: (audio: Blob, conversationId?: string) => {
     const formData = new FormData();
     formData.append("audio", audio, "voice-message.webm");
+    if (conversationId) formData.append("conversationId", conversationId);
     return request<VoiceChatResponse>("/chat/voice", {
       method: "POST",
       body: formData,
     });
   },
+
+  chatConversations: (page = 1, size = 20) =>
+    request<PageResponse<ChatConversationListItem>>("/chat/conversations", {
+      query: { page, size },
+    }),
+
+  chatConversationDetail: (conversationId: string, limit = 50, before?: string) =>
+    request<ChatConversationDetailResponse>(`/chat/conversations/${conversationId}`, {
+      query: { limit, before },
+    }),
 };

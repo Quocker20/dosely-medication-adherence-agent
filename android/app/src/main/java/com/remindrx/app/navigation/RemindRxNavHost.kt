@@ -32,6 +32,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remindrx.app.ui.components.RemindRxBottomBar
 import com.remindrx.app.ui.components.AppUpdateBanner
+import com.remindrx.app.ui.components.OfflineBanner
 import com.remindrx.app.ui.components.SosFab
 import com.remindrx.app.ui.components.createAppUpdateIntent
 import com.remindrx.app.ui.feature.auth.AuthViewModel
@@ -102,6 +103,7 @@ fun RemindRxApp() {
     val assistantState by assistantViewModel.state.collectAsStateWithLifecycle()
     val patientViewModel: PatientViewModel = hiltViewModel()
     val patientState by patientViewModel.state.collectAsStateWithLifecycle()
+    val isOnline by patientViewModel.isOnline.collectAsStateWithLifecycle()
     val appUpdateViewModel: AppUpdateViewModel = hiltViewModel()
     val appUpdateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -124,16 +126,16 @@ fun RemindRxApp() {
 
     LaunchedEffect(
         authState.session?.patientId,
-        authState.session?.isFirstLogin,
+        authState.session?.mustChangePassword,
+        authState.session?.needOnboarding,
         patientState.routineCheckCompleted,
-        patientState.needsRoutineOnboarding,
         currentRoute,
     ) {
         if (currentRoute != Routes.SESSION_GATE) return@LaunchedEffect
         val destination = when {
             authState.session == null -> Routes.LOGIN
-            authState.session?.isFirstLogin == true -> Routes.CHANGE_PIN
-            patientState.routineCheckCompleted && patientState.needsRoutineOnboarding -> Routes.ONBOARDING
+            authState.session?.mustChangePassword == true -> Routes.CHANGE_PIN
+            authState.session?.needOnboarding == true -> Routes.ONBOARDING
             patientState.routineCheckCompleted -> Routes.DASHBOARD
             else -> null
         }
@@ -167,12 +169,20 @@ fun RemindRxApp() {
 
     Scaffold(
         topBar = {
-            appUpdateState.availableUpdate?.let { update ->
-                AppUpdateBanner(
-                    update = update,
-                    onUpdate = { downloadUrl -> context.openAppUpdate(downloadUrl) },
-                    onDismiss = appUpdateViewModel::dismissUpdate,
-                )
+            Column {
+                appUpdateState.availableUpdate?.let { update ->
+                    AppUpdateBanner(
+                        update = update,
+                        onUpdate = { downloadUrl -> context.openAppUpdate(downloadUrl) },
+                        onDismiss = appUpdateViewModel::dismissUpdate,
+                    )
+                }
+                if (showBottomChrome || currentRoute == Routes.SOS || currentRoute == Routes.REMINDER) {
+                    OfflineBanner(
+                        isOnline = isOnline,
+                        pendingSyncCount = patientState.pendingSyncCount,
+                    )
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -213,8 +223,8 @@ fun RemindRxApp() {
                     onInputChanged = authViewModel::clearError,
                     onPinCleared = authViewModel::consumeClearLoginPin,
                     onLogin = { phone, pin ->
-                        authViewModel.login(phone, pin) { isFirstLogin ->
-                            val destination = if (isFirstLogin) Routes.CHANGE_PIN else Routes.SESSION_GATE
+                        authViewModel.login(phone, pin) { mustChangePassword ->
+                            val destination = if (mustChangePassword) Routes.CHANGE_PIN else Routes.SESSION_GATE
                             navController.navigate(destination) {
                                 popUpTo(Routes.LOGIN) { inclusive = true }
                             }
@@ -229,7 +239,7 @@ fun RemindRxApp() {
                     onInputChanged = authViewModel::clearError,
                     onChangePin = { currentPin, newPin, confirmedPin ->
                         authViewModel.changePin(currentPin, newPin, confirmedPin) {
-                            navController.navigate(Routes.ONBOARDING) {
+                            navController.navigate(Routes.SESSION_GATE) {
                                 popUpTo(Routes.CHANGE_PIN) { inclusive = true }
                             }
                         }
@@ -272,6 +282,8 @@ fun RemindRxApp() {
                             navController.navigate(Routes.medicationDetail(itemId))
                         }
                     },
+                    isRefreshing = patientState.isLoading,
+                    onRefresh = patientViewModel::refresh,
                 )
             }
             composable(
@@ -293,6 +305,12 @@ fun RemindRxApp() {
                     isLoading = patientState.isLoadingMedicationDetail,
                     error = patientState.medicationDetailError,
                     onRetry = { patientViewModel.loadMedicationDetail(medication?.medicationId) },
+                    onRefresh = {
+                        patientViewModel.loadMedicationDetail(
+                            medication?.medicationId,
+                            forceRefresh = true,
+                        )
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }
@@ -300,8 +318,8 @@ fun RemindRxApp() {
                 AssistantScreen(
                     state = assistantState,
                     onSend = assistantViewModel::sendMessage,
-                    onNewChat = assistantViewModel::startNewConversation,
                     onOpenHistory = { navController.navigate(Routes.CHAT_HISTORY) },
+                    onBack = { navController.popBackStack() },
                     onStartRecording = assistantViewModel::startRecording,
                     onStopRecordingAndSend = assistantViewModel::stopRecordingAndSend,
                 )
@@ -405,8 +423,7 @@ fun RemindRxApp() {
             }
             composable(Routes.SOS) {
                 SosScreen(
-                    isSending = patientState.isSendingSos,
-                    isSent = patientState.isSosSent,
+                    sosStatus = patientState.sosStatus,
                     error = patientState.sosError,
                     onTriggered = patientViewModel::createSos,
                     onCancel = {

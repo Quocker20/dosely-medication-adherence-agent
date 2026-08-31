@@ -1,24 +1,55 @@
-"""Deterministic RAG branch for formulary questions in patient chat."""
-
+"""Grounded formulary answers with stable patient-facing topic layouts."""
 from __future__ import annotations
 
 import asyncio
+import re
 from functools import lru_cache
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from src.agents.patient_presentation import patient_facing_text
+from src.agents.medication_mapping import ingredient_candidates, resolve_catalog_medication
 from src.agents.state import AgentState
-from src.agents.nodes.explain_my_medications_node import _without_citations
+from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
+from src.rag_retrieval.input_guardrail import is_contextual_drug_reference
+from src.rag_retrieval.service import fold
 
+_CITATION = re.compile(r"\s*\[Nguồn\s+\d+]", re.IGNORECASE)
+_EFFECT_QUERY = re.compile(r"\b(?:tác dụng|công dụng|chỉ định|dùng để làm gì|used for|indication)\b", re.IGNORECASE)
+_ADVERSE_EFFECT_QUERY = re.compile(r"\b(?:tác dụng phụ|phản ứng bất lợi|side effects?)\b", re.IGNORECASE)
+_TOPICS = (
+    ("adverse", _ADVERSE_EFFECT_QUERY, "Tác dụng phụ hoặc phản ứng bất lợi"),
+    ("interaction", re.compile(r"\b(?:tương tác|interaction)\b", re.IGNORECASE), "Tương tác được ghi nhận"),
+    ("contraindication", re.compile(r"\b(?:chống chỉ định|không được dùng|contraindication)\b", re.IGNORECASE), "Trường hợp không được dùng theo Dược Thư"),
+    ("missed_dose", re.compile(r"\b(?:quên liều|bỏ lỡ liều|missed dose)\b", re.IGNORECASE), "Thông tin chung khi quên liều"),
+    ("storage", re.compile(r"\b(?:bảo quản|cất thuốc|storage)\b", re.IGNORECASE), "Hướng dẫn bảo quản"),
+    ("special_population", re.compile(r"\b(?:mang thai|thai kỳ|cho con bú|trẻ em|người cao tuổi|pregnan|breastfeed)\b", re.IGNORECASE), "Thông tin cho nhóm đối tượng được hỏi"),
+    ("administration", re.compile(r"\b(?:cách dùng|dùng như thế nào|uống như thế nào|đường dùng|how to take)\b", re.IGNORECASE), "Cách dùng chung trong Dược Thư"),
+    ("effect", _EFFECT_QUERY, "Tác dụng hoặc chỉ định chính"),
+)
+_SCOPES = {
+    "effect": "Công dụng chung không đồng nghĩa thuốc phù hợp để điều trị tình trạng cụ thể của bạn.",
+    "adverse": "Danh sách này không dự đoán chắc chắn phản ứng nào sẽ xảy ra với riêng bạn.",
+    "interaction": "Thông tin chung không xác nhận các thuốc trong đơn của bạn có thể tự phối hợp hoặc tự ngừng.",
+    "contraindication": "Không tự kết luận có thể dùng thuốc nếu chưa đối chiếu bệnh nền, dị ứng và các thuốc đang dùng.",
+    "administration": "Cách dùng chung không thay thế liều, thời điểm, đường dùng và dặn dò trong đơn đã duyệt.",
+    "missed_dose": "Không tự uống bù hoặc gấp đôi liều nếu chỉ dẫn cho thuốc cụ thể chưa được xác minh.",
+    "storage": "Ưu tiên điều kiện bảo quản trên nhãn của đúng sản phẩm đang cầm nếu chi tiết hơn.",
+    "special_population": "Việc sử dụng cho nhóm đối tượng này cần được bác sĩ/dược sĩ xác nhận cho từng trường hợp.",
+}
 _UNAVAILABLE_REPLY = (
-    "Mình chưa thể tra cứu Dược thư Quốc gia lúc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ trước khi thay đổi điều trị."
+    "Mình chưa thể tra cứu Dược Thư Quốc gia lúc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ "
+    "trước khi thay đổi điều trị."
+)
+_IDENTITY_MISMATCH_REPLY = (
+    "Mình chưa tìm thấy đoạn Dược thư khớp đúng với thuốc hoặc hoạt chất đã xác định. "
+    "Mình sẽ không dùng thông tin của thuốc khác để trả lời; bạn vui lòng kiểm tra lại tên trên nhãn thuốc."
 )
 
 
 @lru_cache(maxsize=1)
 def _get_rag_service() -> SafeDrugRAG:
-    """Reuse the loaded index and client across chat turns."""
     return SafeDrugRAG()
 
 
@@ -29,25 +60,186 @@ def _last_human_text(state: AgentState) -> str:
     return ""
 
 
-async def drug_rag_node(state: AgentState) -> dict:
-    """Answer a drug-information turn through the guarded RAG service only.
+def _claims(answer: str) -> list[str]:
+    claims = []
+    for raw in answer.splitlines():
+        cleaned = _CITATION.sub("", raw).strip()
+        cleaned = re.sub(r"^[-•*]\s*", "", cleaned).strip()
+        if cleaned:
+            claims.append(cleaned)
+    return claims
 
-    This route intentionally bypasses the general chat LLM.  It prevents a
-    model from deciding that it can answer a formulary question without first
-    retrieving approved source material.
-    """
+
+def _drug_topic(question: str) -> tuple[str, str] | None:
+    for key, pattern, heading in _TOPICS:
+        if pattern.search(question):
+            return key, heading
+    return None
+
+
+def _format_topic_answer(answer: str, drug_name: str, topic: str, heading: str) -> str:
+    claims = _claims(answer)
+    if not claims:
+        return patient_facing_text(answer)
+    lines = [
+        "Thuốc được hỏi",
+        drug_name or "Tên thuốc đã được xác định trong bước tra cứu",
+        "",
+        heading,
+        *(f"- {claim}" for claim in claims),
+        "",
+        "Phạm vi của thông tin",
+        f"- {_SCOPES.get(topic, 'Đây là thông tin chung từ Dược Thư, không phải chỉ định điều trị cá nhân.')}",
+        "- Chỉ dùng theo đúng thuốc, hàm lượng, liều và đường dùng trong đơn đã được bác sĩ duyệt.",
+        "",
+        "Khi cần xác nhận thêm",
+        "- Nếu nhãn thuốc khác dữ liệu App hoặc chưa rõ thông tin này áp dụng thế nào, hãy hỏi bác sĩ/dược sĩ trước khi dùng.",
+    ]
+    return "\n".join(lines)
+
+
+def _format_effect_answer(answer: str, drug_name: str) -> str:
+    return _format_topic_answer(answer, drug_name, "effect", "Tác dụng hoặc chỉ định chính")
+
+
+async def _resolve_named_drug(
+    rag: SafeDrugRAG, name: str
+) -> tuple[list[tuple[str, str]], dict | None]:
+    """Resolve a formulary name or an exact catalog brand before retrieval."""
+    if not name:
+        return [], None
+    normalized, display = rag.rag.infer_drug(name)
+    if normalized and display:
+        return [(normalized, display)], None
     try:
-        result = await asyncio.to_thread(_get_rag_service().query, _last_human_text(state))
-    except Exception:  # noqa: BLE001 - retrieval/generation failure must fail safely
+        page = await get("/medications", params={"search": name, "size": 10})
+    except BackendAPIError:
+        return [], None
+    entries = list((page or {}).get("content") or [])
+    wanted = fold(name)
+    exact = [entry for entry in entries if fold(str(entry.get("name") or "")) == wanted]
+    if len(exact) != 1:
+        return [], None
+    entry = exact[0]
+    composition = str(entry.get("composition") or "")
+    ingredients = ingredient_candidates(composition)
+    identities = resolve_catalog_medication(
+        str(entry.get("name") or name), composition, rag.rag
+    )
+    # A combination product is safe to answer only when every catalogued
+    # active ingredient maps to a reviewed formulary heading.
+    if not ingredients or len(identities) != len(ingredients):
+        return [], entry
+    return [
+        (identity.normalized_drug_name, identity.formulary_name)
+        for identity in identities
+    ], entry
+
+
+async def _query_resolved_drugs(rag: SafeDrugRAG, question: str, drugs: list[tuple[str, str]]):
+    if not drugs:
+        return await asyncio.to_thread(rag.query, question)
+    if len(drugs) == 1:
+        return await asyncio.to_thread(rag.query, question, context_drug=drugs[0])
+    return await asyncio.to_thread(rag.query, question, context_drugs=drugs)
+
+
+async def drug_rag_node(state: AgentState) -> dict:
+    question = _last_human_text(state)
+    analysis = state.get("intent_analysis") or {}
+    if analysis.get("needs_clarification"):
+        name = str(analysis.get("drug_name") or "thuốc này").strip()
+        return {"messages": [AIMessage(content=(
+            f"Bạn muốn biết thông tin nào về {name}: công dụng, cách dùng, tác dụng phụ, "
+            "chống chỉ định hay tương tác thuốc?"
+        ))]}
+    try:
+        rag = _get_rag_service()
+        context_drugs: list[tuple[str, str]] = []
+        catalog_entry = None
+        memory = state.get("memory_context") or {}
+        current = memory.get("current_medication") if isinstance(memory, dict) else None
+        if is_contextual_drug_reference(question) and isinstance(current, dict):
+            display_name = str(current.get("display_name") or "")
+            normalized, canonical = rag.rag.infer_drug(display_name)
+            if normalized and canonical:
+                context_drugs = [(normalized, canonical)]
+        if not context_drugs:
+            context_drugs, catalog_entry = await _resolve_named_drug(
+                rag, str(analysis.get("drug_name") or "").strip()
+            )
+        result = await _query_resolved_drugs(rag, question, context_drugs)
+        if result.status in {"needs_drug_name", "out_of_scope", "unsupported_language", "no_data"}:
+            catalog_name = str(analysis.get("drug_name") or "").strip()
+            if catalog_name:
+                try:
+                    page = await get("/medications", params={"search": catalog_name, "size": 3})
+                    entries = list((page or {}).get("content") or [])
+                except BackendAPIError:
+                    entries = []
+                if len(entries) == 1:
+                    entry = entries[0]
+                    composition = str(entry.get("composition") or "").strip()
+                    if composition:
+                        identities = resolve_catalog_medication(
+                            str(entry.get("name") or catalog_name), composition, rag.rag
+                        )
+                        ingredients = ingredient_candidates(composition)
+                        if ingredients and len(identities) == len(ingredients):
+                            context_drugs = [
+                                (identity.normalized_drug_name, identity.formulary_name)
+                                for identity in identities
+                            ]
+                            result = await _query_resolved_drugs(
+                                rag, question, context_drugs
+                            )
+                    if result.status != "answered":
+                        details = [f"Thông tin từ danh mục thuốc\n- Tên: {entry.get('name')}"]
+                        if composition:
+                            details.append(f"- Hoạt chất/thành phần: {composition}")
+                        if entry.get("uses"):
+                            details.append(f"- Công dụng: {entry['uses']}")
+                        if entry.get("side_effects"):
+                            details.append(f"- Tác dụng phụ: {entry['side_effects']}")
+                        details.append(f"- Nguồn danh mục: {entry.get('source_name') or 'chưa rõ'}")
+                        details.append("Thông tin danh mục không thay thế chỉ dẫn trong đơn đã được bác sĩ duyệt.")
+                        return {"messages": [AIMessage(content="\n".join(details))], "grounding_valid": True, "grounding_errors": []}
+    except Exception:
         return {
             "messages": [AIMessage(content=_UNAVAILABLE_REPLY)],
             "grounding_valid": False,
             "grounding_errors": ["rag_unavailable"],
         }
+
+    if context_drugs and result.sources:
+        expected = {drug[0] for drug in context_drugs}
+        mismatched = [
+            source.drug_name for source in result.sources
+            if fold(str(source.drug_name)).replace(" ", "") not in expected
+        ]
+        if mismatched:
+            return {
+                "messages": [AIMessage(content=_IDENTITY_MISMATCH_REPLY)],
+                "grounding_valid": False,
+                "grounding_errors": ["drug_identity_mismatch"],
+                "rag_sources": [],
+            }
+    answer = patient_facing_text(result.answer)
+    topic = _drug_topic(question)
+    if result.status == "answered" and result.grounding_valid and topic:
+        names = list(dict.fromkeys(source.drug_name for source in result.sources if source.drug_name))
+        answer = _format_topic_answer(result.answer, ", ".join(names), *topic)
     return {
-        # Citations remain part of the internal grounding validation above,
-        # but are hidden in the patient-facing presentation.
-        "messages": [AIMessage(content=_without_citations(result.answer))],
+        "messages": [AIMessage(content=answer)],
         "grounding_valid": result.grounding_valid,
         "grounding_errors": result.grounding_errors,
+        "rag_sources": [
+            {
+                "citation": source.citation,
+                "drug_name": source.drug_name,
+                "section": source.section,
+                "excerpt": source.excerpt,
+            }
+            for source in result.sources
+        ],
     }

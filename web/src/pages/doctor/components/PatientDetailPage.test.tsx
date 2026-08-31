@@ -19,6 +19,7 @@ const apiMocks = vi.hoisted(() => ({
   dashboardPatientDetail: vi.fn(),
   patientPrescriptions: vi.fn(),
   adherenceLogs: vi.fn(),
+  adherenceReviews: vi.fn(),
   alerts: vi.fn(),
   patientHealthSurveys: vi.fn(),
   healthSurveyDetail: vi.fn(),
@@ -95,6 +96,7 @@ const PRESCRIPTIONS: PrescriptionDetail[] = [
         start_date: "2026-01-05",
         end_date: null,
         instructions: "Uống với nhiều nước",
+        is_critical: false,
         created_at: "2026-01-04T00:00:00Z",
       },
     ],
@@ -123,6 +125,7 @@ describe("PatientDetailPage", () => {
     apiMocks.dashboardPatientDetail.mockReset().mockResolvedValue(DETAIL);
     apiMocks.patientPrescriptions.mockReset().mockResolvedValue({ content: PRESCRIPTIONS, total_elements: 1 });
     apiMocks.adherenceLogs.mockReset().mockResolvedValue({ content: LOGS, total_elements: 0 });
+    apiMocks.adherenceReviews.mockReset().mockResolvedValue({ content: [], total_elements: 0 });
     apiMocks.alerts.mockReset().mockResolvedValue({ content: ALERTS, total_elements: 0 });
     apiMocks.patientHealthSurveys.mockReset().mockResolvedValue({ content: [], total_elements: 0 });
     apiMocks.healthSurveyDetail.mockReset().mockResolvedValue(SURVEYS[0]);
@@ -215,6 +218,26 @@ describe("PatientDetailPage", () => {
       content: [{ id: "log-1", scheduled_dose_id: "d1", patient_id: "patient-1", action: "TAKEN", performed_at: "2026-08-27T08:00:00Z", action_source: "PATIENT", payload: {}, idempotency_key: null }],
       total_elements: 1,
     });
+    apiMocks.adherenceReviews.mockReset().mockResolvedValue({
+      content: [
+        {
+          id: "review-1",
+          patient_id: "patient-1",
+          review_date: "2026-08-28",
+          window_start: "2026-08-21",
+          window_end: "2026-08-28",
+          severity: "SEVERE",
+          days_in_severity: 3,
+          remedy_class: "SUSPECTED_SIDE_EFFECT",
+          action_taken: "DOCTOR_ALERT",
+          indicators: {},
+          llm_reasoning: "Bệnh nhân có triệu chứng buồn nôn sau khi uống thuốc.",
+          llm_confidence: "0.95",
+          created_at: "2026-08-28T23:00:00Z",
+        },
+      ],
+      total_elements: 1,
+    });
     const user = userEvent.setup();
     setup();
     await screen.findByRole("heading", { name: "Nguyễn Văn A" });
@@ -223,6 +246,12 @@ describe("PatientDetailPage", () => {
 
     const healthPanel = within(screen.getByText("Nhật ký tuân thủ").closest("article") as HTMLElement);
     expect(healthPanel.getByText("TAKEN")).toBeInTheDocument();
+
+    const reviewPanel = within(screen.getByText("Đánh giá tuân thủ hàng đêm").closest("article") as HTMLElement);
+    expect(reviewPanel.getByText("Nghiêm trọng")).toBeInTheDocument();
+    expect(reviewPanel.getByText(/Ngày 3 ở mức này/)).toBeInTheDocument();
+    expect(reviewPanel.getByText(/Nghi tác dụng phụ/)).toBeInTheDocument();
+    expect(reviewPanel.getByText("Bệnh nhân có triệu chứng buồn nôn sau khi uống thuốc.")).toBeInTheDocument();
   });
 
   it("re-fetches patient data only when a matching dashboard realtime frame arrives", async () => {

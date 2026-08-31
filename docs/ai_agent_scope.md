@@ -8,6 +8,14 @@ Repo hiện dùng template AI20K: `src/agents/` (LangGraph) + `src/api/` (FastAP
 `src/models/` (Pydantic schema) + `src/services/` (LLM). Phần dưới đây map bài toán
 thuốc vào đúng cấu trúc này.
 
+> ⚠️ **Cập nhật — layout thật đã khác:** `src/models/` và `src/services/` giờ rỗng
+> (chỉ còn `__pycache__`). Model/schema nằm theo từng module dọc:
+> `src/modules/*/models.py` (SQLAlchemy) + `src/modules/*/schemas.py` (Pydantic
+> request/response) — vd. `src/modules/auth/schemas.py`, `src/modules/patients/models.py`.
+> Helper LLM nằm ở `src/modules/planning/core/llm.py` (`get_llm(...)`), không phải
+> `src/services/`. Phần còn lại của mục này (map bài toán vào node/tool) vẫn đúng tinh
+> thần, chỉ tên file/module cụ thể đã đổi — xem banner ở mục 2, 3, 5 bên dưới.
+
 ---
 
 ## 1. Ranh giới AI ↔ Web-app (chốt trước khi code)
@@ -32,6 +40,15 @@ là AI có thể mock data và làm độc lập.
 
 ## 2. Thiết kế AgentState (`src/agents/state.py`)
 
+> ⚠️ **Phần dưới đây là bản phác thảo ban đầu, đã bị thay thế đáng kể bởi implementation
+> thật.** `AgentState` thật hiện là `TypedDict` gọn hơn nhiều: `messages`, `patient_id`,
+> `patient_address`, `client_date`/`client_datetime`, `escalated`, `safety_blocked`,
+> `safety_reason`, `intent`, `grounding_valid`, `grounding_errors`, `error`, `metadata` —
+> không có field `prescriptions`/`patient_profile`/`schedule` cố định trong state, vì các
+> node lấy dữ liệu này ad hoc qua tool-call trong vòng lặp ReAct thay vì preload. Xem
+> `src/agents/state.py` để biết thiết kế hiện tại. Giữ nội dung cũ bên dưới làm tư liệu
+> lịch sử (lý do ban đầu chọn state shape này).
+
 State hiện tại (`query, context, analysis, response, error, metadata`) là generic chatbot.
 Cần mở rộng cho domain thuốc:
 
@@ -51,6 +68,17 @@ class AgentState(TypedDict, total=False):
 ```
 
 ## 3. Nodes (`src/agents/nodes/`)
+
+> ⚠️ **Phần dưới đây là bản phác thảo ban đầu, đã bị thay thế đáng kể bởi implementation
+> thật.** Chỉ `classify_intent_node` và `safety_guard_node` còn tồn tại đúng tên. Các node
+> còn lại (`fetch_prescription_node`, `compute_schedule_node`, `check_interactions_node`,
+> `handle_confirmation_node`) chưa từng được viết đúng như phác thảo — thay vào đó:
+> - Tính lịch: pipeline riêng `src/agents/planning_graph.py` (nhiều node `planning_*`).
+> - Tra thuốc: `drug_rag_node.py` (RAG thật) + tool `search_drug_info`/`search_drug_formulary`.
+> - Xác nhận uống/bỏ thuốc: đi thẳng qua API `POST /scheduled-doses/{id}/actions`, không
+>   qua 1 node chat riêng — xem mục 6 (đã tự cập nhật đúng phần này từ 2026-08-08).
+> Xem `src/agents/nodes/`, `src/agents/graph.py`, `src/agents/planning_graph.py` để biết
+> danh sách node thật. Giữ nội dung cũ bên dưới làm tư liệu lịch sử.
 
 Thay `example_node.py` bằng các node theo domain:
 
@@ -81,6 +109,15 @@ Thay `example_tool.py` bằng tool thật:
 - Bỏ `calculate` (không liên quan bài toán).
 
 ## 5. Graph flow (gợi ý, `src/agents/graph.py`)
+
+> ⚠️ **Phần dưới đây là bản phác thảo ban đầu, đã bị thay thế đáng kể bởi implementation
+> thật.** Graph thật vào `safety_guard_node` đầu tiên (chạy mọi lượt chat, không phải chỉ
+> nhánh `out_of_scope`), rồi `classify_intent_node` rẽ tới các node chuyên biệt
+> (`rescheduling`, `drug_rag`, `current_medications`, `next_dose`, `today_schedule`,
+> `explain_my_medications`) hoặc một vòng lặp ReAct tool-calling (`agent` node) cho các
+> câu hỏi không khớp intent cố định nào. Ngoài ra còn có **graph thứ 2 hoàn toàn riêng**
+> (`src/agents/planning_graph.py`) xử lý tính lịch uống thuốc, không nằm trong graph chat
+> này. Xem `src/agents/graph.py` để biết flow thật. Giữ sơ đồ cũ bên dưới làm tư liệu lịch sử.
 
 ```mermaid
 graph LR

@@ -88,7 +88,8 @@ class RemoteAuthRepositoryImplTest {
 
         assertEquals("access-after-pin", store.accessToken)
         assertEquals("refresh-after-pin", store.refreshToken)
-        assertEquals(false, store.isFirstLogin)
+        assertEquals(false, store.mustChangePassword)
+        assertEquals(false, store.needOnboarding)
         val changeRequest = server.takeRequest()
         assertEquals("Bearer access-old", changeRequest.getHeader("Authorization"))
         assertEquals("/api/v1/auth/login", server.takeRequest().path)
@@ -110,7 +111,8 @@ class RemoteAuthRepositoryImplTest {
     private fun successTokenResponse(
         accessToken: String,
         refreshToken: String,
-        isFirstLogin: Boolean,
+        mustChangePassword: Boolean,
+        needOnboarding: Boolean = false,
     ): MockResponse = MockResponse()
         .setResponseCode(200)
         .setHeader("Content-Type", "application/json")
@@ -125,7 +127,8 @@ class RemoteAuthRepositoryImplTest {
                 "refresh_token": "$refreshToken",
                 "token_type": "Bearer",
                 "expires_in": 900,
-                "is_first_login": $isFirstLogin,
+                "must_change_password": $mustChangePassword,
+                "need_onboarding": $needOnboarding,
                 "user": {
                   "id": "patient-1",
                   "phone": "+84901234567",

@@ -5,7 +5,8 @@ import GuardBanner from "../../components/shared/GuardBanner";
 import { useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
 import { setSession, type Session } from "../../session";
-import type { AlertDetail, DashboardPatientListItem } from "../../types";
+import { normalizeSearchQuery } from "../../components/auth/phone";
+import type { AlertDetail, DashboardPatientListItem, SuspectedAdverseEvent } from "../../types";
 import { paginationRange } from "../../utils/labels";
 import AlertsView from "./components/AlertsView";
 import KpiRow from "./components/KpiRow";
@@ -20,8 +21,8 @@ export type ViewName = "dashboard" | "patients" | "alerts" | "surveys" | "rx";
 const TITLES: Record<ViewName, [string, string]> = {
   dashboard: ["Dashboard", "Tổng quan tuân thủ điều trị theo thời gian thực"],
   patients: ["Danh sách bệnh nhân", "Tìm kiếm và theo dõi bệnh nhân đang điều trị"],
-  alerts: ["Cảnh báo khẩn", "Closed-loop Red Alert · chỉ bác sĩ được đóng cảnh báo"],
-  surveys: ["Khảo sát sức khỏe", "Theo dõi survey theo bệnh nhân hoặc tổng hợp"],
+  alerts: ["Cảnh báo khẩn", "Quy trình xử lý khép kín · chỉ bác sĩ được xác nhận đóng cảnh báo"],
+  surveys: ["Khảo sát sức khỏe", "Theo dõi khảo sát theo từng bệnh nhân hoặc tổng hợp"],
   rx: ["Kê đơn thuốc điện tử", "Đơn phải được bác sĩ duyệt trước khi sinh lịch nhắc"],
 };
 
@@ -54,6 +55,7 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
   const [patients, setPatients] = useState<DashboardPatientListItem[]>([]);
   const [totalPatients, setTotalPatients] = useState(0);
   const [alerts, setAlerts] = useState<AlertDetail[]>([]);
+  const [adverseEvents, setAdverseEvents] = useState<SuspectedAdverseEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -65,6 +67,7 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
 
   const [rxPhone, setRxPhone] = useState("");
   const [alertBusyId, setAlertBusyId] = useState<string | null>(null);
+  const [emergencyNotification, setEmergencyNotification] = useState(false);
   // setDoctorName tạm không dùng — nguồn duy nhất (api.myDoctorProfile) đang comment, xem TODO dưới.
   const [doctorName] = useState<string | null>(null);
   const { toasts, notify: toast } = useToasts(2600);
@@ -88,19 +91,21 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
   // }, []);
 
   const refresh = useCallback(async () => {
-    const [patientPageResult, alertPage] = await Promise.all([
+    const [patientPageResult, alertPage, adversePage] = await Promise.all([
       api.dashboardPatients({
         page: patientPage,
         size: 20,
-        search: debouncedPatientSearch,
+        search: normalizeSearchQuery(debouncedPatientSearch) || undefined,
         alertStatus: alertFilter || undefined,
         adherenceBand: adherenceFilter || undefined,
       }),
       api.alerts({ size: 50, status: alertFilter || undefined }),
+      api.adverseEvents({ size: 50 }),
     ]);
     setPatients(patientPageResult.content);
     setTotalPatients(patientPageResult.total_elements);
     setAlerts(alertPage.content);
+    setAdverseEvents(adversePage.content);
   }, [adherenceFilter, alertFilter, debouncedPatientSearch, patientPage]);
 
   useEffect(() => {
@@ -157,13 +162,29 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
       return;
     }
 
-    socket.onmessage = () => {
-      // Frame hiện có là alert.opened / alert.updated — kéo lại roster cho đồng bộ.
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as { event_type?: string };
+        if (payload.event_type === "alert.opened") {
+          setEmergencyNotification(true);
+        }
+      } catch {
+        // Plain event frame
+      }
       refresh().catch(() => {});
     };
 
     return () => socket.close();
   }, [session.accessToken, refresh]);
+
+  useEffect(() => {
+    if (!emergencyNotification) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEmergencyNotification(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [emergencyNotification]);
 
   async function acknowledgeAlert(id: string) {
     setAlertBusyId(id);
@@ -191,6 +212,13 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
     }
   }
 
+  async function reviewAdverseEvent(id: string, causality: string, note: string) {
+    setAlertBusyId(id);
+    try { await api.reviewAdverseEvent(id, causality, note); await refresh(); toast("Đã lưu đánh giá triệu chứng nghi ngờ"); }
+    catch (error) { toast(error instanceof ApiError ? error.message : "Không lưu được đánh giá"); }
+    finally { setAlertBusyId(null); }
+  }
+
   async function logout() {
     try {
       await api.logout(session.refreshToken);
@@ -211,6 +239,71 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
 
   return (
     <>
+      {emergencyNotification && (
+        <div
+          className="emergency-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="emergency-modal-title"
+          onClick={() => setEmergencyNotification(false)}
+        >
+          <div
+            className="emergency-modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="emergency-modal-head">
+              <div className="emergency-pulse-badge">🚨</div>
+              <div className="emergency-modal-title-wrap">
+                <h3 id="emergency-modal-title" className="emergency-modal-title">
+                  Cảnh báo y tế khẩn cấp
+                </h3>
+                <div className="emergency-modal-subtitle">
+                  Phát hiện sự kiện cần bác sĩ can thiệp y tế tức thì
+                </div>
+              </div>
+              <button
+                type="button"
+                className="emergency-modal-close-btn"
+                aria-label="Đóng hộp thoại"
+                title="Đóng"
+                onClick={() => setEmergencyNotification(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="emergency-modal-body">
+              <p className="emergency-modal-text">
+                Hệ thống vừa ghi nhận tín hiệu <b>SOS khẩn cấp</b> hoặc <b>triệu chứng mức độ nặng</b> từ bệnh nhân trong danh sách theo dõi.
+              </p>
+              <div className="emergency-modal-hint">
+                💡 Theo quy trình điều trị an toàn, các cảnh báo khẩn cấp cần được bác sĩ xác nhận tiếp nhận và ghi chú xử lý trực tiếp trên hệ thống.
+              </div>
+            </div>
+
+            <div className="emergency-modal-foot">
+              <button
+                type="button"
+                className="emergency-btn-secondary"
+                onClick={() => setEmergencyNotification(false)}
+              >
+                Để sau
+              </button>
+              <button
+                type="button"
+                className="emergency-btn-primary"
+                onClick={() => {
+                  onViewChange("alerts");
+                  setEmergencyNotification(false);
+                }}
+              >
+                Xem chi tiết cảnh báo →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="app">
         <Sidebar
           view={view}
@@ -412,11 +505,13 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
           {view === "alerts" && (
             <AlertsView
               alerts={alerts}
+              adverseEvents={adverseEvents}
               patients={patients}
               busyId={alertBusyId}
               onAcknowledge={acknowledgeAlert}
               onResolve={resolveAlert}
               onOpenPatient={onOpenPatient}
+              onReviewAdverseEvent={reviewAdverseEvent}
             />
           )}
 

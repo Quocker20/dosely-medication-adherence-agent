@@ -153,21 +153,24 @@
     <main class="shell">
       <p class="eyebrow">Android release channel</p>
       <h1>Bản RemindRx mới nhất, sẵn sàng để thử.</h1>
-      <p class="lede">Chỉ tải bản đang được hỗ trợ. Các bản demo cũ được giữ lại trong lịch sử phát hành nhưng đã khóa để tránh cài nhầm phiên bản không còn an toàn.</p>
+      <p class="lede">Chỉ tải bản đang được hỗ trợ. Các bản cũ được giữ lại trong lịch sử phát hành nhưng đã khóa để tránh cài nhầm phiên bản không còn an toàn.</p>
 
       <article class="release-card" aria-labelledby="latest-release">
         <section class="release-main">
           <div class="status">Bản được khuyến nghị</div>
-          <h2 class="version" id="latest-release">v0.1.0-mvp</h2>
-          <p class="release-date">Build 1 · phát hành ngày 28/08/2026</p>
-          <a class="download" href="/downloads/remindrx-demo.apk" download>
+          <h2 class="version" id="latest-release">v1.4.0</h2>
+          <p class="release-date">Build 6 · phát hành ngày 31/08/2026</p>
+          <!-- ?v= phải tăng theo mỗi lần phát hành: Cloudflare cache file theo URL
+               với TTL 4 giờ, nên nếu giữ nguyên đường dẫn thì người tải vẫn nhận
+               APK của bản trước cho tới khi cache hết hạn. -->
+          <a class="download" href="/downloads/remindrx-demo.apk?v=1.4.0" download>
             <span class="download-icon" aria-hidden="true">↓</span>
             Tải APK mới nhất
           </a>
           <dl class="release-meta">
-            <div><dt>Dung lượng</dt><dd>17 MB</dd></div>
+            <div><dt>Dung lượng</dt><dd>13,2 MB</dd></div>
             <div><dt>Yêu cầu hệ điều hành</dt><dd>Android 8.0 trở lên</dd></div>
-            <div><dt>Kênh phát hành</dt><dd>Demo thử nghiệm</dd></div>
+            <div><dt>Kênh phát hành</dt><dd>Tải trực tiếp (APK)</dd></div>
           </dl>
         </section>
 
@@ -175,13 +178,12 @@
           <div>
             <p class="aside-title">Có gì mới</p>
             <ul class="changes">
-              <li>Cập nhật giao diện và trải nghiệm theo dõi thuốc.</li>
-              <li>Cải thiện màn hình thuốc và hỗ trợ tra cứu nhanh hơn.</li>
-              <li>Bổ sung cá nhân hoá hội thoại và nhận thông báo trên thiết bị.</li>
-              <li>Gửi khảo sát triệu chứng bằng nội dung tự do tới bác sĩ.</li>
+              <li>Lịch sử trò chuyện với trợ lý: xem lại các cuộc hội thoại cũ, mở tiếp và hỏi thêm.</li>
+              <li>Lưu hội thoại ngay trên máy — mở lại được cả khi đang mất mạng.</li>
+              <li>Trợ lý ghi nhận triệu chứng bất thường bạn kể trong lúc trò chuyện để bác sĩ theo dõi.</li>
             </ul>
           </div>
-          <p class="build-note">Đây là bản demo nội bộ. Không nhập thông tin bệnh nhân thật.</p>
+          <p class="build-note">Bản dùng cho demo đề tài. Vui lòng không nhập thông tin bệnh nhân thật.</p>
         </aside>
       </article>
 
@@ -193,8 +195,36 @@
         <div class="history">
           <article class="history-row">
             <div>
-              <div class="history-title"><strong>v0.1.0-mvp · Build trước</strong><span>Đã thay thế ngày 28/08/2026</span></div>
-              <p>Bản demo trước khi cập nhật giao diện, thông báo và trải nghiệm khảo sát.</p>
+              <div class="history-title"><strong>v1.3.0 · Build 5</strong><span>Đã thay thế ngày 31/08/2026</span></div>
+              <p>Bản đầu ký bằng chứng chỉ riêng của nhóm; mở khoá cữ thuốc sớm 15 phút.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v1.2.0 · Build 4</strong><span>Đã thay thế ngày 30/08/2026</span></div>
+              <p>Bản cuối dùng chứng chỉ thử nghiệm mặc định; thêm bộ nhớ hội thoại cho trợ lý.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v1.1.0 · Build 3</strong><span>Đã thay thế ngày 29/08/2026</span></div>
+              <p>Thêm kéo-để-làm-mới và làm mới giao diện các màn hình chính.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v1.0.0 · Build 2</strong><span>Đã thay thế ngày 29/08/2026</span></div>
+              <p>Bổ sung đồng bộ ngoại tuyến, thông báo đẩy và khảo sát triệu chứng tự do.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v0.1.0-mvp · Bản MVP</strong><span>Đã thay thế ngày 29/08/2026</span></div>
+              <p>Bản đầu tiên, chưa có đồng bộ ngoại tuyến và thông báo đẩy.</p>
             </div>
             <span class="locked">Đã khóa tải</span>
           </article>
@@ -218,7 +248,7 @@
           <article class="install-step"><span class="step-number">02 — CHO PHÉP</span><h3>Mở tệp vừa tải</h3><p>Nếu Android hỏi về nguồn không xác định, chọn Cho phép để tiếp tục cài đặt.</p></article>
           <article class="install-step"><span class="step-number">03 — ĐĂNG NHẬP</span><h3>Mở RemindRx</h3><p>Đăng nhập bằng tài khoản demo được nhóm cung cấp để bắt đầu trải nghiệm.</p></article>
         </div>
-        <p class="notice">Đây là bản thử nghiệm. Nếu đã cài bản cũ, hãy gỡ hoặc cập nhật bằng APK mới nhất trước khi tiếp tục.</p>
+        <p class="notice"><strong>Đang dùng v1.3.0?</strong> Cài đè trực tiếp, không cần gỡ. <strong>Đang dùng v1.2.0 trở về trước?</strong> Phải gỡ app cũ rồi mới cài được — v1.3.0 đổi sang chứng chỉ ký riêng của nhóm, nên bản cũ (ký chứng chỉ thử nghiệm) không cập nhật đè được, máy sẽ báo <em>“Ứng dụng chưa được cài đặt”</em>. Gỡ một lần là xong, các bản sau cập nhật bình thường.</p>
       </section>
     </main>
 

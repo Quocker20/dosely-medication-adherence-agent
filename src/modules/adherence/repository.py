@@ -23,6 +23,13 @@ from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
 
+# Client clocks can drift by a few seconds to a couple minutes from the
+# server's; the patient app also unlocks its own UI 15 minutes ahead of the
+# scheduled time so the action is tappable the moment the reminder fires.
+# 20 minutes here gives that a margin instead of rejecting a same-instant
+# early action with a false "not due yet" 409.
+_EARLY_ACTION_GRACE_MINUTES = 20
+
 
 def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
     """Role-agnostic access predicate, duplicated per structure.md's
@@ -89,10 +96,11 @@ class AdherenceLogRepository:
         snooze_minutes: Optional[int] = None,
     ) -> Optional[ScheduledDose]:
         """Atomic compare-and-swap: only updates a row still PENDING, due
-        now, and owned by this patient — no read-then-write race window
-        (mirrors PrescriptionRepository.approve_if_draft). Returns None if
-        the dose doesn't exist, isn't this patient's, is not due yet, or is
-        no longer PENDING; caller (service) disambiguates via get_dose_scoped.
+        within _EARLY_ACTION_GRACE_MINUTES, and owned by this patient — no
+        read-then-write race window (mirrors
+        PrescriptionRepository.approve_if_draft). Returns None if the dose
+        doesn't exist, isn't this patient's, is not due yet, or is no longer
+        PENDING; caller (service) disambiguates via get_dose_scoped.
 
         TAKEN/SKIPPED move the dose to a terminal state. SNOOZE stays PENDING
         and only shifts current_scheduled_at / bumps snooze_count — computed
@@ -121,7 +129,8 @@ class AdherenceLogRepository:
                 # This is a clinical-boundary check, so it must stay in the
                 # atomic UPDATE rather than relying on either client clocks
                 # or a read-then-write service-layer comparison.
-                ScheduledDose.current_scheduled_at <= func.now(),
+                ScheduledDose.current_scheduled_at
+                <= func.now() + timedelta(minutes=_EARLY_ACTION_GRACE_MINUTES),
             )
             .values(**values)
             .returning(ScheduledDose)

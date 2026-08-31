@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.Medication
 import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.GuardrailNote
+import com.remindrx.app.ui.components.RemindRxPullRefresh
 import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.components.TimeChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
@@ -33,33 +34,37 @@ import com.remindrx.app.ui.theme.LocalRemindRxColors
 fun PrescriptionScreen(
     medications: List<Medication>,
     onOpenMedication: (Medication) -> Unit,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
-    ) {
-        item {
-            Text("Danh sách thuốc", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
-        }
-
-        if (medications.isEmpty()) {
+    RemindRxPullRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
+        ) {
             item {
-                Text(
-                    "Chưa có thuốc trong đơn hiện tại.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = LocalRemindRxColors.current.inkMuted,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                Text("Danh sách thuốc", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
+            }
+
+            if (medications.isEmpty()) {
+                item {
+                    Text(
+                        "Chưa có thuốc trong đơn hiện tại.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = LocalRemindRxColors.current.inkMuted,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    )
+                }
+            } else {
+                items(medications) { med -> MedicationCard(med, onClick = { onOpenMedication(med) }) }
+            }
+
+            item {
+                GuardrailNote(
+                    "Chỉ bác sĩ có quyền thay đổi đơn thuốc. Bạn không thể tự chỉnh liều hoặc số cữ.",
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )
             }
-        } else {
-            items(medications) { med -> MedicationCard(med, onClick = { onOpenMedication(med) }) }
-        }
-
-        item {
-            GuardrailNote(
-                "Chỉ bác sĩ có quyền thay đổi đơn thuốc. Bạn không thể tự chỉnh liều hoặc số cữ.",
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
         }
     }
 }

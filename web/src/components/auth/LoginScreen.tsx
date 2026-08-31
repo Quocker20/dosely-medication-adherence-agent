@@ -30,7 +30,7 @@ export default function LoginScreen({ onBack }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Backend đánh dấu is_first_login: phải đổi PIN trước khi dùng portal.
+  // Backend đánh dấu must_change_password: phải đổi PIN trước khi dùng portal.
   const [pendingTokens, setPendingTokens] = useState<AuthTokenResponse | null>(null);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -70,7 +70,7 @@ export default function LoginScreen({ onBack }: Props) {
         return;
       }
 
-      if (tokens.is_first_login) {
+      if (tokens.must_change_password) {
         // Giữ token trong màn hình; commit session sau khi PIN mới thành công
         // để App không unmount LoginScreen giữa chừng.
         setPendingTokens(tokens);

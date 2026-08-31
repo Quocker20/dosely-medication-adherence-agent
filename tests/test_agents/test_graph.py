@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.agents.graph import agent
 from src.agents.nodes.classify_intent_node import IntentClassification
 from src.agents.nodes.rescheduling_node import MealShiftExtraction
+from src.agents.nodes.scope_guard_node import ScopeClassification
 
 
 def _not_severe():
@@ -32,10 +33,24 @@ def _classified_as(intent: str):
     )
 
 
+def _in_scope():
+    return patch(
+        "src.agents.nodes.scope_guard_node.get_llm",
+        **{
+            "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                return_value=ScopeClassification(
+                    category="medication", reason="test", confidence=1.0
+                )
+            )
+        },
+    )
+
+
 def _reaches_agent(intent: str = "general"):
     """Cả safety_guard lẫn classify_intent đều pass-through, luồng tới agent_node."""
     stack = ExitStack()
     stack.enter_context(_not_severe())
+    stack.enter_context(_in_scope())
     stack.enter_context(_classified_as(intent))
     return stack
 
@@ -46,7 +61,7 @@ async def test_agent_answers_directly_without_tool_calls():
     reply = AIMessage(content="Xin chào, tôi có thể giúp gì cho bạn?")
 
     with _reaches_agent(), patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(return_value=reply)
+        mock_get_llm.return_value.ainvoke = AsyncMock(return_value=reply)
 
         result = await agent.ainvoke({"messages": [HumanMessage(content="Xin chào")], "patient_id": "patient-123"})
 
@@ -54,40 +69,13 @@ async def test_agent_answers_directly_without_tool_calls():
 
 
 @pytest.mark.asyncio
-async def test_agent_calls_tool_then_answers():
-    """LLM gọi search_drug_info trước, rồi dùng kết quả tool để trả lời."""
-    tool_call_reply = AIMessage(
-        content="",
-        tool_calls=[
-            {
-                "name": "search_drug_info",
-                "args": {"query": "paracetamol"},
-                "id": "call_1",
-            }
-        ],
-    )
-    final_reply = AIMessage(content="Đây là thông tin về paracetamol.")
-
-    with (
-        _reaches_agent(intent="general"),
-        patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm,
-    ):
-        mock_get_llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(
-            side_effect=[tool_call_reply, final_reply]
-        )
-
-        result = await agent.ainvoke(
-            {
-                "messages": [HumanMessage(content="Paracetamol dùng để làm gì?")],
-                "patient_id": "patient-123",
-            }
-        )
-
-    messages = result["messages"]
-    tool_messages = [m for m in messages if m.__class__.__name__ == "ToolMessage"]
-    assert len(tool_messages) == 1
-    assert tool_messages[0].tool_call_id == "call_1"
-    assert messages[-1].content == "Đây là thông tin về paracetamol."
+async def test_generic_agent_has_no_tools_under_least_privilege():
+    reply = AIMessage(content="Mình có thể hỗ trợ trong phạm vi RemindRx.")
+    with _reaches_agent(intent="general"), patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm:
+        mock_get_llm.return_value.ainvoke = AsyncMock(return_value=reply)
+        result = await agent.ainvoke({"messages": [HumanMessage(content="Xin chào")], "patient_id": "patient-123"})
+    mock_get_llm.return_value.bind_tools.assert_not_called()
+    assert result["messages"][-1].content == reply.content
 
 
 @pytest.mark.asyncio
@@ -117,7 +105,11 @@ async def test_agent_calls_formulary_rag_only_after_safety_passes():
 
     mock_get_llm.assert_not_called()
     mock_rag.return_value.query.assert_called_once_with("Acid ascorbic có chỉ định gì?")
-    assert result["messages"][-1].content == "Acid ascorbic điều trị thiếu vitamin C."
+    answer = result["messages"][-1].content
+    assert "Tác dụng hoặc chỉ định chính" in answer
+    assert "- Acid ascorbic điều trị thiếu vitamin C." in answer
+    assert "Khi cần xác nhận thêm" in answer
+    assert "[Nguồn" not in answer
     assert result["grounding_valid"] is True
 
 
@@ -215,6 +207,33 @@ async def test_drug_recommendation_is_blocked_before_classify_chat_and_rag():
 
 
 @pytest.mark.asyncio
+async def test_out_of_scope_question_stops_before_intent_and_chat_llm():
+    with (
+        _not_severe(),
+        patch(
+            "src.agents.nodes.scope_guard_node.get_llm",
+            **{
+                "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                    return_value=ScopeClassification(
+                        category="out_of_scope", reason="thể thao", confidence=1.0
+                    )
+                )
+            },
+        ),
+        patch("src.agents.nodes.classify_intent_node.get_llm") as classifier_llm,
+        patch("src.agents.nodes.chat_node.get_llm") as chat_llm,
+    ):
+        result = await agent.ainvoke({
+            "messages": [HumanMessage(content="World Cup 2026 kết thúc ngày bao nhiêu?")],
+            "patient_id": "patient-123",
+        })
+    classifier_llm.assert_not_called()
+    chat_llm.assert_not_called()
+    assert result["scope_blocked"] is True
+    assert "ngoài phạm vi" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
 async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
     """classify_intent -> report_meal_shift -> rescheduling_node, agent_node
     (chat LLM tự do) không bao giờ được gọi."""
@@ -267,18 +286,16 @@ def test_rag_node_is_only_reachable_after_safety_guard():
     assert start_targets == {"safety_guard"}
     classify_targets = {edge.target for edge in graph.edges if edge.source == "classify_intent"}
     assert "drug_rag" in classify_targets
+    safety_targets = {edge.target for edge in graph.edges if edge.source == "safety_guard"}
+    assert "scope_guard" in safety_targets
 
 
 def test_chat_system_prompt_guides_profile_based_addressing():
     from src.agents.nodes.chat_node import _build_system_message
 
-    content = _build_system_message("patient-123").content
+    content = _build_system_message("patient-123", "chị").content
 
     assert 'Không mặc định mở đầu bằng "chào bác"' in content
-    assert "get_patient_profile" in content
-    assert "profile.dob" in content
-    assert "profile.sex" in content
-    assert "bác" in content
-    assert "anh" in content
-    assert "chị" in content
-    assert "bạn" in content
+    assert "Xưng hô đã được backend xác định từ hồ sơ: chị" in content
+    assert "không cần gọi tool hồ sơ" in content
+    assert "không tự suy đoán tuổi" in content

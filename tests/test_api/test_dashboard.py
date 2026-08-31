@@ -9,6 +9,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
@@ -26,6 +28,7 @@ from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
+from src.modules.dashboard.service import DashboardEventService
 from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
@@ -110,14 +113,19 @@ async def _add_doses(patient_id: uuid.UUID, prescription_id: uuid.UUID, statuses
                 )
 
 
-async def _add_alert(patient_id: uuid.UUID, status: str = "OPEN") -> uuid.UUID:
+async def _add_alert(
+    patient_id: uuid.UUID,
+    status: str = "OPEN",
+    alert_type: str = "RED_ALERT",
+    severity: str = "CRITICAL",
+) -> uuid.UUID:
     async with AsyncSessionLocal() as db:
         async with db.begin():
             alert = Alert(
                 patient_id=patient_id,
                 triggered_by_type="SOS_BUTTON",
-                alert_type="RED_ALERT",
-                severity="CRITICAL",
+                alert_type=alert_type,
+                severity=severity,
                 status=status,
                 message="test alert",
                 alert_metadata={},
@@ -327,7 +335,12 @@ async def test_roster_filters_by_adherence_band(client):
     high_id = await _create_patient("0900000019", "Bệnh nhân cao")
     low_rx = await _create_prescription(low_id, doctor_id)
     high_rx = await _create_prescription(high_id, doctor_id)
-    await _add_doses(low_id, low_rx, ["TAKEN", "MISSED"])
+    # 1/3 ~= 33% -- unambiguously below the LOW band's strict "< 50%" cutoff.
+    # Exactly 50% is deliberately NOT "LOW": dashboard/repository.py's
+    # adherence_band filter uses strict "<", the same convention
+    # AdherenceReviewService.compute_severity mirrors for its own bands, so
+    # a boundary value must land consistently on one side across both.
+    await _add_doses(low_id, low_rx, ["TAKEN", "MISSED", "MISSED"])
     await _add_doses(high_id, high_rx, ["TAKEN", "TAKEN"])
     headers = await _login(client, DOCTOR_PHONE)
 
@@ -340,6 +353,33 @@ async def test_roster_filters_by_adherence_band(client):
 
     assert [row["patient_id"] for row in low.json()["data"]["content"]] == [str(low_id)]
     assert [row["patient_id"] for row in high.json()["data"]["content"]] == [str(high_id)]
+
+
+@pytest.mark.asyncio
+async def test_roster_ranks_one_red_alert_above_five_warnings(client):
+    """Stage 7: introducing the WARNING tier must not let warning volume
+    push a genuinely critical patient off page 1. Ordering is
+    critical_alerts DESC, warning_alerts DESC -- a raw combined count would
+    rank the five-warning patient first."""
+    doctor_id = await _create_doctor(DOCTOR_PHONE, "Dr Dash A", "LIC-DASH-A")
+    critical_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân đỏ")
+    warned_id = await _create_patient("0900000019", "Bệnh nhân vàng")
+    await _create_prescription(critical_id, doctor_id)
+    await _create_prescription(warned_id, doctor_id)
+
+    await _add_alert(critical_id, alert_type="RED_ALERT", severity="HIGH")
+    for _ in range(5):
+        await _add_alert(warned_id, alert_type="WARNING", severity="MEDIUM")
+
+    headers = await _login(client, DOCTOR_PHONE)
+    response = await client.get("/api/v1/dashboard/patients", headers=headers)
+
+    rows = response.json()["data"]["content"]
+    assert [row["patient_id"] for row in rows] == [str(critical_id), str(warned_id)]
+    # open_alerts_count keeps its existing combined meaning -- unaffected by
+    # the ordering split.
+    assert rows[0]["open_alerts_count"] == 1
+    assert rows[1]["open_alerts_count"] == 5
 
 
 @pytest.mark.asyncio
@@ -445,6 +485,45 @@ def test_socket_rejects_patient_role():
     assert exc_info.value.code == 1008
 
 
+def test_patient_socket_rejects_doctor_role():
+    with TestClient(app) as tc:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with tc.websocket_connect(f"/ws/patient?token={_ws_token('DOCTOR')}"):
+                pass
+    assert exc_info.value.code == 1008
+
+
+def test_patient_socket_rejects_missing_token():
+    with TestClient(app) as tc:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with tc.websocket_connect("/ws/patient"):
+                pass
+    assert exc_info.value.code == 1008
+
+
+@pytest.mark.asyncio
+async def test_patient_event_stream_never_yields_another_patients_frame(monkeypatch):
+    patient_id = uuid.uuid4()
+    own_frame = {
+        "event_type": "routine.updated",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": {"patient_id": str(patient_id), "updated_at": "2026-08-28T10:00:00+00:00"},
+    }
+
+    async def stream():
+        yield {
+            "event_type": "routine.updated",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": {"patient_id": str(uuid.uuid4())},
+        }
+        yield own_frame
+
+    monkeypatch.setattr(DashboardEventService, "stream", staticmethod(stream))
+    frames = [frame async for frame in DashboardEventService.stream_patient(patient_id)]
+
+    assert frames == [own_frame]
+
+
 def test_socket_rejects_a_refresh_token():
     """A refresh token carries no role claim and must not open the feed."""
     refresh = create_refresh_token(user_id=str(uuid.uuid4()))
@@ -477,12 +556,11 @@ def _publish_from_test_thread(event_type: str, data: dict) -> None:
     asyncio.run(_run())
 
 
-@pytest.mark.parametrize("role", ["DOCTOR", "ADMIN"])
-def test_socket_delivers_published_frames(role):
+def test_admin_socket_delivers_published_frames():
     """End-to-end through Redis: what a write path publishes is what the portal
     receives, in the documented envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token(role)}") as ws:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
             # accept() returns before the pump task has issued SUBSCRIBE, and
             # Redis pub/sub drops anything published to a channel with no
             # subscriber yet — publishing immediately would race that gap.
@@ -502,14 +580,20 @@ def test_socket_delivers_published_frames(role):
     [
         ("alert.updated", {"id": "alert-1", "status": "ACKNOWLEDGED"}),
         ("adherence.updated", {"patient_id": "p-1", "action": "TAKEN"}),
-        ("schedule.updated", {"patient_id": "p-1", "generated_dose_count": 42}),
+        (
+            "schedule.updated",
+            {
+                "patient_id": "11111111-1111-1111-1111-111111111111",
+                "updated_at": "2026-08-28T10:00:00+00:00",
+            },
+        ),
     ],
 )
-def test_socket_delivers_every_published_event_type(event_type, data):
+def test_admin_socket_delivers_every_published_event_type(event_type, data):
     """The four event types the write paths emit all reach the portal through
     the same channel and envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('DOCTOR')}") as ws:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
             time.sleep(0.5)
             _publish_from_test_thread(event_type, data)
             frame = ws.receive_json()

@@ -10,6 +10,13 @@ export const authApi = {
       anonymous: true,
     }),
 
+  refresh: (refreshToken: string) =>
+    request<AuthTokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: { refresh_token: refreshToken },
+      anonymous: true,
+    }),
+
   logout: (refreshToken: string) =>
     request<null>("/auth/logout", { method: "POST", body: { refresh_token: refreshToken } }),
 
@@ -19,4 +26,12 @@ export const authApi = {
       body: { current_password: currentPassword, new_password: newPassword },
       accessToken,
     }),
+
+  registerDeviceToken: (fcmToken: string, deviceName?: string, accessToken?: string) =>
+    request<null>("/auth/device-token", {
+      method: "POST",
+      body: { fcm_token: fcmToken, device_name: deviceName },
+      accessToken,
+    }),
 };
+

@@ -19,6 +19,7 @@ from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
+from src.modules.adherence.models import Alert
 from src.modules.adherence.repository import (
     AdherenceLogRepository,
     AlertRepository,
@@ -672,10 +673,10 @@ class AlertService:
             if existing is not None:
                 # Idempotent replay: the alert already reached the dashboard on
                 # the first attempt, so re-publishing would double it there.
-                return AlertDetailResponse.model_validate(existing)
+                return await self._with_patient_name(existing)
             raise
 
-        response = AlertDetailResponse.model_validate(alert)
+        response = await self._with_patient_name(alert)
         # After the commit, never inside it. A frame announcing a row that then
         # rolled back would leave the portal showing an alert nobody can open,
         # and publish failures must not turn a persisted safety alert into a
@@ -707,7 +708,7 @@ class AlertService:
                 ip_address=ip_address,
             )
 
-        response = AlertDetailResponse.model_validate(alert)
+        response = await self._with_patient_name(alert)
         await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
         # ACKNOWLEDGED still counts toward open_alerts_count (see schema
         # notes), but the alert list itself changed under recent_alerts.
@@ -742,10 +743,20 @@ class AlertService:
                 ip_address=ip_address,
             )
 
-        response = AlertDetailResponse.model_validate(alert)
+        response = await self._with_patient_name(alert)
         await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
         # RESOLVED drops out of open_alerts_count — must not linger cached.
         await invalidate_prefix("dash:patients")
+        return response
+
+    async def _with_patient_name(self, alert: Alert) -> AlertDetailResponse:
+        """Single-alert path (trigger/acknowledge/resolve) — one extra query,
+        never a loop. Mirrors the get_patient_with_user + fallback-"" idiom
+        HealthSurveyService uses above; list_alerts uses the batched sibling
+        instead since it handles a whole page at once."""
+        response = AlertDetailResponse.model_validate(alert)
+        patient_row = await self._patient_repo.get_patient_with_user(alert.patient_id)
+        response.patient_name = patient_row[0].name if patient_row is not None else None
         return response
 
     async def _raise_not_found_or_conflict(
@@ -776,7 +787,14 @@ class AlertService:
 
         total_pages = math.ceil(total_count / size) if total_count > 0 else 0
         last = page >= total_pages if total_pages > 0 else True
-        content = [AlertDetailResponse.model_validate(a) for a in rows]
+        # Batched, not one lookup per row — a page of alerts can span up to
+        # `size` distinct patients and this endpoint is platform-wide.
+        names = await self._patient_repo.get_names_by_ids([a.patient_id for a in rows])
+        content = []
+        for a in rows:
+            item = AlertDetailResponse.model_validate(a)
+            item.patient_name = names.get(a.patient_id)
+            content.append(item)
 
         return PageResponse(
             content=content, page_no=page, page_size=size,
