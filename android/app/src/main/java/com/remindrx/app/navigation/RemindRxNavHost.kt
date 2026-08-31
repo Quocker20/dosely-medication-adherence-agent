@@ -301,8 +301,8 @@ fun RemindRxApp() {
                 AssistantScreen(
                     state = assistantState,
                     onSend = assistantViewModel::sendMessage,
-                    onNewChat = assistantViewModel::startNewConversation,
                     onOpenHistory = { navController.navigate(Routes.CHAT_HISTORY) },
+                    onBack = { navController.popBackStack() },
                     onStartRecording = assistantViewModel::startRecording,
                     onStopRecordingAndSend = assistantViewModel::stopRecordingAndSend,
                 )

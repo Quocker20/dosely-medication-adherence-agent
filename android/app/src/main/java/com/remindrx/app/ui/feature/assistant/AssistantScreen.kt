@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,18 +16,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AddComment
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,8 +58,8 @@ import com.remindrx.app.ui.theme.LocalRemindRxColors
 fun AssistantScreen(
     state: AssistantUiState,
     onSend: (String) -> Unit,
-    onNewChat: () -> Unit,
     onOpenHistory: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onStartRecording: () -> Unit = {},
     onStopRecordingAndSend: () -> Unit = {},
 ) {
@@ -90,6 +87,11 @@ fun AssistantScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                }
+            }
             Icon(
                 Icons.Filled.SmartToy,
                 contentDescription = null,
@@ -105,11 +107,8 @@ fun AssistantScreen(
                     fontWeight = FontWeight.Normal,
                 )
             }
-            IconButton(onClick = onNewChat) {
-                Icon(Icons.Filled.AddComment, contentDescription = "Cuộc trò chuyện mới")
-            }
             IconButton(onClick = onOpenHistory) {
-                Icon(Icons.Filled.History, contentDescription = "Lịch sử Chat AI")
+                Icon(Icons.Filled.Menu, contentDescription = "Lịch sử Chat AI")
             }
         }
 
@@ -165,21 +164,6 @@ fun AssistantScreen(
                         )
                     }
                 }
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf(
-                "Liều tiếp theo lúc mấy giờ?",
-                "Quên liều thì làm gì?",
-                "Metformin dùng thế nào?",
-            ).forEach { suggestion ->
-                AssistChip(onClick = { onSend(suggestion) }, label = { Text(suggestion) })
             }
         }
 
@@ -294,7 +278,6 @@ private fun AssistantScreenPreview() = com.remindrx.app.ui.preview.RemindRxPrevi
     AssistantScreen(
         state = com.remindrx.app.ui.preview.previewAssistantState,
         onSend = {},
-        onNewChat = {},
         onOpenHistory = {},
     )
 }
