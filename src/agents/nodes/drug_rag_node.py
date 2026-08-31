@@ -242,4 +242,11 @@ async def drug_rag_node(state: AgentState) -> dict:
             }
             for source in result.sources
         ],
+        "metadata": {
+            "resolved_medication": {
+                "display_name": str(analysis.get("drug_name") or (context_drugs[0][1] if context_drugs else "")),
+                "resolved_from": "drug_name",
+                "resolved_ingredients": [display for _normalized, display in context_drugs],
+            }
+        } if context_drugs else {},
     }
