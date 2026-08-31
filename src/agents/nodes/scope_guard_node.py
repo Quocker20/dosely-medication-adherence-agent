@@ -49,7 +49,7 @@ class ScopeClassification(BaseModel):
     category: Literal[
         "medication", "prescription_schedule", "adherence",
         "medication_related_symptom", "remindrx_help", "greeting",
-        "date_time", "out_of_scope",
+        "date_time", "out_of_scope", "abusive_noise",
     ]
     reason: str = Field(description="Lý do ngắn, không trả lời câu hỏi của người dùng")
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -73,6 +73,9 @@ Chỉ chọn category. Không coi một câu ngoài phạm vi là date_time ch�
 "ngày bao nhiêu"; ví dụ ngày kết thúc World Cup vẫn là out_of_scope.
 Nếu câu có triệu chứng nhưng không rõ liên quan thuốc, chọn medication_related_symptom
 để tầng an toàn xử lý thận trọng, không chẩn đoán."""
+
+
+_SCOPE_PROMPT += "\nNếu tin nhắn chủ yếu là chửi tục, xúc phạm, khiêu khích hoặc nhiễu không có yêu cầu RemindRx, chọn category=abusive_noise."
 
 
 def _last_human_text(state: AgentState) -> str:
@@ -155,6 +158,11 @@ async def scope_guard_node(state: AgentState) -> dict:
             f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
         )
     category = result.category if result is not None else "unknown"
+    if category == "abusive_noise":
+        return {"scope_blocked": True, "scope_category": category, "messages": [AIMessage(content=(
+            "Mình không thể tiếp tục với lời lẽ xúc phạm. Bạn hãy hít thở sâu, bình tĩnh lại "
+            "và đặt một câu hỏi khác về thuốc, đơn thuốc hoặc lịch uống thuốc nhé."
+        ))]}
 
     # Scope is advisory. The main semantic parser owns intent/out-of-scope
     # understanding so an unusual valid phrasing is never rejected here.
