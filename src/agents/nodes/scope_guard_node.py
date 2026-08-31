@@ -40,6 +40,9 @@ _DATE_TIME_MARKERS = (
     "hom nay ngay bao nhieu", "hom nay la ngay may", "bay gio la may gio",
     "may gio roi", "ngay hien tai",
 )
+_ABUSIVE_OR_NOISE = (
+    "dit me", "địt mẹ", "gay deo", "gãy đéo", "vcl", "dm", "dmm",
+)
 
 
 class ScopeClassification(BaseModel):
@@ -80,6 +83,10 @@ def _last_human_text(state: AgentState) -> str:
 
 
 def _obviously_allowed(normalized: str) -> str | None:
+    # Do not let an isolated medication keyword whitelist abusive/noise text.
+    # This is a pre-LLM safety/scope filter, not an intent classifier.
+    if any(marker in normalized for marker in _ABUSIVE_OR_NOISE):
+        return None
     padded = f" {normalized} "
     has = lambda marker: f" {marker} " in padded
     if normalized in _GREETING:
