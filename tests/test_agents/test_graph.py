@@ -6,8 +6,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.graph import agent
 from src.agents.nodes.classify_intent_node import IntentClassification
-from src.agents.nodes.rescheduling_node import MealShiftExtraction
+from src.agents.nodes.rescheduling_node import RoutineDeviationExtraction
 from src.agents.nodes.scope_guard_node import ScopeClassification
+from src.agents.semantic_plan import SemanticPlan, SemanticStep
 
 
 def _not_severe():
@@ -235,30 +236,53 @@ async def test_out_of_scope_question_stops_before_intent_and_chat_llm():
 
 @pytest.mark.asyncio
 async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
-    """classify_intent -> report_meal_shift -> rescheduling_node, agent_node
-    (chat LLM tự do) không bao giờ được gọi."""
+    """Semantic plan routes a routine deviation straight to rescheduling."""
+    semantic_plan = SemanticPlan(
+        purpose="Báo giờ ăn trưa hôm nay thay đổi",
+        steps=[
+            SemanticStep(
+                id="step_1",
+                tool="report_meal_shift",
+                purpose="Dời mốc bữa trưa hôm nay",
+                requested_action="change_schedule",
+                confidence=0.99,
+            )
+        ],
+        confidence=0.99,
+    )
     with (
         _not_severe(),
-        _classified_as("report_meal_shift"),
+        _in_scope(),
+        patch(
+            "src.agents.nodes.semantic_planner_node.get_llm",
+            **{
+                "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                    return_value=semantic_plan
+                )
+            },
+        ),
         patch(
             "src.agents.nodes.rescheduling_node.get_llm",
             **{
                 "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
-                    return_value=MealShiftExtraction(event="meal_shift", meal="lunch", new_time="14:00")
+                    return_value=RoutineDeviationExtraction(
+                        event="routine_deviation", anchor="lunch", new_time="14:00"
+                    )
                 )
             },
         ),
-        patch("src.agents.nodes.rescheduling_node.reschedule_remaining_doses") as mock_tool,
+        patch("src.agents.nodes.rescheduling_node.report_routine_deviation") as mock_tool,
         patch("src.agents.nodes.chat_node.get_llm") as mock_chat_llm,
     ):
         mock_tool.ainvoke = AsyncMock(return_value="Đã rải lại lịch.")
 
         result = await agent.ainvoke(
-            {
-                "messages": [HumanMessage(content="hôm nay tôi ăn trưa muộn, 2 giờ chiều")],
-                "patient_id": "patient-123",
-            }
-        )
+                {
+                    "messages": [HumanMessage(content="hôm nay tôi ăn trưa muộn, 2 giờ chiều")],
+                    "patient_id": "patient-123",
+                    "client_date": "2026-08-14",
+                }
+            )
 
         mock_chat_llm.assert_not_called()
 

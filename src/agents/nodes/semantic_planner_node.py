@@ -17,7 +17,8 @@ Phân loại theo ý nghĩa, không dựa vào cụm từ cố định:
 - Một báo cáo triệu chứng vẫn chỉ dùng record_adverse_event dù người dùng nói họ đang uống thuốc/thuốc trong đơn; tool này tự lấy toàn bộ thuốc liên quan, không thêm get_current_medications.
 - Câu giả định hoặc hỏi thuốc có gây triệu chứng không: is_hypothetical=true, không dùng record_adverse_event.
 - Có bản nháp tác dụng phụ: hiểu phản hồi theo ngữ nghĩa. Xác nhận => confirmed; phủ nhận => denied; chưa rõ => unclear và clarify.
-- report_meal_shift: thay đổi bữa ăn liên quan lịch thuốc.
+- report_meal_shift: báo một mốc sinh hoạt hôm nay bị lệch giờ, gồm bữa sáng,
+  bữa trưa, bữa tối hoặc giờ ngủ, để điều chỉnh lịch thuốc tạm thời.
 - clarify: thiếu dữ kiện quan trọng hoặc độ chắc chắn dưới 0.85.
 - general_response: chào hỏi, hướng dẫn RemindRx hoặc ngoài phạm vi.
 Không tạo patient_id, endpoint, dữ liệu thuốc, liều hoặc chẩn đoán. Không đề xuất đổi/ngừng thuốc.

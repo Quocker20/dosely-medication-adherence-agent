@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -11,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.state import AgentState
 from src.modules.planning.core.llm import get_llm
-from src.rag_retrieval.service import DrugRAG, fold
+from src.rag_retrieval.service import fold
 
 _TIMEOUT_SECONDS = 3.0
 _OUT_OF_SCOPE_REPLY = (
@@ -26,6 +25,8 @@ _ALLOWED_MARKERS = (
     "tac dung", "cong dung", "chi dinh", "chong chi dinh", "tuong tac",
     "phan ung", "di ung", "bao quan", "ham luong", "vien", "vien nang",
     "bua an", "an trua muon", "an sang muon", "an toi muon", "doi gio an",
+    "ngu tre", "ngu muon", "thuc khuya", "di ngu tre", "di ngu muon",
+    "ban tu", "ban ca ngay", "ban hop", "khong uong duoc tu", "ban den", "khung gio ban",
     "remindrx", "ung dung", "app", "thong bao nhac", "dong bo",
 )
 _SYMPTOM_MARKERS = (
@@ -58,7 +59,7 @@ _SCOPE_PROMPT = """Phân loại phạm vi cho chatbot RemindRx. Không trả l�
 - thông tin thuốc/hoạt chất và thuốc trong đơn;
 - đơn thuốc, lịch/cữ uống, liều tiếp theo, trạng thái uống và tuân thủ;
 - triệu chứng hoặc lo ngại được hỏi trong bối cảnh dùng thuốc;
-- báo lệch bữa ăn để xử lý lịch thuốc;
+- báo lệch bữa ăn hoặc giờ ngủ để xử lý lịch thuốc;
 - cách sử dụng ứng dụng RemindRx;
 - chào hỏi, hỏi năng lực chatbot, ngày/giờ hiện tại.
 
@@ -80,43 +81,17 @@ def _last_human_text(state: AgentState) -> str:
 
 
 def _obviously_allowed(normalized: str) -> str | None:
-    padded = f" {normalized} "
-    has = lambda marker: f" {marker} " in padded
     if normalized in _GREETING:
         return "greeting"
-    if any(has(marker) for marker in _CAPABILITY_MARKERS):
+    if any(marker in normalized for marker in _CAPABILITY_MARKERS):
         return "remindrx_help"
     if normalized in _DATE_TIME_MARKERS:
         return "date_time"
-    if any(has(marker) for marker in _ALLOWED_MARKERS):
+    if any(marker in normalized for marker in _ALLOWED_MARKERS):
         return "medication"
-    if any(has(marker) for marker in _SYMPTOM_MARKERS):
+    if any(marker in normalized for marker in _SYMPTOM_MARKERS):
         return "medication_related_symptom"
     return None
-
-
-@lru_cache(maxsize=1)
-def _drug_resolver() -> DrugRAG:
-    # Scope resolution only reads the local formulary lexicon.  Supplying a
-    # sentinel avoids requiring API credentials before we even know whether
-    # the message belongs to the drug chatbot.
-    return DrugRAG(client=object())  # type: ignore[arg-type]
-
-
-def _looks_like_drug_query(text: str, normalized: str) -> bool:
-    """Recognize a named (including lightly misspelled) formulary drug locally."""
-    question_markers = (
-        "dung nhu the nao", "uong nhu the nao", "dung the nao", "uong the nao",
-        "tac dung", "cong dung", "chi dinh", "tac dung phu", "tuong tac",
-        "chong chi dinh", "bao quan", "lieu dung",
-    )
-    if not any(marker in normalized for marker in question_markers):
-        return False
-    try:
-        normalized_drug, _ = _drug_resolver().infer_drug(text)
-        return bool(normalized_drug)
-    except Exception:
-        return False
 
 
 async def _classify_scope(text: str) -> ScopeClassification | None:
@@ -133,22 +108,18 @@ async def _classify_scope(text: str) -> ScopeClassification | None:
         return None
 
 
-def _recent_conversation(state: AgentState, limit: int = 5) -> str:
-    lines = []
-    for message in list(state.get("messages") or [])[-limit:]:
-        role = "Người dùng" if isinstance(message, HumanMessage) else "Trợ lý"
-        lines.append(f"{role}: {message.content}")
-    return "\n".join(lines)
-
-
 async def scope_guard_node(state: AgentState) -> dict:
     text = _last_human_text(state)
-    context = _recent_conversation(state)
-    result = await _classify_scope(
-            f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
-        )
-    category = result.category if result is not None else "unknown"
+    normalized = fold(text)
+    category = _obviously_allowed(normalized)
+    if category is None:
+        result = await _classify_scope(text)
+        category = result.category if result is not None else "out_of_scope"
 
-    # Scope is advisory. The main semantic parser owns intent/out-of-scope
-    # understanding so an unusual valid phrasing is never rejected here.
+    if category == "out_of_scope":
+        return {
+            "messages": [AIMessage(content=_OUT_OF_SCOPE_REPLY)],
+            "scope_blocked": True,
+            "scope_category": category,
+        }
     return {"scope_blocked": False, "scope_category": category}

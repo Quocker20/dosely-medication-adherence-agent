@@ -3,7 +3,8 @@ import logging
 import time as time_module
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
-from enum import StrEnum
+from enum import Enum
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from fastapi import status
@@ -29,30 +30,24 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from src.common.schemas import PageResponse
-from src.core.cache import build_cache_key, cached_model, invalidate_prefix
+from src.core.cache import invalidate_prefix
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.grouping import schedule_rows_hmac
 from src.modules.agents.planner import PlanningNeedsReviewError
-from src.modules.agents.repository import (
-    AgentRunRepository,
-    ChatMemoryRepository,
-    ScheduledDoseRepository,
-    generate_conversation_title,
-)
+from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
-    ChatConversationDetailResponse,
-    ChatConversationListItem,
-    ChatMessageItem,
+    CancelRoutineOverrideRequest,
     ChatResponse,
     GenerateScheduleRequest,
     NextDoseResponse,
+    RecentRoutineOverrideResponse,
+    ReportRoutineDeviationRequest,
     RescheduleRequest,
     VoiceChatResponse,
 )
@@ -74,7 +69,7 @@ class AgentRunLeaseBusyError(RuntimeError):
     """A redelivered task arrived before the previous claim expired."""
 
 
-class AutoscheduleOutcome(StrEnum):
+class AutoscheduleOutcome(str, Enum):
     """Why an automatic planning trigger did or didn't start a run."""
 
     DISPATCHED = "DISPATCHED"
@@ -174,6 +169,183 @@ class SchedulingService:
 
         self._dispatch_generate(run.id, patient_id, is_reschedule=True)
         return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    async def report_routine_deviation(
+        self,
+        patient_id: uuid.UUID,
+        request: ReportRoutineDeviationRequest,
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """Single-anchor convenience wrapper over report_routine_deviations."""
+        return await self.report_routine_deviations(patient_id, [request], actor_payload)
+
+    async def report_routine_deviations(
+        self,
+        patient_id: uuid.UUID,
+        requests: list[ReportRoutineDeviationRequest],
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """PATIENT only, self-service. Upserts every reported RoutineOverride
+        in ONE transaction, then reuses request_reschedule verbatim — no
+        duplicated Celery dispatch/AgentRun creation.
+
+        Deliberately batched: uq_agent_runs_one_running permits a single
+        in-flight run per patient, so reporting anchors one at a time made the
+        second report fail with a 409. An end-of-day survey routinely carries
+        more than one deviation, so the batch is the primary path and the
+        single-anchor call is the special case.
+
+        The deterministic planner (expand_schedule plus its existing
+        validators) still governs: a hard constraint conflict still surfaces
+        as NEEDS_REVIEW via the same execute_run path, leaving the active
+        schedule untouched.
+        """
+        if not requests:
+            raise ValidationException(message="No routine deviations supplied")
+
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot report a deviation for another patient")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+        resolved_dates = [self._resolve_override_date(request, today_local) for request in requests]
+
+        # Two times for one anchor on one day contradict each other. The
+        # unique constraint would silently keep whichever was applied last,
+        # so reject instead of picking one — the planner never guesses.
+        keys = list(zip(resolved_dates, [request.anchor for request in requests]))
+        if len(set(keys)) != len(keys):
+            raise ValidationException(message="Duplicate anchor reported for the same day")
+
+        # The run row and the override rows must land in ONE transaction.
+        # _dispatch_generate below is fire-and-forget, so a worker starting
+        # between two separate commits would either miss the overrides or, on
+        # failure, be unable to find them to mark REJECTED. Creating the run
+        # first also means a 409 here leaves no orphaned override behind —
+        # previously the override was committed before the run was attempted
+        # and survived as an ACTIVE row nothing would ever consume.
+        #
+        # This is why the batch does not simply call request_reschedule: that
+        # method owns its own transaction and cannot enclose the upserts.
+        try:
+            async with self._db.begin():
+                run = await self._agent_run_repo.create_run(
+                    patient_id=patient_id,
+                    agent_type="RESCHEDULING_AGENT",
+                    trigger_type="MANUAL",
+                    graph_version=_GRAPH_VERSION,
+                )
+                for request, override_date in zip(requests, resolved_dates):
+                    await self._dose_repo.upsert_override(
+                        patient_id,
+                        override_date,
+                        request.anchor,
+                        request.overridden_time,
+                        request.source,
+                        request.reason,
+                        consumed_by_run_id=run.id,
+                    )
+        except IntegrityError:
+            raise ConflictException(message="An agent run is already in progress for this patient")
+
+        self._dispatch_generate(run.id, patient_id, is_reschedule=True)
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    @staticmethod
+    def _resolve_override_date(request: ReportRoutineDeviationRequest, today_local: date) -> date:
+        """Settle the target day in the patient's own timezone and bound it.
+
+        The window is [today, today + schedule_horizon_days] for a structural
+        reason, not an arbitrary policy one: get_active_overrides is queried
+        over exactly that range and expand_schedule only materialises days
+        inside it, so an override stored outside the window would never be
+        read by anything and would look accepted while doing nothing.
+        """
+        horizon_days = get_settings().schedule_horizon_days
+        if request.day_offset is not None:
+            override_date = today_local + timedelta(days=request.day_offset)
+        else:
+            # Guaranteed non-None by the schema's exactly-one validator.
+            override_date = cast(date, request.override_date)
+
+        if override_date < today_local:
+            raise ValidationException(message="Routine overrides cannot be applied to a past day")
+        if override_date > today_local + timedelta(days=horizon_days):
+            raise ValidationException(
+                message=f"Routine overrides can only be applied within the next {horizon_days} days"
+            )
+        return override_date
+
+    async def cancel_routine_override(
+        self,
+        patient_id: uuid.UUID,
+        request: CancelRoutineOverrideRequest,
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """Withdraw a previously reported override and put that day's doses
+        back on the permanent routine.
+
+        Like reporting, this only stages data and then hands off to the same
+        deterministic pipeline: deleting the row is what makes the next
+        expand_schedule fall back to the permanent routine for that day.
+        """
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot cancel another patient's routine override")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+        if request.override_date < today_local:
+            raise ValidationException(message="Routine overrides cannot be cancelled for a past day")
+
+        try:
+            async with self._db.begin():
+                run = await self._agent_run_repo.create_run(
+                    patient_id=patient_id,
+                    agent_type="RESCHEDULING_AGENT",
+                    trigger_type="MANUAL",
+                    graph_version=_GRAPH_VERSION,
+                )
+                deleted = await self._dose_repo.delete_override(patient_id, request.override_date, request.anchor)
+                if not deleted:
+                    raise NotFoundException(message="No routine override to cancel for that day and anchor")
+        except IntegrityError:
+            raise ConflictException(message="An agent run is already in progress for this patient")
+
+        self._dispatch_generate(run.id, patient_id, is_reschedule=True)
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    async def get_recent_routine_overrides(
+        self, patient_id: uuid.UUID, anchor: str, actor_payload: dict, limit: int = 5
+    ) -> list[RecentRoutineOverrideResponse]:
+        """PATIENT only, self-service read. Used to phrase a smarter
+        clarifying question in chat when a deviation is reported without a
+        concrete time — never to auto-apply a time."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot read another patient's routine overrides")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+
+        rows = await self._dose_repo.get_recent_overrides_for_anchor(patient_id, anchor, today_local, limit=limit)
+        return [
+            RecentRoutineOverrideResponse(override_date=override_date, overridden_time=overridden_time)
+            for override_date, overridden_time in rows
+        ]
 
     async def request_autoschedule(
         self,
@@ -468,6 +640,11 @@ class SchedulingService:
                     claim_token=claim_token,
                     **self._terminal_audit(draft_state, empty_hash, "needs_review"),
                 )
+                # Retire whatever routine overrides this run was carrying. The
+                # schedule is deliberately left untouched, so leaving them
+                # ACTIVE would let a later reschedule apply a change this run
+                # already established cannot be scheduled safely.
+                await self._dose_repo.mark_overrides_rejected(run_id)
             return
         except Exception as exc:
             logger.exception("Agent run %s failed", run_id)
@@ -635,99 +812,6 @@ class ChatService:
         )
         return ChatResponse(response=response_text, conversationId=conversation_id)
 
-    async def list_conversations(
-        self,
-        actor: dict,
-        page: int = 1,
-        size: int = 20,
-    ) -> PageResponse[ChatConversationListItem]:
-        patient_id = uuid.UUID(str(actor["sub"]))
-        cache_key = build_cache_key(
-            "chat:conversations:list",
-            actor=actor,
-            params={"page": page, "size": size},
-        )
-        ttl = get_settings().cache_ttl_chat_seconds
-
-        async def _load() -> PageResponse[ChatConversationListItem]:
-            if self._db is None or self._memory is None:
-                return PageResponse(
-                    content=[],
-                    page_no=page,
-                    page_size=size,
-                    total_elements=0,
-                    total_pages=0,
-                    last=True,
-                )
-            rows, total = await self._memory.list_conversations(patient_id, page=page, size=size)
-            items = [ChatConversationListItem.model_validate(r) for r in rows]
-            total_pages = (total + size - 1) // size if total > 0 else 0
-            return PageResponse(
-                content=items,
-                page_no=page,
-                page_size=size,
-                total_elements=total,
-                total_pages=total_pages,
-                last=page >= total_pages if total_pages > 0 else True,
-            )
-
-        return await cached_model(cache_key, ttl, PageResponse[ChatConversationListItem], _load)
-
-    async def get_conversation_detail(
-        self,
-        actor: dict,
-        conversation_id: uuid.UUID,
-        limit: int = 50,
-        before: str | None = None,
-    ) -> ChatConversationDetailResponse:
-        patient_id = uuid.UUID(str(actor["sub"]))
-        cache_key = build_cache_key(
-            "chat:conversations:detail",
-            actor=actor,
-            params={"conversation_id": str(conversation_id), "limit": limit, "before": before},
-        )
-        ttl = get_settings().cache_ttl_chat_seconds
-
-        async def _load() -> ChatConversationDetailResponse:
-            if self._db is None or self._memory is None:
-                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
-            try:
-                conv = await self._memory.get_conversation(patient_id, conversation_id)
-            except PermissionError as exc:
-                raise ForbiddenException(message="Không có quyền truy cập cuộc trò chuyện này") from exc
-
-            if conv is None:
-                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
-
-            messages, has_more, next_cursor = await self._memory.get_messages_paginated(
-                conversation_id=conversation_id,
-                limit=limit,
-                before=before,
-            )
-            msg_items = [
-                ChatMessageItem(
-                    id=m.id,
-                    role=m.role,
-                    content=m.content,
-                    intent=m.intent,
-                    created_at=m.created_at,
-                )
-                for m in messages
-            ]
-            preview = messages[-1].content if messages else None
-            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
-            return ChatConversationDetailResponse(
-                id=conv.id,
-                title=title,
-                created_at=conv.created_at,
-                updated_at=conv.updated_at,
-                messages=msg_items,
-                has_more=has_more,
-                next_cursor=next_cursor,
-            )
-
-        return await cached_model(cache_key, ttl, ChatConversationDetailResponse, _load)
-
     async def handle_voice_chat(
         self,
         audio_bytes: bytes,
@@ -766,24 +850,22 @@ class ChatService:
         self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
     ) -> tuple[str, uuid.UUID]:
         persistence_available = self._db is not None and self._memory is not None
-        actual_conv_id: uuid.UUID
         if self._db is not None and self._memory is not None:
             try:
                 async with self._db.begin():
                     conversation = await self._memory.get_or_create(uuid.UUID(str(patient_id)), conversation_id)
-                    actual_conv_id = conversation.id
-                    history_rows = await self._memory.recent_messages(actual_conv_id, limit=10)
+                    history_rows = await self._memory.recent_messages(conversation.id, limit=10)
             except PermissionError as exc:
                 raise ForbiddenException(message=str(exc)) from exc
             except Exception:  # memory outage must not make medication chat unavailable
                 logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
-                actual_conv_id = conversation_id or uuid.uuid4()
+                conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
                 history_rows = []
                 persistence_available = False
         else:  # isolated unit/eval mode; production DI always supplies persistence
-            actual_conv_id = conversation_id or uuid.uuid4()
+            conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
             history_rows = []
-        working = await load_working_memory(str(patient_id), str(actual_conv_id)) if persistence_available else {}
+        working = await load_working_memory(str(patient_id), str(conversation.id)) if persistence_available else {}
         history = [
             HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
             for row in history_rows
@@ -794,7 +876,6 @@ class ChatService:
             {
                 "messages": history + [HumanMessage(content=message)],
                 "patient_id": patient_id,
-                "conversation_id": str(conversation.id),
                 "patient_address": patient_address,
                 "client_date": client_date.isoformat() if client_date else None,
                 "client_datetime": client_datetime.isoformat() if client_datetime else None,
@@ -807,30 +888,17 @@ class ChatService:
         response_text = patient_facing_text(result["messages"][-1].content)
         if persistence_available:
             async with self._db.begin():
-                await self._memory.append_exchange(actual_conv_id, message, response_text, result.get("intent"))
-            await invalidate_prefix("chat:conversations")
+                await self._memory.append_exchange(conversation.id, message, response_text, result.get("intent"))
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         if metadata.get("resolved_medication"):
             working["current_medication"] = metadata["resolved_medication"]
-        if metadata.get("adverse_event_id"):
-            # Redis only keeps a short-lived pointer. Clinical symptom data
-            # remains in PostgreSQL and is never copied wholesale into prompts.
-            working["last_adverse_event_id"] = metadata["adverse_event_id"]
-            working["last_adverse_event_at"] = metadata.get("adverse_event_reported_at")
-            working["has_unreviewed_adverse_event"] = metadata.get("adverse_event_review_status") != "REVIEWED"
-        if "pending_adverse_event" in metadata:
-            working["pending_adverse_event"] = metadata["pending_adverse_event"]
-        elif metadata.get("clear_pending_adverse_event"):
-            working.pop("pending_adverse_event", None)
-        elif result.get("intent") == "report_adverse_event" and working.get("pending_adverse_event"):
-            working.pop("pending_adverse_event", None)
         working["last_intent"] = result.get("intent")
         if persistence_available:
-            await save_working_memory(str(patient_id), str(actual_conv_id), working)
+            await save_working_memory(str(patient_id), str(conversation.id), working)
         log_turn(
             patient_id=patient_id,
             intent=result.get("intent"),
             escalated=bool(result.get("escalated")),
             response_length=len(response_text),
         )
-        return response_text, actual_conv_id
+        return response_text, conversation.id

@@ -7,7 +7,7 @@ unit-testable without mocking anything.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import cast
@@ -67,6 +67,11 @@ class RoutineTimes:
         return value
 
 
+# day -> {anchor_key: overridden_time}, anchor_key matching RoutineTimes field
+# names exactly ("breakfast"/"lunch"/"dinner"/"sleep" — never "wake").
+DayAnchorOverrides = dict[date, dict[str, time]]
+
+
 @dataclass(frozen=True)
 class PlannableItem:
     """Plain snapshot of the PrescriptionItem fields the planner needs."""
@@ -83,6 +88,8 @@ class PlannableItem:
     start_date: date
     end_date: date | None
     is_critical: bool = False
+    # 1 = every day, 2 = every other day, etc. Doctor-set, never agent-writable.
+    interval_days: int = 1
 
 
 @dataclass(frozen=True)
@@ -159,6 +166,8 @@ def validate_prescription_inputs(items: list[PlannableItem]) -> None:
             raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} contains a non-positive dose")
         if item.minimum_interval_minutes is not None and item.minimum_interval_minutes <= 0:
             raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} has a non-positive minimum interval")
+        if item.interval_days < 1:
+            raise InvalidPrescriptionTimingError(f"PrescriptionItem {item.id} has a non-positive interval_days")
         _normalize_meal_relation(item.meal_relation)
 
 
@@ -202,12 +211,51 @@ def _item_horizon(
     return range_start, ceiling
 
 
+def _first_dosing_day(range_start: date, item_start_date: date, interval_days: int) -> date:
+    """First day on/after `range_start` that is a real dosing day for an item
+    dosed every `interval_days` days from `item_start_date`.
+
+    Deliberately phase-locked to item_start_date rather than starting the
+    step from range_start itself: for an item already mid-treatment (e.g.
+    start_date 9 days ago, interval_days=2, today somewhere in between),
+    stepping from range_start would silently re-phase the whole rest of the
+    regimen onto a different day-of-week than the one the doctor actually
+    prescribed.
+    """
+    elapsed_days = (range_start - item_start_date).days
+    remainder = elapsed_days % interval_days
+    if remainder == 0:
+        return range_start
+    return range_start + timedelta(days=interval_days - remainder)
+
+
 def _slot_local_dt(day: date, anchor: time, offset_minutes: int) -> datetime:
     """Combine day + anchor time + offset as a naive local datetime, letting
-    timedelta arithmetic carry a cross-midnight offset (e.g. sleep_time
-    00:15 with a -30m bedtime offset lands on the previous day) instead of
-    wrapping time-of-day arithmetic by hand."""
+    timedelta arithmetic carry a cross-midnight offset (e.g. a sleep anchor
+    resolved to 00:15 with a -30m bedtime offset lands at 23:45 the evening
+    before) instead of wrapping time-of-day arithmetic by hand."""
     return datetime.combine(day, anchor) + timedelta(minutes=offset_minutes)
+
+
+# A sleep time earlier than midday is read as "after midnight", i.e. it
+# belongs to the *following* calendar day: someone who reports going to sleep
+# at 01:00 on Monday means 01:00 Tuesday morning. Meal anchors never need
+# this — 07:00 on Monday is unambiguously Monday morning. A fixed cutoff
+# keeps this a deterministic rule rather than a guess about the patient.
+_AFTER_MIDNIGHT_SLEEP_CUTOFF = time(12, 0)
+
+
+def _anchor_day(anchor_key: str, anchor_time: time, day: date) -> date:
+    """Calendar day the anchor instant for `day` actually falls on.
+
+    Only ``sleep`` can roll over. Without this, a post-midnight sleep time is
+    combined with `day` itself, putting the bedtime slot ~23 hours early — in
+    the past for any same-day report, where expand_schedule's caller drops it
+    and the dose silently disappears from the schedule.
+    """
+    if anchor_key == "sleep" and anchor_time < _AFTER_MIDNIGHT_SLEEP_CUTOFF:
+        return day + timedelta(days=1)
+    return day
 
 
 def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: date) -> list[tuple[str, datetime]]:
@@ -221,7 +269,8 @@ def _candidate_slots_for_day(item: PlannableItem, routine: RoutineTimes, day: da
             if fixed_offset is not None
             else _MEAL_OFFSET_MINUTES[_normalize_meal_relation(item.meal_relation)]
         )
-        local_dt = _slot_local_dt(day, routine.anchor(anchor_key), offset)
+        anchor_time = routine.anchor(anchor_key)
+        local_dt = _slot_local_dt(_anchor_day(anchor_key, anchor_time, day), anchor_time, offset)
         slots.append((dose_field, local_dt))
     return slots
 
@@ -355,9 +404,18 @@ def expand_schedule(
     horizon_days: int,
     default_min_gap_minutes: int,
     max_treatment_days: int,
+    *,
+    overrides: DayAnchorOverrides | None = None,
 ) -> list[ScheduleRow]:
     """Expand approved prescription items into concrete UTC-anchored dose
-    events for the rolling window [today, today + horizon_days]."""
+    events for the rolling window [today, today + horizon_days].
+
+    `overrides`, when given, substitutes one or more routine anchors for a
+    single day only (see DayAnchorOverrides) — every other day in the same
+    call still uses the permanent `routine`. This goes through the exact
+    same _validate_min_gap/_validate_cross_day_gaps calls as any other row
+    below; there is no separate validation path for an overridden day.
+    """
     validate_prescription_inputs(items)
     tz = ZoneInfo(patient_timezone)
     rows: list[ScheduleRow] = []
@@ -371,9 +429,11 @@ def expand_schedule(
         min_gap = item.minimum_interval_minutes or default_min_gap_minutes
         minimums[item.id] = min_gap
 
-        day = range_start
+        day = _first_dosing_day(range_start, item.start_date, item.interval_days)
         while day <= range_end:
-            day_slots = _candidate_slots_for_day(item, routine, day)
+            day_overrides = overrides.get(day) if overrides else None
+            day_routine = replace(routine, **day_overrides) if day_overrides else routine
+            day_slots = _candidate_slots_for_day(item, day_routine, day)
             for dose_field, local_dt in _validate_min_gap(day_slots, min_gap):
                 utc_dt = local_dt.replace(tzinfo=tz).astimezone(UTC)
                 # _candidate_slots_for_day includes only non-null, positive
@@ -393,7 +453,7 @@ def expand_schedule(
                         is_critical=item.is_critical,
                     )
                 )
-            day += timedelta(days=1)
+            day += timedelta(days=item.interval_days)
 
     _validate_cross_day_gaps(rows, minimums)
     return rows

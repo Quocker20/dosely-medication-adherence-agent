@@ -10,6 +10,7 @@ class ToolAuthorizationError(PermissionError):
 
 WRITE_TOOL_INTENTS = {
     "reschedule_remaining_doses": {"report_meal_shift"},
+    "report_routine_deviation": {"report_meal_shift"},
     "record_dose_action": {"report_dose_action"},
     "record_health_survey": {"report_health_survey"},
     "trigger_red_alert": {"emergency"},

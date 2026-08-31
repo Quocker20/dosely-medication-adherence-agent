@@ -95,6 +95,8 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /patients/me/schedules/today | Required (PATIENT) | No caller-supplied identity/date; backend derives patient and local date from JWT/profile timezone | 200 OK / ActiveScheduleResponse |
 | GET | /patients/me/schedules/next | Required (PATIENT) | No caller-supplied identity/date; returns UPCOMING, NO_SCHEDULE, or NO_UPCOMING | 200 OK / NextDoseResponse |
 | POST | /patients/{patient_id}/schedules/reschedule | Required (PATIENT) | Path Param (patient_id: UUID) + RescheduleRequest | 202 Accepted / AgentRunAsyncResponse |
+| POST | /patients/{patient_id}/routine-overrides | Required (PATIENT) | Path Param (patient_id: UUID) + ReportRoutineDeviationRequest | 202 Accepted / AgentRunAsyncResponse |
+| GET | /patients/{patient_id}/routine-overrides/recent | Required (PATIENT) | Path Param (patient_id: UUID) + Query Params (anchor, limit) | 200 OK / List[RecentRoutineOverrideResponse] |
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
 | POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |
 | POST | /chat/voice | Required (PATIENT) | multipart/form-data (audio: UploadFile) | 200 OK / VoiceChatResponse |

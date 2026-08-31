@@ -28,6 +28,7 @@ def _item(*, is_critical: bool = False) -> SimpleNamespace:
         start_date=date(2026, 8, 21),
         end_date=date(2026, 8, 21),
         is_critical=is_critical,
+        interval_days=1,
     )
 
 
@@ -65,6 +66,16 @@ class FakeDoseRepository:
 
     async def lock_reschedule_window(self, patient_id: uuid.UUID, now: datetime):
         return []
+
+    async def get_active_overrides(
+        self,
+        patient_id: uuid.UUID,
+        *,
+        start: date,
+        end: date,
+        for_update: bool = False,
+    ):
+        return {}
 
     async def delete_future_pending(self, patient_id: uuid.UUID, now: datetime):
         self.delete_calls += 1

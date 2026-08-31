@@ -855,6 +855,33 @@ class NotificationRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def count_reminder_doses(self, delivery_id: uuid.UUID, scheduled_at: datetime) -> Tuple[int, int]:
+        """Return (linked, still_due) for one grouped dose reminder.
+
+        Read at send time, because a reminder can go stale between the scan
+        that queued it and the worker that delivers it:
+          * rescheduled  -> delete_future_pending removes the dose and the
+            junction row cascades away, so it stops being linked at all;
+          * snoozed      -> the row survives but current_scheduled_at moved;
+          * taken/missed -> the row survives but is no longer PENDING.
+        All three are caught by comparing against the time the delivery was
+        queued for.
+        """
+        stmt = (
+            select(
+                func.count(),
+                func.count().filter(
+                    ScheduledDose.status == "PENDING",
+                    ScheduledDose.current_scheduled_at == scheduled_at,
+                ),
+            )
+            .select_from(NotificationDoseItem)
+            .join(ScheduledDose, ScheduledDose.id == NotificationDoseItem.scheduled_dose_id)
+            .where(NotificationDoseItem.notification_delivery_id == delivery_id)
+        )
+        row = (await self._db.execute(stmt)).one()
+        return int(row[0]), int(row[1])
+
     async def update_delivery_status(self, delivery_id: uuid.UUID, status: str) -> None:
         stmt = (
             update(NotificationDelivery)

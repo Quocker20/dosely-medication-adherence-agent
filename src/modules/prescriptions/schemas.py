@@ -50,6 +50,9 @@ class PrescriptionItemBase(BaseModel):
     # fast-path alert to only this item instead of every medication. See
     # docs/graded-adherence-implementation.md Stage 2.
     is_critical: bool = False
+    # 1 = every day, 2 = every other day, etc. Doctor-set only. Added by
+    # migration 0030_prescription_item_interval_days.
+    interval_days: int = Field(1, ge=1, le=30)
 
 
 class CreatePrescriptionItemRequest(PrescriptionItemBase):
@@ -137,6 +140,7 @@ class PrescriptionItemDetailResponse(BaseModel):
     minimum_interval_minutes: Optional[int] = None
     start_date: date
     end_date: Optional[date] = None
+    interval_days: int = 1
     instructions: Optional[str] = None
     is_critical: bool = False
     created_at: datetime

@@ -124,6 +124,11 @@ class PrescriptionItem(Base):
     minimum_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 1 = every day (the default, and the only behaviour before this column
+    # existed), 2 = every other day, etc. Doctor-set only, through the same
+    # create/update prescription endpoints as the dose columns — never
+    # writable by an agent. Added by migration 0030_prescription_item_interval_days.
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Doctor-set on high-risk medications; snapshotted onto
     # ScheduledDose.is_critical at generation time (see planner.py). Added by
