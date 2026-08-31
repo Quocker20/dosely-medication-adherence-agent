@@ -9,19 +9,13 @@ from alembic import context
 from src.core.config import get_settings
 from src.core.database import Base
 
-# Import every module that declares ORM models. A class only registers itself
-# on Base.metadata when its module is imported, so without these the metadata
-# is empty and autogenerate reads that as "no table should exist" — it emits a
-# revision that DROPs the entire schema. `alembic upgrade head` was unaffected
-# (it replays existing revisions and never consults metadata), which is why
-# this stayed hidden. Keep this list in step with src/modules/*/models.py;
-# dashboard has no models.py of its own, it only reads other slices' tables.
-from src.modules.adherence import models as _adherence_models  # noqa: F401,E402
-from src.modules.admin import models as _admin_models  # noqa: F401,E402
-from src.modules.agents import models as _agents_models  # noqa: F401,E402
-from src.modules.auth import models as _auth_models  # noqa: F401,E402
-from src.modules.patients import models as _patients_models  # noqa: F401,E402
-from src.modules.prescriptions import models as _prescriptions_models  # noqa: F401,E402
+# Registers every module that declares an ORM model on Base.metadata, so
+# autogenerate sees the full schema instead of reading absent metadata as
+# "no table should exist" and emitting a DROP for it. `alembic upgrade head`
+# was unaffected (it replays existing revisions and never consults
+# metadata), which is why a gap here stays hidden until the next
+# autogenerate. See src/core/models_registry.py.
+from src.core import models_registry as _models_registry  # noqa: F401,E402
 
 config = context.config
 
