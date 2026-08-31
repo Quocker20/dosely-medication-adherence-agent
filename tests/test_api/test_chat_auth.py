@@ -71,6 +71,7 @@ async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(cli
         return_value=VoiceChatResponse(
             transcript="Tôi uống thuốc chưa?",
             response="Đã kiểm tra lịch thuốc",
+            conversationId=uuid.UUID(PATIENT_ID),
             audio_base64="bXAz",
         )
     )
@@ -85,11 +86,15 @@ async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(cli
         )
 
     assert response.status_code == 200
-    assert response.json()["data"]["transcript"] == "Tôi uống thuốc chưa?"
+    data = response.json()["data"]
+    assert data["transcript"] == "Tôi uống thuốc chưa?"
+    assert data["conversationId"] == PATIENT_ID
+    assert data["audio_base64"] == "bXAz"
     handle_voice_chat.assert_awaited_once_with(
         audio_bytes=b"audio",
         filename="question.m4a",
         patient_id=PATIENT_ID,
         client_date=None,
         client_datetime=None,
+        conversation_id=None,
     )
