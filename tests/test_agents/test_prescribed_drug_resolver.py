@@ -55,12 +55,16 @@ async def test_ambiguous_period_never_guesses(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_context_uses_only_previously_verified_medication():
+async def test_context_rechecks_verified_medication_against_patient_schedule(monkeypatch):
     state = _state("recent_context")
     state["memory_context"] = {"current_medication": {"medication_id": "m1", "display_name": "Verified Drug"}}
+    monkeypatch.setattr(resolver, "get", AsyncMock(side_effect=[
+        {"timezone": "Asia/Bangkok", "doses": [{"medication_id": "m1", "medication_name": "Verified Drug", "current_scheduled_at": "2026-08-29T08:00:00+07:00"}]},
+        {"medications": [{"medication_id": "m1", "display_name": "Verified Drug"}]},
+    ]))
     result = await resolver.resolve_prescribed_drug(state)
     assert result.status == resolver.ResolutionStatus.RESOLVED_ONE
-    assert result.medications[0]["display_name"] == "Verified Drug"
+    assert result.medications[0]["medication_name"] == "Verified Drug"
 
 
 @pytest.mark.asyncio

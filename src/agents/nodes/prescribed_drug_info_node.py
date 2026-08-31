@@ -43,6 +43,21 @@ async def prescribed_drug_info_node(state: AgentState) -> dict:
     if result.status == ResolutionStatus.NOT_FOUND:
         return {"messages": [AIMessage(content="Không tìm thấy thuốc khớp với mô tả trong đơn/lịch của bạn. Mình sẽ không tra cứu rộng hoặc đoán tên thuốc.")]}
     if result.status == ResolutionStatus.RESOLVED_MULTIPLE:
+        if result.reference_type == "recent_context":
+            medication_name = _name(result.medications[0]) if result.medications else "thuốc này"
+            times = [
+                str(item.get("current_scheduled_at") or item.get("scheduled_at") or "").strip()
+                for item in result.medications
+                if item.get("current_scheduled_at") or item.get("scheduled_at")
+            ]
+            if times:
+                return {"messages": [AIMessage(content=(
+                    f"Mình đã đối chiếu {medication_name} với lịch thuốc của bạn. "
+                    "Các thời điểm cần dùng là:\n" + "\n".join(f"- {time}" for time in times)
+                ))], "metadata": {"resolved_medication": {
+                    "display_name": medication_name,
+                    "resolved_from": "recent_context",
+                }}}
         return {"messages": [AIMessage(content=_clarification(result.medications))]}
 
     medication = result.medications[0]
