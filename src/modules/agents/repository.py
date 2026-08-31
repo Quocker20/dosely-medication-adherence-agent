@@ -1,18 +1,211 @@
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import Exists, delete, func, or_, select, update
+from sqlalchemy import Exists, and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from src.modules.agents.models import AgentRun, ScheduledDose
+from src.modules.agents.models import AgentRun, ChatConversation, ChatMessage, ScheduledDose
 from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
+
+
+def generate_conversation_title(message: str, max_length: int = 50) -> str:
+    """Deterministic local summarizer (trim, collapse spaces, limit to max_length)."""
+    cleaned = " ".join(message.strip().split())
+    if not cleaned:
+        return "Cuộc trò chuyện mới"
+    if len(cleaned) <= max_length:
+        return cleaned
+    return cleaned[: max_length - 3].rstrip() + "..."
+
+
+class ChatMemoryRepository:
+    """Durable chat history scoped to the authenticated patient."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_or_create(self, patient_id: uuid.UUID, conversation_id: uuid.UUID | None) -> ChatConversation:
+        if conversation_id:
+            row = await self._db.get(ChatConversation, conversation_id)
+            if row is not None and row.patient_id != patient_id:
+                raise PermissionError("Conversation does not belong to the authenticated patient")
+            if row is None:
+                row = ChatConversation(id=conversation_id, patient_id=patient_id)
+                self._db.add(row)
+                await self._db.flush()
+            return row
+        row = ChatConversation(patient_id=patient_id)
+        self._db.add(row)
+        await self._db.flush()
+        return row
+
+    async def get_conversation(self, patient_id: uuid.UUID, conversation_id: uuid.UUID) -> ChatConversation | None:
+        """Fetch a conversation and enforce patient ownership."""
+        row = await self._db.get(ChatConversation, conversation_id)
+        if row is not None and row.patient_id != patient_id:
+            raise PermissionError("Conversation does not belong to the authenticated patient")
+        return row
+
+    async def recent_messages(self, conversation_id: uuid.UUID, limit: int = 10) -> list[ChatMessage]:
+        rows = (
+            await self._db.scalars(
+                select(ChatMessage)
+                .where(ChatMessage.conversation_id == conversation_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        return list(reversed(rows))
+
+    async def append_exchange(self, conversation_id: uuid.UUID, question: str, answer: str, intent: str | None) -> None:
+        conv = await self._db.get(ChatConversation, conversation_id)
+        if conv is not None:
+            conv.updated_at = datetime.now(UTC)
+            if not conv.summary:
+                conv.summary = generate_conversation_title(question)
+
+        self._db.add_all(
+            [
+                ChatMessage(conversation_id=conversation_id, role="user", content=question, intent=intent),
+                ChatMessage(conversation_id=conversation_id, role="assistant", content=answer, intent=intent),
+            ]
+        )
+        await self._db.flush()
+
+    async def list_conversations(
+        self,
+        patient_id: uuid.UUID,
+        page: int = 1,
+        size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List conversations for the patient, ordered by updated_at desc."""
+        total_stmt = select(func.count(ChatConversation.id)).where(ChatConversation.patient_id == patient_id)
+        total_count = (await self._db.execute(total_stmt)).scalar_one() or 0
+
+        if total_count == 0:
+            return [], 0
+
+        conv_stmt = (
+            select(ChatConversation)
+            .where(ChatConversation.patient_id == patient_id)
+            .order_by(ChatConversation.updated_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        convs = (await self._db.scalars(conv_stmt)).all()
+        conv_ids = [c.id for c in convs]
+
+        counts: dict[uuid.UUID, int] = {}
+        previews: dict[uuid.UUID, str] = {}
+
+        if conv_ids:
+            count_rows = (
+                await self._db.execute(
+                    select(ChatMessage.conversation_id, func.count(ChatMessage.id))
+                    .where(ChatMessage.conversation_id.in_(conv_ids))
+                    .group_by(ChatMessage.conversation_id)
+                )
+            ).all()
+            counts = {row[0]: row[1] for row in count_rows}
+
+            latest_subq = (
+                select(
+                    ChatMessage.conversation_id,
+                    ChatMessage.content,
+                    func.row_number()
+                    .over(
+                        partition_by=ChatMessage.conversation_id,
+                        order_by=ChatMessage.created_at.desc(),
+                    )
+                    .label("rn"),
+                )
+                .where(ChatMessage.conversation_id.in_(conv_ids))
+                .subquery()
+            )
+            latest_rows = (
+                await self._db.execute(
+                    select(latest_subq.c.conversation_id, latest_subq.c.content).where(latest_subq.c.rn == 1)
+                )
+            ).all()
+            previews = {row[0]: row[1] for row in latest_rows}
+
+        result: list[dict[str, Any]] = []
+        for conv in convs:
+            preview = previews.get(conv.id)
+            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
+            result.append(
+                {
+                    "id": conv.id,
+                    "title": title,
+                    "preview": preview,
+                    "message_count": counts.get(conv.id, 0),
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                }
+            )
+
+        return result, total_count
+
+    async def get_messages_paginated(
+        self,
+        conversation_id: uuid.UUID,
+        limit: int = 50,
+        before: str | None = None,
+    ) -> tuple[list[ChatMessage], bool, str | None]:
+        """Fetch messages paginated backwards (cursor based on created_at / id)."""
+        where_clauses = [ChatMessage.conversation_id == conversation_id]
+
+        if before:
+            # Check if before is a UUID or ISO datetime string
+            cursor_dt = None
+            cursor_uuid = None
+            try:
+                cursor_uuid = uuid.UUID(before)
+                cursor_msg = await self._db.get(ChatMessage, cursor_uuid)
+                if cursor_msg is not None:
+                    cursor_dt = cursor_msg.created_at
+            except ValueError:
+                try:
+                    cursor_dt = datetime.fromisoformat(before)
+                except ValueError:
+                    cursor_dt = None
+
+            if cursor_dt is not None:
+                if cursor_uuid is not None:
+                    where_clauses.append(
+                        or_(
+                            ChatMessage.created_at < cursor_dt,
+                            and_(
+                                ChatMessage.created_at == cursor_dt,
+                                ChatMessage.id < cursor_uuid,
+                            ),
+                        )
+                    )
+                else:
+                    where_clauses.append(ChatMessage.created_at < cursor_dt)
+
+        stmt = (
+            select(ChatMessage)
+            .where(*where_clauses)
+            .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+            .limit(limit + 1)
+        )
+        rows = (await self._db.scalars(stmt)).all()
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+
+        # Order messages chronologically (oldest to newest) for presentation
+        messages = list(reversed(page_rows))
+        next_cursor = str(page_rows[-1].id) if has_more and page_rows else None
+
+        return messages, has_more, next_cursor
 
 
 class AgentRunRepository:
@@ -429,17 +622,23 @@ class ScheduledDoseRepository:
         result = await self._db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
-    async def mark_overdue_pending_as_missed(self, cutoff: datetime) -> list[tuple[uuid.UUID, uuid.UUID, datetime]]:
+    async def mark_overdue_pending_as_missed(
+        self, cutoff: datetime
+    ) -> list[tuple[uuid.UUID, uuid.UUID, datetime, bool]]:
         """Flip every ScheduledDose still PENDING with current_scheduled_at <
-        cutoff to MISSED, across all patients in one statement. Rides
+        cutoff to MISSED, across all patients in one statement — regardless
+        of is_critical. This is the state-machine half of the scan (a dose
+        left PENDING forever would stay retroactively actionable); only the
+        streak-alert half below is narrowed to critical doses. Rides
         idx_scheduled_doses_pending_due (current_scheduled_at) WHERE
         status='PENDING'. Race-safe against a patient actioning the same dose
         concurrently: standard row-level UPDATE locking means a row already
         flipped to TAKEN/SKIPPED a moment earlier no longer matches
         status='PENDING' by the time this runs, so it's simply excluded — no
         read-then-write window. Returns (patient_id, dose_id,
-        current_scheduled_at) for every row just flipped, so the caller only
-        recomputes streaks for affected patients."""
+        current_scheduled_at, is_critical) for every row just flipped, so the
+        caller can pick out which patients had a critical dose newly missed
+        this tick without a second query."""
         stmt = (
             update(ScheduledDose)
             .where(
@@ -451,10 +650,11 @@ class ScheduledDoseRepository:
                 ScheduledDose.patient_id,
                 ScheduledDose.id,
                 ScheduledDose.current_scheduled_at,
+                ScheduledDose.is_critical,
             )
         )
         result = await self._db.execute(stmt)
-        return [(row[0], row[1], row[2]) for row in result.all()]
+        return [(row[0], row[1], row[2], row[3]) for row in result.all()]
 
     async def get_recent_dose_statuses(
         self, patient_ids: list[uuid.UUID], lookback: int, before: datetime
@@ -511,9 +711,58 @@ class ScheduledDoseRepository:
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped
 
-    async def get_due_dose_groups(
-        self, cutoff: datetime
-    ) -> Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]]:
+    async def get_recent_critical_dose_statuses(
+        self, patient_ids: list[uuid.UUID], lookback: int, before: datetime
+    ) -> dict[uuid.UUID, list[dict[str, str]]]:
+        """Same shape and ROW_NUMBER() OVER (PARTITION BY patient_id ...)
+        approach as get_recent_dose_statuses (one query for every affected
+        patient, never one per patient), filtered to WHERE is_critical.
+
+        Deliberate semantic difference from the unfiltered version: a patient
+        who takes their statin on time but misses their warfarin no longer
+        has that on-time statin dose interrupt the streak, because the
+        statin dose is excluded from this sequence entirely rather than
+        counted as a non-missed entry. The filtered streak is more sensitive
+        to critical-only misses, not less — see
+        docs/graded-adherence-implementation.md Stage 2. Rides
+        idx_scheduled_doses_critical_patient_time (patient_id,
+        current_scheduled_at DESC) WHERE is_critical."""
+        if not patient_ids:
+            return {}
+        rn = (
+            func.row_number()
+            .over(
+                partition_by=ScheduledDose.patient_id,
+                order_by=ScheduledDose.current_scheduled_at.desc(),
+            )
+            .label("rn")
+        )
+        subq = (
+            select(
+                ScheduledDose.patient_id,
+                ScheduledDose.status,
+                ScheduledDose.current_scheduled_at,
+                rn,
+            )
+            .where(
+                ScheduledDose.patient_id.in_(patient_ids),
+                ScheduledDose.current_scheduled_at <= before,
+                ScheduledDose.is_critical,
+            )
+            .subquery()
+        )
+        stmt = (
+            select(subq.c.patient_id, subq.c.status)
+            .where(subq.c.rn <= lookback)
+            .order_by(subq.c.patient_id, subq.c.current_scheduled_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        grouped: dict[uuid.UUID, list[dict[str, str]]] = {}
+        for patient_id, status in result.all():
+            grouped.setdefault(patient_id, []).append({"status": status})
+        return grouped
+
+    async def get_due_dose_groups(self, cutoff: datetime) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
         """Fetch all PENDING doses due at or before cutoff, grouped by
         (patient_id, current_scheduled_at). Each group contains the individual
         scheduled doses with medication display name and dosage snapshot,
@@ -535,7 +784,7 @@ class ScheduledDoseRepository:
             )
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[Tuple[uuid.UUID, datetime], List[Dict[str, Any]]] = {}
+        grouped: dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]] = {}
         for dose, medication_name in result.all():
             key = (dose.patient_id, dose.current_scheduled_at)
             grouped.setdefault(key, []).append(
@@ -554,4 +803,3 @@ class ScheduledDoseRepository:
                 }
             )
         return grouped
-

@@ -125,6 +125,12 @@ class PrescriptionItem(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Doctor-set on high-risk medications; snapshotted onto
+    # ScheduledDose.is_critical at generation time (see planner.py). Added by
+    # migration 0021_dose_is_critical.
+    is_critical: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="FALSE"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

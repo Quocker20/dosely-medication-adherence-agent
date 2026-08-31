@@ -19,7 +19,7 @@ hệ thống** để đơn giản cho demo, chỉ đổi `temperature` theo từ
 | Node | Model | Temperature | Lý do |
 |---|---|---|---|
 | `classify_intent_node` | `gpt-4o-mini` | `0` | Chỉ phân loại 1 trong 4-5 intent cố định, dùng structured output/function calling để ép ra đúng enum |
-| `compute_schedule_node` | *(không dùng LLM)* | — | Thuần code, tính giờ từ `frequency` + `patient_routine` — xem `ai_agent_scope.md` mục 3 |
+| `compute_schedule_node` | *(không dùng LLM)* | — | ⚠️ **Đã lỗi thời** — không có node đơn lẻ nào tên này. Thay bằng pipeline `src/agents/planning_graph.py`: `planning_input_gate_node` → `planning_normalize_node` → `planning_generate_candidate_node` (**có** gọi LLM để đề xuất gom nhóm giờ) → `planning_lock_and_revalidate_node` (code xác định revalidate lại toàn bộ, không tin LLM) → `planning_apply_grouping_node` → `planning_persist_node` → `planning_audit_node`. Nguyên tắc "agent không tự tính giờ" ở mục 4.7/4.4 vẫn đúng, chỉ tên/hình dạng node đã đổi |
 | `drug_info_node` (RAG) | `gpt-4o-mini` + retriever | `0` | Tra cứu công dụng/hoạt chất, bám sát nguồn. **Đổi tên từ `check_interactions_node`** — xem mục 1.1 |
 | `generate_message_node` | `gpt-4o-mini` | `0.5` | Chỉ sinh phần văn phong, **không chạm vào slot dữ liệu y tế** — xem mục 4.2 |
 | `safety_guard_node` | rule-based **+** `gpt-4o-mini` | `0` | Rule luôn chạy trước và có quyền quyết định cuối; LLM chỉ bổ sung — xem mục 4.1 |
@@ -78,7 +78,7 @@ Xoá `calculate` trong `example_tool.py`.
 
 | Chức năng | Vì sao không |
 |---|---|
-| `record_dose_action` (đánh dấu đã uống / bỏ qua) | **Lỗ hổng nghiêm trọng.** Nếu LLM gọi được, một prompt injection (qua text OCR, qua free-text khảo sát) có thể khiến agent tự đánh dấu "đã uống" cho liều bệnh nhân đã bỏ → dữ liệu tuân thủ sai → không đủ 3 lần bỏ liên tiếp → **Red Alert không bao giờ kích hoạt**. Dose action phải đi thẳng từ nút bấm trên notification → API, không qua agent |
+| `record_dose_action` (đánh dấu đã uống / bỏ qua) | **Lỗ hổng nghiêm trọng.** Nếu LLM gọi được, một prompt injection (qua text OCR, qua free-text khảo sát) có thể khiến agent tự đánh dấu "đã uống" cho liều bệnh nhân đã bỏ → dữ liệu tuân thủ sai → không đủ 3 lần bỏ liên tiếp → **Red Alert không bao giờ kích hoạt**. Dose action phải đi thẳng từ nút bấm trên notification → API, không qua agent. ⚠️ **ĐÃ ĐỔI QUYẾT ĐỊNH (không phải doc lỗi thời — code đã cố ý override):** `record_dose_action` hiện **là** tool LLM thật, nằm trong `CHAT_TOOLS`/`WRITE_TOOLS` (`src/agents/tools/schedule_tools.py`, `src/agents/tools/__init__.py`). Comment tại `src/agents/tools/__init__.py:14-15` thừa nhận đây là override theo yêu cầu người dùng sau này. Rủi ro prompt-injection mô tả ở cột bên trái **vẫn còn nguyên**, chỉ là đã được chấp nhận đánh đổi — chưa có mitigation thay thế nào được ghi lại. Cần đội ngũ xem lại quyết định này nếu muốn giữ đúng nguyên tắc HITL ban đầu |
 | Ghi/sửa `prescriptions`, `prescription_items` | Ràng buộc HITL trong PRD mục 4.1. Đảm bảo bằng **quyền DB read-only** trên 2 bảng này, không phải bằng lời dặn trong prompt |
 | Gửi SMS/Zalo trực tiếp | Đi qua `trigger_red_alert` → backend, để backend rate-limit và audit |
 
@@ -238,7 +238,7 @@ output, timestamp, tool calls. Khi có sự cố phải trả lời được "t�
 ### Ưu tiên P0 — blocker, làm trước
 
 1. [ ] Viết `trigger_red_alert` + rule-based keyword layer (mục 4.1)
-2. [ ] Xác nhận `record_dose_action` **không** nằm trong tool set của LLM (mục 2.3)
+2. [x] ~~Xác nhận `record_dose_action` **không** nằm trong tool set của LLM~~ — **VIOLATED**: hiện đang nằm trong tool set (mục 2.3, đã ghi chú chi tiết bên trên). Không phải việc chưa làm — đã bị đổi hướng có chủ đích.
 3. [ ] Cấu hình DB credential read-only cho `prescriptions` / `prescription_items` (mục 4.4)
 4. [ ] Viết `reschedule_remaining_doses` — FR-3.3 hiện chưa có tool nào
 5. [ ] Viết `record_health_survey` — FR-5.1 hiện chưa có đường ghi
@@ -251,7 +251,7 @@ output, timestamp, tool calls. Khi có sự cố phải trả lời được "t�
    `noon_dose`, `evening_dose`, `bedtime_dose`, `meal_relation`,
    `minimum_interval_minutes`, `timezone`...)
 8. [ ] Viết `get_scheduled_doses`, `get_adherence_stats`
-9. [ ] Template hóa `generate_message_node` (mục 4.2)
+9. [x] Template hóa `generate_message_node` (mục 4.2) — **viết xong nhưng chưa wire vào graph**: `src/agents/nodes/generate_message_node.py` implement đúng thiết kế mục 4.2, nhưng không được import/gọi ở đâu khác trong `src/` (dead code). Text nhắc thuốc thật hiện sinh bằng code thuần, không dùng LLM: `src/modules/adherence/notification_service.py::format_notification_text`.
 10. [ ] Grounding threshold + citation check cho `drug_info_node` (mục 4.3)
 11. [ ] Viết node theo mục 3 của `ai_agent_scope.md`, nối vào `src/agents/graph.py`
 

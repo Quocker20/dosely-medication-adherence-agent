@@ -4,6 +4,7 @@ import { ApiError, api, waitForAgentRun } from "../../../api";
 import type {
   ActiveSchedule,
   AdherenceLog,
+  AdherenceReviewDetail,
   AlertDetail,
   DashboardPatientDetail,
   HealthSurveyFullDetail,
@@ -18,9 +19,12 @@ import {
   alertTriggerLabel,
   formatDate,
   formatDateTime,
+  formatDoseValue,
   formatTime,
   isoDate,
   patientDisplayName,
+  remedyClassLabel,
+  reviewSeverityView,
 } from "../../../utils/labels";
 
 type DetailTab = "overview" | "medications" | "health" | "routine";
@@ -82,6 +86,7 @@ export default function PatientDetailPage({ patientId, accessToken, onBack, onPr
   const [logs, setLogs] = useState<AdherenceLog[]>([]);
   const [alerts, setAlerts] = useState<AlertDetail[]>([]);
   const [surveys, setSurveys] = useState<HealthSurveyFullDetail[]>([]);
+  const [reviews, setReviews] = useState<AdherenceReviewDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -89,13 +94,22 @@ export default function PatientDetailPage({ patientId, accessToken, onBack, onPr
   const refresh = useCallback(async () => {
     const from = dateDaysAgo(29);
     const to = isoDate(new Date());
-    const [profileResult, detailResult, prescriptionsResult, logsResult, alertsResult, surveysResult] = await Promise.all([
+    const [
+      profileResult,
+      detailResult,
+      prescriptionsResult,
+      logsResult,
+      alertsResult,
+      surveysResult,
+      reviewsResult,
+    ] = await Promise.all([
       api.patient(patientId),
       api.dashboardPatientDetail(patientId),
       api.patientPrescriptions(patientId, { size: 50 }),
       api.adherenceLogs(patientId, from, to, 20),
       api.alerts({ patientId, size: 20 }),
       api.patientHealthSurveys(patientId, { from, to, size: 8 }),
+      api.adherenceReviews(patientId, 1, 10),
     ]);
     // A patient who has not completed onboarding may legitimately have no
     // routine yet; that must not make the clinical detail page unavailable.
@@ -114,6 +128,7 @@ export default function PatientDetailPage({ patientId, accessToken, onBack, onPr
     setLogs(logsResult.content);
     setAlerts(alertsResult.content);
     setSurveys(surveyDetails);
+    setReviews(reviewsResult.content);
   }, [patientId]);
 
   useEffect(() => {
@@ -208,9 +223,75 @@ export default function PatientDetailPage({ patientId, accessToken, onBack, onPr
 
       {tab === "medications" && <article className="card"><div className="card-head"><div><h2>Đơn thuốc đã duyệt</h2><p className="detail-subtitle">Thông tin chỉ đọc. Mọi thay đổi phác đồ phải qua đơn mới và bác sĩ duyệt.</p></div></div><div className="card-body detail-list">{activePrescriptions.map((prescription) => <div className="prescription-card" key={prescription.id}><div><b>Đơn #{prescription.id.slice(0, 8)}</b><span className="pill ok">APPROVED</span><small>Hiệu lực từ {formatDate(prescription.approved_at ?? prescription.created_at)}</small></div>{prescription.items.map((item) => <div className="medication-detail" key={item.id}><strong>{item.display_name}</strong><span>{[item.morning_dose && `Sáng ${item.morning_dose} ${item.dose_unit}`, item.noon_dose && `Trưa ${item.noon_dose} ${item.dose_unit}`, item.evening_dose && `Tối ${item.evening_dose} ${item.dose_unit}`, item.bedtime_dose && `Trước ngủ ${item.bedtime_dose} ${item.dose_unit}`].filter(Boolean).join(" · ") || "Liều chưa khai báo"}</span><small>{item.route}{item.meal_relation ? ` · ${item.meal_relation}` : ""}{item.instructions ? ` · ${item.instructions}` : ""}</small></div>)}</div>)}{activePrescriptions.length === 0 && <EmptyState>Chưa có đơn thuốc APPROVED.</EmptyState>}</div></article>}
 
-      {tab === "health" && <div className="detail-two-col"><article className="card"><div className="card-head"><h2>Nhật ký tuân thủ</h2></div><div className="card-body detail-list">{logs.map((log) => <div className="detail-row" key={log.id}><b className={log.action === "TAKEN" ? "ok" : "crit"}>{log.action}</b><span>{formatDateTime(log.performed_at)}</span></div>)}{logs.length === 0 && <EmptyState>Chưa có nhật ký trong 30 ngày gần nhất.</EmptyState>}</div></article><article className="card"><div className="card-head"><h2>Khảo sát & triệu chứng</h2></div><div className="card-body detail-list">{surveys.map((survey) => <div className="survey-detail" key={survey.id}><b>{formatDate(survey.survey_date)} · {survey.status}</b>{survey.symptoms.map((symptom) => <span key={symptom.id}>{symptom.symptom_code} · {symptom.severity}{symptom.description ? ` · ${symptom.description}` : ""}</span>)}{survey.symptoms.length === 0 && <small>Không ghi nhận triệu chứng.</small>}</div>)}{surveys.length === 0 && <EmptyState>Chưa có khảo sát sức khỏe.</EmptyState>}</div></article></div>}
+      {tab === "health" && (
+        <>
+          <article className="card">
+            <div className="card-head">
+              <h2>Đánh giá tuân thủ hàng đêm</h2>
+            </div>
+            <div className="card-body detail-list">
+              {reviews.map((review) => {
+                const severity = reviewSeverityView(review.severity);
+                return (
+                  <div className="detail-row" key={review.id}>
+                    <span>
+                      <b className={severity.tone}>{severity.label}</b>
+                      <small>
+                        {formatDate(review.review_date)} · Ngày {review.days_in_severity} ở mức này
+                      </small>
+                    </span>
+                    <span>
+                      {remedyClassLabel(review.remedy_class)}
+                      {review.llm_reasoning && <small>{review.llm_reasoning}</small>}
+                    </span>
+                  </div>
+                );
+              })}
+              {reviews.length === 0 && <EmptyState>Chưa có đánh giá tuân thủ nào.</EmptyState>}
+            </div>
+          </article>
+          <div className="detail-two-col">
+            <article className="card">
+              <div className="card-head">
+                <h2>Nhật ký tuân thủ</h2>
+              </div>
+              <div className="card-body detail-list">
+                {logs.map((log) => (
+                  <div className="detail-row" key={log.id}>
+                    <b className={log.action === "TAKEN" ? "ok" : "crit"}>{log.action}</b>
+                    <span>{formatDateTime(log.performed_at)}</span>
+                  </div>
+                ))}
+                {logs.length === 0 && <EmptyState>Chưa có nhật ký trong 30 ngày gần nhất.</EmptyState>}
+              </div>
+            </article>
+            <article className="card">
+              <div className="card-head">
+                <h2>Khảo sát & triệu chứng</h2>
+              </div>
+              <div className="card-body detail-list">
+                {surveys.map((survey) => (
+                  <div className="survey-detail" key={survey.id}>
+                    <b>
+                      {formatDate(survey.survey_date)} · {survey.status}
+                    </b>
+                    {survey.symptoms.map((symptom) => (
+                      <span key={symptom.id}>
+                        {symptom.symptom_code} · {symptom.severity}
+                        {symptom.description ? ` · ${symptom.description}` : ""}
+                      </span>
+                    ))}
+                    {survey.symptoms.length === 0 && <small>Không ghi nhận triệu chứng.</small>}
+                  </div>
+                ))}
+                {surveys.length === 0 && <EmptyState>Chưa có khảo sát sức khỏe.</EmptyState>}
+              </div>
+            </article>
+          </div>
+        </>
+      )}
 
-      {tab === "routine" && <div className="detail-two-col"><article className="card"><div className="card-head"><div><h2>Lịch sinh hoạt</h2><p className="detail-subtitle">Bệnh nhân tự cập nhật trên web hoặc ứng dụng; đây là đầu vào của Planning Agent.</p></div></div><div className="card-body routine-readonly">{ROUTINE_FIELDS.map(([label, key]) => <span key={key}><b>{label}</b><time>{shortTime(routine?.[key] ?? null)}</time></span>)}{!routine && <EmptyState>Bệnh nhân chưa khai báo lịch sinh hoạt.</EmptyState>}</div></article><article className="card"><div className="card-head"><h2>Lịch uống hôm nay</h2></div><div className="card-body detail-list">{schedule?.doses.map((dose) => <div className="detail-row" key={dose.scheduled_dose_id}><time>{formatTime(dose.current_scheduled_at)}</time><span><b>{dose.medication_name}</b><small>{dose.dose_value ?? ""} {dose.dose_unit ?? ""} · {dose.status}</small></span></div>)}{!schedule?.doses.length && <EmptyState>Chưa có cữ thuốc hôm nay.</EmptyState>}</div></article></div>}
+      {tab === "routine" && <div className="detail-two-col"><article className="card"><div className="card-head"><div><h2>Lịch sinh hoạt</h2><p className="detail-subtitle">Bệnh nhân tự cập nhật trên web hoặc ứng dụng; đây là đầu vào của Planning Agent.</p></div></div><div className="card-body routine-readonly">{ROUTINE_FIELDS.map(([label, key]) => <span key={key}><b>{label}</b><time>{shortTime(routine?.[key] ?? null)}</time></span>)}{!routine && <EmptyState>Bệnh nhân chưa khai báo lịch sinh hoạt.</EmptyState>}</div></article><article className="card"><div className="card-head"><h2>Lịch uống hôm nay</h2></div><div className="card-body detail-list">{schedule?.doses.map((dose) => <div className="detail-row" key={dose.scheduled_dose_id}><time>{formatTime(dose.current_scheduled_at)}</time><span><b>{dose.medication_name}</b><small>{formatDoseValue(dose.dose_value)} {dose.dose_unit ?? ""} · {dose.status}</small></span></div>)}{!schedule?.doses.length && <EmptyState>Chưa có cữ thuốc hôm nay.</EmptyState>}</div></article></div>}
 
       <p className="detail-safety-note">Planning Agent chỉ có thể tính lại giờ nhắc theo đơn APPROVED và lịch sinh hoạt. Hệ thống không tự thay đổi liều, số cữ, đường dùng hoặc thời gian điều trị.</p>
     </section>

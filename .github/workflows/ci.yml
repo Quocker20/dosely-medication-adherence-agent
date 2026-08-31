@@ -7,11 +7,13 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
+  chatbot-quality-gate:
     runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -22,10 +24,132 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Lint with ruff
+      - name: Lint chatbot changes
+        run: >-
+          ruff check --select E4,E7,E9,F,I
+          src/agents
+          src/modules/agents
+          tests/test_agents
+          tests/test_eval
+          tests/test_api/test_chat_auth.py
+
+      - name: Run chatbot and golden-set tests
+        run: >-
+          pytest
+          tests/test_agents
+          tests/test_eval
+          tests/test_api/test_chat_auth.py
+          -v --tb=short
+        env:
+          APP_ENV: test
+          OPENAI_API_KEY: test-key
+          RATE_LIMIT_ENABLED: "false"
+
+      - name: Run deterministic chatbot metrics
+        run: python eval/hybrid_chat_eval.py --skip-live-rag
+        env:
+          APP_ENV: test
+          OPENAI_API_KEY: test-key
+          RATE_LIMIT_ENABLED: "false"
+          LANGSMITH_TRACING: "false"
+
+  # The Dockerfile builds web/ in its own stage and copies the output into the
+  # backend image, so a TypeScript error here does not just break the portal --
+  # it fails `docker compose build backend` and blocks the whole deploy.
+  web-build:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Type-check and build
+        run: npm run build
+        working-directory: web
+
+      - name: Run portal tests
+        run: npm run test
+        working-directory: web
+
+  # Kotlin compiles only at build time, so a repository or DTO signature change
+  # that leaves a test fixture behind stays invisible until someone cuts a
+  # release APK. Compiling the demo variant's tests is what catches it.
+  #
+  # Pull requests only, and tuned for a small box. The self-hosted runner is the
+  # production VPS: 3.8 GB RAM, 2 cores, with ~1.6 GB held by backend, worker,
+  # beat, redis and caddy. Gradle's own default here is a 2 GB heap and Kotlin
+  # normally compiles in a second daemon process on top of that, which does not
+  # fit. The overrides below keep it to a single JVM with a 1 GB heap.
+  #
+  # This job needs the VPS to have swap. Without it the kernel has no way to
+  # shed pressure and goes straight to the OOM killer, which picks the largest
+  # process it can find -- during a build that is plausibly production itself.
+  #
+  # GitHub-hosted runners are not an option: the organisation's billing blocks
+  # them ("The job was not started because recent account payments have failed").
+  android-unit-tests:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # gradlew is committed as 100644 (created on Windows), so the checkout has
+      # no exec bit on Linux runners.
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+        working-directory: android
+
+      - name: Run demo unit tests
+        run: >-
+          ./gradlew testDemoUnitTest
+          --no-daemon
+          --max-workers=1
+          -Dorg.gradle.jvmargs=-Xmx1024m
+          -Dkotlin.compiler.execution.strategy=in-process
+        working-directory: android
+
+  repository-diagnostics:
+    runs-on: self-hosted
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Report legacy lint debt
         run: ruff check src/ tests/
 
-      - name: Run tests
+      - name: Run full repository tests
         run: pytest tests/ -v --tb=short
         env:
           APP_ENV: test

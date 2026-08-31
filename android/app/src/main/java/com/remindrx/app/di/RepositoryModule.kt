@@ -3,13 +3,17 @@ package com.remindrx.app.di
 import com.remindrx.app.data.repository.AuthRepository
 import com.remindrx.app.data.repository.AppUpdateRepository
 import com.remindrx.app.data.repository.ChatRepository
+import com.remindrx.app.data.repository.OutboxSyncScheduler
 import com.remindrx.app.data.repository.PatientRepository
+import com.remindrx.app.data.repository.PatientReadableCacheCleaner
 import com.remindrx.app.data.repository.RemoteAuthRepositoryImpl
 import com.remindrx.app.data.repository.RemoteAppUpdateRepositoryImpl
 import com.remindrx.app.data.repository.RemoteChatRepositoryImpl
 import com.remindrx.app.data.repository.RemotePatientRepositoryImpl
 import com.remindrx.app.data.repository.RemoteRoutineRepositoryImpl
+import com.remindrx.app.data.repository.RoomPatientReadableCacheCleaner
 import com.remindrx.app.data.repository.RoutineRepository
+import com.remindrx.app.sync.WorkManagerOutboxSyncScheduler
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -37,4 +41,12 @@ abstract class RepositoryModule {
 
     @Binds
     abstract fun bindChatRepository(impl: RemoteChatRepositoryImpl): ChatRepository
+
+    @Binds
+    abstract fun bindOutboxSyncScheduler(impl: WorkManagerOutboxSyncScheduler): OutboxSyncScheduler
+
+    @Binds
+    abstract fun bindPatientReadableCacheCleaner(
+        impl: RoomPatientReadableCacheCleaner,
+    ): PatientReadableCacheCleaner
 }

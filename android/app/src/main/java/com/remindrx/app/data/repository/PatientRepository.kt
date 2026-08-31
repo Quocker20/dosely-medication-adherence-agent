@@ -17,6 +17,7 @@ import com.remindrx.app.data.RoutineUpdateResult
 import com.remindrx.app.data.SurveySymptom
 import java.time.LocalDate
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.Flow
 
 data class PatientHome(
     val routine: List<RoutineItem>,
@@ -47,6 +48,8 @@ interface PatientRepository {
     ): OnboardingResult
 
     suspend fun loadHome(): PatientHome
+
+    fun observePendingSyncCount(): Flow<Int>
 
     suspend fun recordDoseAction(
         doseId: String,

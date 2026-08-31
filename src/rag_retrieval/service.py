@@ -5,6 +5,7 @@ import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,9 @@ DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 SECTION_HINTS = {
     "interactions": ("tuong tac", "uong cung", "phoi hop"),
     "contraindications": ("chong chi dinh", "khong duoc dung"),
-    "dosage_administration": ("lieu", "cach dung", "su dung", "bao nhieu"),
+    "dosage_administration": (
+        "lieu", "cach dung", "su dung", "dung nhu the nao", "uong nhu the nao", "bao nhieu"
+    ),
     "adverse_effects": ("tac dung khong mong muon", "tac dung phu", "adr"),
     "indications": ("chi dinh", "dieu tri", "cong dung", "dung de lam gi"),
     "warnings": ("than trong", "canh bao"),
@@ -36,8 +39,17 @@ SECTION_HINTS = {
 # Common formulary abbreviations that do not resemble the canonical heading.
 DRUG_ALIASES = {
     "pas": "acidaminosalicylic",
+    # International spelling; the Vietnamese formulary heading uses one "l".
+    "amoxicillin": "amoxicilin",
+    "doxycycline": "doxycyclin",
+    "nicotinamide": "nicotinamid",
+    "niacinamide": "nicotinamid",
     # OCR in the source heading produced WAREARIN NATRI.
     "warfarin": "warearinnatri",
+    # English catalog names -> Vietnamese formulary headings.
+    "calcium gluconate": "calcigluconat",
+    "cetirizine": "cetirizinhydroclorid",
+    "isosorbide dinitrate": "isosorbiddinitrat",
 }
 
 # Tokens that occur in many canonical headings and are unsafe as abbreviated
@@ -46,6 +58,10 @@ DRUG_ALIASES = {
 _NON_DISTINCTIVE_DRUG_TOKENS = {
     "thuoc", "acid", "natri", "kali", "calci", "hydroclorid", "hydrat",
     "dung", "uong", "tiem", "va", "voi", "chua", "phoi", "hop",
+    # Common query words must not identify a medicine merely because they are
+    # unique in one compound heading (for example "liên" -> estrogen liên hợp).
+    "lien", "quan", "luu", "truong", "trong", "ngoai", "theo",
+    "thuc", "bua", "lam", "nao", "nhung", "nhieu",
 }
 
 
@@ -154,8 +170,11 @@ class DrugRAG:
             position = folded_query.find(f" {spaced} ")
             if position >= 0:
                 matches.append((position, -len(spaced), normalized, display))
-            elif normalized in compact_query:
-                matches.append((compact_query.find(normalized), -len(normalized), normalized, display))
+            # A normalized heading embedded inside a longer token is not an
+            # identity match (e.g. DESONID occurs inside BUDESONIDE). Only a
+            # bare fully-concatenated heading may use this compact form.
+            elif normalized == compact_query:
+                matches.append((0, -len(normalized), normalized, display))
         for alias, normalized in DRUG_ALIASES.items():
             position = folded_query.find(f" {alias} ")
             if position >= 0 and normalized in self._drug_names:
@@ -186,6 +205,32 @@ class DrugRAG:
                 ]
                 if len(prefix_matches) == 1:
                     normalized, display = prefix_matches[0]
+                    matches.append((position, -len(token), normalized, display))
+        # Tolerate a small typo in a sufficiently long drug name.  Only accept
+        # a unique, clearly better candidate: in a clinical setting an
+        # ambiguous fuzzy match is worse than asking the user to clarify.
+        if not matches:
+            for position, token in enumerate(fold(query).split()):
+                if len(token) < 7 or token in _NON_DISTINCTIVE_DRUG_TOKENS:
+                    continue
+                ranked = sorted(
+                    (
+                        SequenceMatcher(None, token, normalized).ratio(),
+                        normalized,
+                        display,
+                    )
+                    for normalized, display in self._drug_names.items()
+                    if abs(len(normalized) - len(token)) <= 2
+                )
+                if not ranked:
+                    continue
+                best_score, normalized, display = ranked[-1]
+                second_score = ranked[-2][0] if len(ranked) > 1 else 0.0
+                # Preserve both boundaries. This keeps minor internal typos
+                # (paracatamil -> paracetamol) but prevents clinically unsafe
+                # look-alike matches such as budesonide -> desonid.
+                same_boundaries = token[0] == normalized[0] and token[-1] == normalized[-1]
+                if same_boundaries and best_score >= 0.80 and best_score - second_score >= 0.08:
                     matches.append((position, -len(token), normalized, display))
         if not matches:
             return None, None
@@ -322,6 +367,10 @@ class DrugRAG:
             store=False,
             instructions=(
                 "Bạn là trợ lý tra cứu Dược thư Quốc gia. Chỉ dùng nội dung nguồn được cung cấp; "
+                "Toàn bộ câu trả lời phải bằng tiếng Việt. Chỉ giữ nguyên tên thương mại của thuốc, "
+                "tên hoạt chất, tên tổ chức/nguồn và ký hiệu hoặc đơn vị chuyên môn khi chúng là tên riêng; "
+                "mọi tiêu đề, trạng thái, hướng dẫn và phần giải thích khác phải viết bằng tiếng Việt. "
+                "Không dùng các nhãn tiếng Anh như Drug, Schedule, Status, Taken, Pending, Missed, Next dose hay Source. "
                 "không tự suy diễn, không kê đơn hay thay đổi liều. Mọi khẳng định y khoa phải gắn "
                 "[Nguồn N]. MỖI câu chứa thông tin y khoa phải tự kết thúc bằng đúng citation dạng "
                 "[Nguồn 1]., kể cả các câu liên tiếp trong cùng đoạn; không để citation chung ở cuối đoạn. "

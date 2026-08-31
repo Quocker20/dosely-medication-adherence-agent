@@ -32,7 +32,8 @@ class AuthTokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "Bearer"
     expires_in: int
-    is_first_login: bool
+    must_change_password: bool
+    need_onboarding: bool
     user: UserResponse
 
 

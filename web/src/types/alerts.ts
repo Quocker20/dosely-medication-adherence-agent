@@ -3,11 +3,12 @@
 
 export type AlertStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
 export type AlertSeverity = "CRITICAL" | "HIGH" | "MEDIUM";
-export type AlertTriggeredBy = "SOS_BUTTON" | "SEVERE_SYMPTOM" | "MISSED_DOSES";
+export type AlertTriggeredBy = "SOS_BUTTON" | "SEVERE_SYMPTOM" | "MISSED_DOSES" | "ADHERENCE_REVIEW" | "ADVERSE_EVENT";
 
 export interface AlertDetail {
   id: string;
   patient_id: string;
+  patient_name: string | null;
   assigned_doctor_id: string | null;
   triggered_by_type: string;
   alert_type: string;

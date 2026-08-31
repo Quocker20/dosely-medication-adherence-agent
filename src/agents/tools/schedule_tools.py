@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+from src.agents.tool_authorization import authorize_patient_write
 from src.agents.tools.idempotency import dose_action_key
 from src.modules.planning.core.backend_client import BackendAPIError, post
 
@@ -35,6 +36,7 @@ async def reschedule_remaining_doses(patient_id: str, reason: str) -> str:
         Trạng thái yêu cầu (agent_run_id, status) dạng chuỗi, hoặc thông báo lỗi
     """
     try:
+        authorize_patient_write("reschedule_remaining_doses", patient_id, intent="report_meal_shift")
         result = await post(
             f"/patients/{patient_id}/schedules/reschedule",
             json={"reason": reason},
@@ -59,6 +61,8 @@ async def record_dose_action(scheduled_dose_id: str, action: str, note: str = ""
     Returns:
         Kết quả ghi nhận thành công hay không
     """
+    # Ownership is checked atomically by the backend endpoint. This tool is not
+    # exposed to the chat LLM and must be wrapped by a confirmed dedicated flow.
     payload = {"note": note} if note else {}
     try:
         result = await post(

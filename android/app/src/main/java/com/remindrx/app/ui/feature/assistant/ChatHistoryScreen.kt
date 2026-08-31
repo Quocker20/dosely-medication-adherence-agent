@@ -24,8 +24,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.remindrx.app.data.ChatConversation
 import com.remindrx.app.ui.theme.LocalRemindRxColors
@@ -84,15 +82,6 @@ fun ChatHistoryScreen(
                         )
                         Column(Modifier.weight(1f)) {
                             Text(conversation.title, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                conversation.preview,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = extras.inkMuted,
-                                fontWeight = FontWeight.Normal,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 3.dp),
-                            )
                             Text(
                                 conversation.updatedAt,
                                 style = MaterialTheme.typography.labelSmall,
