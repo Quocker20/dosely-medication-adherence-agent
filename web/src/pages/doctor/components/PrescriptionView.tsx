@@ -157,6 +157,10 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
   const [agentRun, setAgentRun] = useState<AgentRunStatus | null>(null);
   const [schedule, setSchedule] = useState<ActiveSchedule | null>(null);
   const [busy, setBusy] = useState(false);
+  // Nút tải PDF chỉ hiện đúng một lần, ngay khi approve() trả 200 — không có
+  // giới hạn tương ứng ở backend (GET .../pdf gọi lại vẫn 200); F5 hợp lệ làm
+  // nút xuất hiện lại, đó là hành vi chấp nhận được theo quyết định của dự án.
+  const [pdfOffered, setPdfOffered] = useState(false);
 
   const [patient, setPatient] = useState<PatientForm>(EMPTY_PATIENT);
   const [locked, setLocked] = useState<LockedFields>({});
@@ -207,6 +211,7 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
     setPatient(EMPTY_PATIENT);
     setLocked({});
     setLookup({ state: "idle", message: "" });
+    setPdfOffered(false);
     onToast("Đã xóa nháp");
   }
 
@@ -309,6 +314,11 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
       const approved = await api.approvePrescription(created.prescription.id);
       setPrescription(approved);
       onPrescribed();
+      // Trước generateSchedule có chủ đích: dispatch lịch nhắc là
+      // fire-and-forget và fail-open ở backend (không có agent_run_id trả về
+      // ngay), nên PDF không được phép phụ thuộc vào việc sinh lịch có thành
+      // công hay không — đơn đã APPROVED là đủ điều kiện tải PDF.
+      setPdfOffered(true);
 
       const dispatched = await api.generateSchedule(approved.patient_id, "Đơn vừa được bác sĩ duyệt");
       const run = await waitForAgentRun(dispatched.agent_run_id);
@@ -328,6 +338,34 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
         onToast(error instanceof Error ? error.message : "Lỗi không xác định");
       }
     } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Tải PDF đơn thuốc vừa duyệt. Backend không giới hạn số lần gọi (GET
+   * idempotent) — "chỉ hiện một lần" là hành vi UI: pdfOffered chỉ tắt khi
+   * tải THÀNH CÔNG, để một lần mạng lỗi không nuốt mất cơ hội tải duy nhất.
+   */
+  async function downloadPdf() {
+    if (!prescription) return;
+    setBusy(true);
+    let url: string | null = null;
+    try {
+      const blob = await api.downloadPrescriptionPdf(prescription.id);
+      url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `don-thuoc-${prescription.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setPdfOffered(false);
+      onToast("Đã tải đơn thuốc");
+    } catch (error) {
+      onToast(error instanceof ApiError ? error.message : "Không tải được đơn thuốc");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
       setBusy(false);
     }
   }
@@ -687,6 +725,11 @@ export default function PrescriptionView({ phone, onPhone, onToast, onPrescribed
               <button className="btn primary" onClick={approve} disabled={busy}>
                 {busy ? "Đang duyệt…" : "✓ Duyệt đơn & tạo lịch"}
               </button>
+              {pdfOffered && (
+                <button className="btn" onClick={downloadPdf} disabled={busy}>
+                  ⬇ Tải đơn thuốc (PDF)
+                </button>
+              )}
             </div>
           </div>
         </div>
