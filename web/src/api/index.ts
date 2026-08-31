@@ -4,7 +4,6 @@
 
 import { adminApi } from "./admin";
 import { adherenceApi } from "./adherence";
-import { adverseEventsApi } from "./adverseEvents";
 import { alertsApi } from "./alerts";
 import { authApi } from "./auth";
 import { dashboardApi } from "./dashboard";
@@ -30,7 +29,6 @@ export const api = {
   ...adminApi,
   ...healthSurveysApi,
   ...adherenceApi,
-  ...adverseEventsApi,
 };
 
 /**
