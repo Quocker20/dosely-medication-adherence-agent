@@ -86,10 +86,6 @@ async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
     # cữ 7h", "thuốc ở cữ 7 giờ") resolve identically.
     if explicit_time:
         ref_type = "schedule_time"
-    if ref_type == "recent_context":
-        remembered = (state.get("memory_context") or {}).get("current_medication")
-        if not isinstance(remembered, dict) or not remembered.get("display_name"):
-            return ResolutionResult(ResolutionStatus.CONTEXT_EXPIRED, reference_type=ref_type)
     patient_id = state.get("patient_id")
     client_date = state.get("client_date")
     if not patient_id:
@@ -98,12 +94,12 @@ async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
     schedule: dict | None = None
     current: dict | None = None
     try:
-        if ref_type in {"schedule_time", "dose_period", "next_dose", "recent_dose", "meal_relation", "recent_context"}:
+        if ref_type in {"schedule_time", "dose_period", "next_dose", "recent_dose", "meal_relation"}:
             schedule = await get(
                 f"/patients/{patient_id}/schedules",
                 params={"date": client_date} if client_date else None,
             )
-        if ref_type in {"drug_name", "prescription_ordinal", "current_medications", "recent_context"}:
+        if ref_type in {"drug_name", "prescription_ordinal", "current_medications"}:
             current = await get(
                 "/patients/me/medications/current",
                 params={"as_of": client_date} if client_date else None,
@@ -156,21 +152,7 @@ async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
         remembered = (state.get("memory_context") or {}).get("current_medication")
         if not isinstance(remembered, dict) or not remembered.get("display_name"):
             return ResolutionResult(ResolutionStatus.CONTEXT_EXPIRED, reference_type=ref_type)
-        remembered_id = str(remembered.get("medication_id") or "")
-        remembered_name = str(remembered.get("display_name") or "").casefold()
-        # Conversation memory identifies the candidate only; membership and
-        # times must still be verified against this patient's live schedule.
-        matches = [
-            dose for dose in doses
-            if (remembered_id and str(dose.get("medication_id") or "") == remembered_id)
-            or (remembered_name and remembered_name == str(dose.get("medication_name") or dose.get("display_name") or "").casefold())
-        ]
-        if not matches:
-            matches = [
-                medication for medication in meds
-                if (remembered_id and str(medication.get("medication_id") or "") == remembered_id)
-                or (remembered_name and remembered_name == str(medication.get("display_name") or medication.get("medication_name") or "").casefold())
-            ]
+        matches = [remembered]
     elif ref_type == "current_medications":
         matches = meds
     else:
