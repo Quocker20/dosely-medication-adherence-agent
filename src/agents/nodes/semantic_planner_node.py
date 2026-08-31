@@ -33,10 +33,14 @@ def _conversation(state: AgentState, limit: int = 8) -> str:
 
 
 async def semantic_planner_node(state: AgentState) -> dict:
-    pending = (state.get("memory_context") or {}).get("pending_adverse_event")
+    memory = state.get("memory_context") or {}
+    pending = memory.get("pending_adverse_event")
+    pending_schedule = memory.get("pending_schedule_request")
     context = _conversation(state)
     if pending:
         context += f"\nBẢN NHÁP TÁC DỤNG PHỤ CHỜ XÁC NHẬN: {pending}"
+    if pending_schedule:
+        context += f"\nYÊU CẦU LỊCH TƯƠNG LAI CHỜ XÁC NHẬN: {pending_schedule}. Nếu người dùng xác nhận bình thường, chọn get_schedule; nếu nói bận, chọn clarify để hỏi khung giờ; chỉ đổi lịch khi đã đồng ý rõ ràng."
     try:
         planner = get_llm(temperature=0).with_structured_output(SemanticPlan)
         plan = await planner.ainvoke([{"role": "system", "content": _PROMPT}, {"role": "user", "content": context}])
