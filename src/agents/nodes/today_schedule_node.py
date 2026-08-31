@@ -46,6 +46,14 @@ async def today_schedule_node(state: AgentState) -> dict:
     pending = (state.get("memory_context") or {}).get("pending_schedule_request")
     future_reference = date_reference in {"tomorrow", "mai", "ngày mai", "day_after_tomorrow", "ngày mốt", "ngày kia"} or bool(analysis.get("target_date"))
     target_date = analysis.get("target_date") or client_date
+    if not analysis.get("target_date") and len(date_reference) == 10 and date_reference[4] == "-":
+        try:
+            parsed_reference = date.fromisoformat(date_reference)
+            if client_date and parsed_reference > date.fromisoformat(client_date):
+                target_date = parsed_reference.isoformat()
+                future_reference = True
+        except ValueError:
+            pass
     if client_date and date_reference in {"tomorrow", "mai", "ngày mai"}:
         try:
             target_date = (date.fromisoformat(client_date) + timedelta(days=1)).isoformat()
