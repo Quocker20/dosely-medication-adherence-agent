@@ -1,9 +1,11 @@
 package com.remindrx.app.di
 
 import com.remindrx.app.data.repository.AuthRepository
+import com.remindrx.app.data.repository.AppUpdateRepository
 import com.remindrx.app.data.repository.ChatRepository
 import com.remindrx.app.data.repository.PatientRepository
 import com.remindrx.app.data.repository.RemoteAuthRepositoryImpl
+import com.remindrx.app.data.repository.RemoteAppUpdateRepositoryImpl
 import com.remindrx.app.data.repository.RemoteChatRepositoryImpl
 import com.remindrx.app.data.repository.RemotePatientRepositoryImpl
 import com.remindrx.app.data.repository.RemoteRoutineRepositoryImpl
@@ -20,6 +22,9 @@ import dagger.hilt.components.SingletonComponent
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+
+    @Binds
+    abstract fun bindAppUpdateRepository(impl: RemoteAppUpdateRepositoryImpl): AppUpdateRepository
 
     @Binds
     abstract fun bindAuthRepository(impl: RemoteAuthRepositoryImpl): AuthRepository

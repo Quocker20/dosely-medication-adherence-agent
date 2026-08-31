@@ -25,6 +25,13 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 
 ## 2. DETAILED ENDPOINT REGISTRY
 
+### APP RELEASE METADATA
+| HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`) |
+
+`downloadUrl` is generated from the server's own `/downloads/{apk_filename}` static mount. Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
+
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |

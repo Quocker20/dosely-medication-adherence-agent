@@ -101,6 +101,31 @@ class RemindRxApiServiceContractTest {
     }
 
     @Test
+    fun `app update endpoint is public and parses camel case release metadata`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "versionCode": 7,
+              "versionName": "1.5.0",
+              "downloadUrl": "https://api.example.test/downloads/remindrx-demo.apk"
+            }
+            """.trimIndent(),
+        )
+
+        val latest = api.getLatestAppVersion().data
+        val request = server.takeRequest()
+
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/app/latest-version", request.requestUrl?.encodedPath)
+        assertEquals(7, latest?.versionCode)
+        assertEquals("1.5.0", latest?.versionName)
+        assertEquals(
+            "https://api.example.test/downloads/remindrx-demo.apk",
+            latest?.downloadUrl,
+        )
+    }
+
+    @Test
     fun `routine update uses PUT path and snake case JSON`() = runBlocking {
         enqueueSuccess(
             """

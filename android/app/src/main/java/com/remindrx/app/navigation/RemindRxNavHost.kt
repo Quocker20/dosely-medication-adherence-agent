@@ -1,5 +1,6 @@
 package com.remindrx.app.navigation
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
@@ -29,8 +31,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remindrx.app.ui.components.RemindRxBottomBar
+import com.remindrx.app.ui.components.AppUpdateBanner
 import com.remindrx.app.ui.components.SosFab
+import com.remindrx.app.ui.components.createAppUpdateIntent
 import com.remindrx.app.ui.feature.auth.AuthViewModel
+import com.remindrx.app.ui.feature.appupdate.AppUpdateViewModel
 import com.remindrx.app.ui.feature.assistant.AssistantViewModel
 import com.remindrx.app.ui.feature.patient.PatientViewModel
 import com.remindrx.app.ui.feature.auth.ChangePinScreen
@@ -90,12 +95,15 @@ private val BOTTOM_BAR_ROUTES = setOf(
 @Composable
 fun RemindRxApp() {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val assistantViewModel: AssistantViewModel = hiltViewModel()
     val assistantState by assistantViewModel.state.collectAsStateWithLifecycle()
     val patientViewModel: PatientViewModel = hiltViewModel()
     val patientState by patientViewModel.state.collectAsStateWithLifecycle()
+    val appUpdateViewModel: AppUpdateViewModel = hiltViewModel()
+    val appUpdateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -158,6 +166,15 @@ fun RemindRxApp() {
     }
 
     Scaffold(
+        topBar = {
+            appUpdateState.availableUpdate?.let { update ->
+                AppUpdateBanner(
+                    update = update,
+                    onUpdate = { downloadUrl -> context.openAppUpdate(downloadUrl) },
+                    onDismiss = appUpdateViewModel::dismissUpdate,
+                )
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBottomChrome && currentRoute != Routes.ASSISTANT) {
@@ -411,6 +428,10 @@ fun RemindRxApp() {
             }
         }
     }
+}
+
+private fun Context.openAppUpdate(downloadUrl: String) {
+    runCatching { startActivity(createAppUpdateIntent(downloadUrl)) }
 }
 
 private fun com.remindrx.app.data.MedicationDetail.toUi() = MedicationDetailUi(
