@@ -576,16 +576,31 @@ class AdherenceReviewService:
             # this broad used to treat one as an idempotent replay too --
             # rolling the review row back and reporting success while
             # writing nothing (docs/adherence-review-fix-plan.md Defect 3).
-            # Only the specific unique-key collision this method is actually
-            # guarding against (a duplicate nightly run for this patient/
-            # night, see the module-level race-condition note above) counts
-            # as a replay; anything else must propagate so the caller's loop
-            # (run_nightly_review) logs it and counts it as a real failure.
+            # Only a genuine unique-key collision on one of this method's own
+            # three idempotency-key-shaped constraints
+            # (uq_adherence_reviews_patient_date, alerts.idempotency_key,
+            # notification_deliveries.idempotency_key -- see the module-level
+            # race-condition note above and docs/graded-adherence-
+            # implementation.md 6.3) counts as a replay; a CHECK violation
+            # (sqlstate 23514, e.g. Defect 2 resurfacing) must propagate so
+            # the caller's loop (run_nightly_review) logs it and counts it as
+            # a real failure.
+            #
+            # sqlstate alone -- not also the constraint name -- is the right
+            # granularity here: SQLAlchemy's asyncpg dialect only copies
+            # `.sqlstate` onto the translated `err.orig` it hands back
+            # (dialects/postgresql/asyncpg.py's _handle_exception), not
+            # `.constraint_name` -- the raw asyncpg exception that actually
+            # carries the constraint name is the translated error's __cause__,
+            # not `err.orig` itself. A prior version of this check compared
+            # `err.orig.constraint_name` and always got None, so it never
+            # matched -- every legitimate replay (including a doctor
+            # re-triggering POST /admin/adherence-reviews/run for a date
+            # already reviewed) was wrongly logged and counted as `failed`.
+            # Confirmed against production logs after the Defect 2 fix
+            # shipped: the very next re-run hit exactly this path.
             orig = getattr(err, "orig", None)
-            is_replay = (
-                getattr(orig, "sqlstate", None) == "23505"
-                and getattr(orig, "constraint_name", None) == "uq_adherence_reviews_patient_date"
-            )
+            is_replay = getattr(orig, "sqlstate", None) == "23505"
             if not is_replay:
                 raise
             logger.info(

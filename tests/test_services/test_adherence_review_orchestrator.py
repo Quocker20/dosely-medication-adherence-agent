@@ -307,18 +307,28 @@ class TestLlmCap:
         assert review_repo.insert_review.await_count == 2
 
 
-def _unique_violation(constraint_name: str) -> IntegrityError:
-    """Mirrors asyncpg.exceptions.UniqueViolationError's shape closely
-    enough for _persist_one's `err.orig.sqlstate` / `.constraint_name`
-    check -- see docs/adherence-review-fix-plan.md Defect 3."""
-    orig = SimpleNamespace(sqlstate="23505", constraint_name=constraint_name)
+def _unique_violation() -> IntegrityError:
+    """Mirrors what `err.orig` actually looks like on the real driver for
+    _persist_one's `err.orig.sqlstate` check -- see docs/adherence-review-
+    fix-plan.md Defect 3. sqlstate is the only field checked: SQLAlchemy's
+    asyncpg dialect (dialects/postgresql/asyncpg.py `_handle_exception`)
+    copies `.sqlstate` onto the translated `err.orig` it hands back, but
+    NOT `.constraint_name` -- the raw asyncpg exception that carries the
+    constraint name is `err.orig`'s `__cause__`, not an attribute of
+    `err.orig` itself. An earlier version of this fixture also set
+    `constraint_name` and _persist_one compared it -- that check silently
+    never matched in production (confirmed against real worker logs after
+    the Defect 2 fix shipped), so every legitimate replay was miscounted as
+    a real failure. Not modeling `constraint_name` here at all so this
+    fixture can't drift back into hiding that."""
+    orig = SimpleNamespace(sqlstate="23505")
     return IntegrityError("stmt", {}, orig)
 
 
-def _check_violation(constraint_name: str) -> IntegrityError:
+def _check_violation() -> IntegrityError:
     """A CHECK-constraint violation -- also raised as IntegrityError, but
     NOT the idempotency-guard collision _persist_one exists to swallow."""
-    orig = SimpleNamespace(sqlstate="23514", constraint_name=constraint_name)
+    orig = SimpleNamespace(sqlstate="23514")
     return IntegrityError("stmt", {}, orig)
 
 
@@ -328,7 +338,7 @@ class TestIdempotentReplay:
         patient_id = uuid.uuid4()
         service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
         indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
-        review_repo.insert_review.side_effect = _unique_violation("uq_adherence_reviews_patient_date")
+        review_repo.insert_review.side_effect = _unique_violation()
         patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
         try:
             stats = await service.run_nightly_review(REVIEW_DATE)
@@ -354,7 +364,7 @@ class TestIdempotentReplay:
         patient_id = uuid.uuid4()
         service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
         indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
-        review_repo.insert_review.side_effect = _check_violation("ck_alerts_triggered_by_type")
+        review_repo.insert_review.side_effect = _check_violation()
         patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
         try:
             stats = await service.run_nightly_review(REVIEW_DATE)
@@ -366,23 +376,28 @@ class TestIdempotentReplay:
         assert stats["reviewed"] == 0
 
     @pytest.mark.asyncio
-    async def test_unique_violation_on_a_different_constraint_is_not_a_replay(self):
-        """Same SQLSTATE as the idempotency guard, but the wrong constraint
-        -- must not be swallowed either. The guard is specific to
-        uq_adherence_reviews_patient_date, not "any 23505"."""
+    async def test_alert_idempotency_key_collision_is_also_a_replay(self):
+        """The unique-violation replay guard isn't specific to
+        uq_adherence_reviews_patient_date -- alerts.idempotency_key and
+        notification_deliveries.idempotency_key are two more legitimate
+        replay signals for the same (patient, review_date) key (module
+        docstring point 2 / docs/graded-adherence-implementation.md 6.3).
+        insert_review succeeding but create_alert hitting its own
+        idempotency-key collision must still count as a replay, not a
+        failure."""
         patient_id = uuid.uuid4()
         service, indicator_repo, review_repo, alert_repo, notification_repo = _make_service()
         indicator_repo.get_severity_indicators.return_value = [_severity_row(patient_id, total=10, taken=2)]  # SEVERE
-        review_repo.insert_review.side_effect = _unique_violation("users_phone_key")
+        review_repo.insert_review.return_value = SimpleNamespace(id=uuid.uuid4())
+        alert_repo.create_alert.side_effect = _unique_violation()
         patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
         try:
             stats = await service.run_nightly_review(REVIEW_DATE)
         finally:
             _stop(patchers)
 
-        assert stats["failed"] == 1
-        assert stats["replayed"] == 0
-        assert stats["reviewed"] == 0
+        assert stats["replayed"] == 1
+        assert stats["failed"] == 0
 
     @pytest.mark.asyncio
     async def test_a_failed_patient_does_not_stop_the_rest_of_the_night(self):
@@ -395,7 +410,7 @@ class TestIdempotentReplay:
             _severity_row(ok_patient, total=10, taken=2),  # SEVERE
         ]
         review_repo.insert_review.side_effect = [
-            _check_violation("ck_alerts_triggered_by_type"),
+            _check_violation(),
             SimpleNamespace(id=uuid.uuid4()),
         ]
         patchers = _patched(_cfg(), classify_result=FALLBACK_REMEDY_ANALYSIS)
