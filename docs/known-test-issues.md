@@ -91,6 +91,36 @@ instead of committing (bigger change, touches every file using
 to surface over time as the suite grows — don't assume the two above are
 exhaustive.
 
+### 3. `tests/test_services/test_alert_service.py` — two tests fail on a mocked patient-name join
+
+`test_agent_detected_alert_keeps_its_own_trigger_type_and_severity` and
+`test_plain_sos_still_writes_a_critical_button_press` both fail with
+
+```
+TypeError: 'types.SimpleNamespace' object is not subscriptable
+```
+
+at `src/modules/adherence/service.py:759`, inside `_with_patient_name`:
+`response.patient_name = patient_row[0].name if patient_row is not None else
+None`. The code expects a `Row`-like object it can index (`patient_row[0]`);
+the test's mocked `db.execute(...).first()` (or equivalent) returns a bare
+`SimpleNamespace`, which isn't subscriptable. Not a real production bug —
+`AsyncSession.execute(...).first()` really does return a `Row`, so this is
+the test double drifting from what SQLAlchemy actually hands back, not
+`_with_patient_name` itself being wrong.
+
+Found while verifying the nightly-adherence-review fix
+(`docs/adherence-review-fix-plan.md`): confirmed pre-existing and unrelated
+by running this file in an isolated `git worktree` checked out at the commit
+before that fix, with the same `.env` — both tests fail identically there,
+with zero files from the fix present.
+
+**Fix needed, not done here:** give the mocked `db.execute` a return whose
+`.first()` (or whichever accessor `_with_patient_name` actually calls) is
+subscriptable/attribute-accessible the way a real `Row` is — a `SimpleNamespace`
+wrapped in a 1-tuple, or a small `Row`-like stand-in, matching whatever
+pattern the rest of the suite already uses for a mocked single-row `SELECT`.
+
 ## How to reproduce
 
 ```bash
@@ -101,4 +131,7 @@ pytest tests/test_api/test_patient_app.py -v
 # pass even when it includes the two files above, since it depends on which
 # other files ran first and populated the shared state.
 pytest -q --ignore=test_schedule.py
+
+# Mocked patient-name join -- fails standalone, no DB or other tests needed
+pytest tests/test_services/test_alert_service.py -v
 ```
