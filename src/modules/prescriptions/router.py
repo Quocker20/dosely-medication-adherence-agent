@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -162,6 +162,43 @@ async def get_prescription_detail(
     return success_response(
         data=result.model_dump(mode="json"),
         message="Prescription details fetched successfully",
+    )
+
+
+@prescriptions_router.get(
+    "/prescriptions/{prescription_id}/pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def export_prescription_pdf(
+    prescription_id: uuid.UUID,
+    raw_request: Request,
+    current_user: AuthenticatedUserDep,
+    service: PrescriptionServiceDep,
+) -> Response:
+    """Export an APPROVED prescription as a PDF (Phụ lục I, TT 26/2025/TT-BYT
+    layout — see docs/prescription-pdf-export-plan.md). Access matches
+    get_prescription exactly. 422 if the prescription is not APPROVED.
+
+    The only endpoint in this API that does not return the standard JSON
+    envelope — a PDF body cannot be wrapped in one. Error paths (404/422)
+    still return the envelope via the global exception handlers, which are
+    registered on the app and apply regardless of this route's own
+    response_class.
+    """
+    ip_address = get_client_ip(raw_request)
+    pdf_bytes = await service.export_pdf(
+        prescription_id=prescription_id,
+        actor_payload=current_user,
+        ip_address=ip_address,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="don-thuoc-{prescription_id.hex[:8]}.pdf"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
