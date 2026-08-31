@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
-from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import create_access_token, reset_actor_token, set_actor_token
@@ -30,8 +29,6 @@ def get_scheduling_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Sche
 
 def get_chat_service(db: Annotated[AsyncSession, Depends(get_db)]) -> ChatService:
     """Dependency factory providing ChatService instance."""
-    if get_settings().app_env == "test":
-        return ChatService()
     return ChatService(db, ChatMemoryRepository(db))
 
 
@@ -41,7 +38,7 @@ DoctorUserDep = Annotated[dict, Depends(require_roles("DOCTOR"))]
 PatientUserDep = Annotated[dict, Depends(require_roles("PATIENT"))]
 ScheduleReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "CAREGIVER"))]
 RunReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "ADMIN"))]
-RawTokenDep = Annotated[Optional[str], Depends(oauth2_scheme)]
+RawTokenDep = Annotated[str | None, Depends(oauth2_scheme)]
 
 schedules_router = APIRouter(tags=["Schedules & AI Agents"])
 agent_runs_router = APIRouter(tags=["Schedules & AI Agents"])
@@ -108,7 +105,7 @@ async def get_schedule(
     patient_id: uuid.UUID,
     current_user: ScheduleReaderDep,
     service: SchedulingServiceDep,
-    target_date: Optional[date] = Query(None, alias="date"),
+    target_date: date | None = Query(None, alias="date"),
 ) -> JSONResponse:
     """Fetch a patient's doses for one local calendar date (defaults to
     today). Access is role-agnostic: self-owned, doctor-prescribed, or
@@ -131,9 +128,7 @@ async def get_my_next_dose(
 ) -> JSONResponse:
     """Return the authenticated patient's next dose; no caller-supplied patient id."""
     patient_id = uuid.UUID(current_user["sub"])
-    result = await service.get_next_dose_for_patient(
-        patient_id=patient_id, actor_payload=current_user
-    )
+    result = await service.get_next_dose_for_patient(patient_id=patient_id, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Next dose state fetched successfully",
@@ -147,9 +142,7 @@ async def get_my_today_schedule(
 ) -> JSONResponse:
     """Return a fresh DB view of today's schedule for the authenticated patient."""
     patient_id = uuid.UUID(current_user["sub"])
-    result = await service.get_today_schedule_for_patient(
-        patient_id=patient_id, actor_payload=current_user
-    )
+    result = await service.get_today_schedule_for_patient(patient_id=patient_id, actor_payload=current_user)
     return success_response(
         data=result.model_dump(mode="json"),
         message="Today's schedule fetched successfully",
@@ -228,7 +221,7 @@ async def chat(
     finally:
         reset_actor_token(handle)
     return success_response(
-        data=result.model_dump(mode="json"),
+        data=result.model_dump(mode="json", by_alias=True, exclude_none=True),
         message="Chat reply generated successfully",
     )
 
@@ -242,9 +235,9 @@ async def chat_voice(
     service: ChatServiceDep,
     token: RawTokenDep,
     audio: UploadFile = File(...),
-    client_date: Optional[date] = Form(None, alias="clientDate"),
-    client_datetime: Optional[datetime] = Form(None, alias="clientDateTime"),
-    conversation_id: Optional[uuid.UUID] = Form(None, alias="conversationId"),
+    client_date: date | None = Form(None, alias="clientDate"),
+    client_datetime: datetime | None = Form(None, alias="clientDateTime"),
+    conversation_id: uuid.UUID | None = Form(None, alias="conversationId"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
     audio_bytes = await audio.read()
@@ -262,6 +255,48 @@ async def chat_voice(
     finally:
         reset_actor_token(handle)
     return success_response(
-        data=result.model_dump(mode="json"),
+        data=result.model_dump(mode="json", by_alias=True),
         message="Voice chat reply generated successfully",
+    )
+
+
+@chat_router.get(
+    "/chat/conversations",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def list_chat_conversations(
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    page: int = Query(1, ge=1, description="Số trang"),
+    size: int = Query(20, ge=1, le=100, description="Số cuộc trò chuyện trên một trang"),
+) -> JSONResponse:
+    """Lấy danh sách lịch sử cuộc trò chuyện (Patient only, self)."""
+    result = await service.list_conversations(actor=current_user, page=page, size=size)
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy danh sách cuộc trò chuyện thành công",
+    )
+
+
+@chat_router.get(
+    "/chat/conversations/{conversation_id}",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def get_chat_conversation_detail(
+    conversation_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    limit: int = Query(50, ge=1, le=100, description="Số tin nhắn tối đa"),
+    before: str | None = Query(None, description="Cursor phân trang (id tin nhắn hoặc timestamp)"),
+) -> JSONResponse:
+    """Lấy chi tiết tin nhắn trong một cuộc trò chuyện (Patient only, self)."""
+    result = await service.get_conversation_detail(
+        actor=current_user,
+        conversation_id=conversation_id,
+        limit=limit,
+        before=before,
+    )
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy chi tiết cuộc trò chuyện thành công",
     )

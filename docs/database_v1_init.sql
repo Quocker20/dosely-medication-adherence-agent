@@ -686,43 +686,37 @@ CREATE INDEX idx_audit_logs_entity_type_created ON audit_logs(entity_type, creat
 -- 8. Chat & AI Communication
 -- =============================================================================
 
--- 22. conversations
-CREATE TABLE conversations (
+-- 22. chat_conversations
+CREATE TABLE chat_conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    patient_id UUID,
-    title VARCHAR(255),
-    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    last_message_at TIMESTAMPTZ,
+    patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
+    summary TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_chat_conversations_patient_id ON chat_conversations(patient_id);
+
+-- 23. chat_messages
+CREATE TABLE chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('user','assistant')),
+    content TEXT NOT NULL,
+    intent VARCHAR(50),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 23. messages
-CREATE TABLE messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID,
-    role VARCHAR(20) NOT NULL,
-    provider VARCHAR(50),
-    model_name VARCHAR(100),
-    input_tokens INTEGER,
-    output_tokens INTEGER,
-    cost_amount NUMERIC(12,6),
-    content TEXT NOT NULL,
-    currency VARCHAR(10) DEFAULT 'USD',
-    latency_ms INTEGER,
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+CREATE INDEX ix_chat_messages_conversation_id ON chat_messages(conversation_id);
 
 -- This canonical bootstrap already contains every migration through the
--- merged head 0016_merge_heads (both the notification_grouping/user_devices
--- branch and the agent_review/dose_notify_group/planning_audit/agent_run_claim
--- branch). Stamping fresh databases lets a future `alembic upgrade head`
--- start from the next revision instead of replaying DDL that is already
--- present.
+-- current Alembic head. Stamping fresh databases lets a future
+-- `alembic upgrade head` start from the next revision instead of replaying DDL
+-- that is already present.
 CREATE TABLE IF NOT EXISTS alembic_version (
     version_num VARCHAR(32) NOT NULL PRIMARY KEY
 );
 DELETE FROM alembic_version;
-INSERT INTO alembic_version(version_num) VALUES ('0016_merge_heads');
+INSERT INTO alembic_version(version_num) VALUES ('0026_drop_legacy_conversations');
 
 
