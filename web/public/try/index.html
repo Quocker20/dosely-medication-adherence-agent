@@ -158,12 +158,12 @@
       <article class="release-card" aria-labelledby="latest-release">
         <section class="release-main">
           <div class="status">Bản được khuyến nghị</div>
-          <h2 class="version" id="latest-release">v1.3.0</h2>
-          <p class="release-date">Build 5 · phát hành ngày 30/08/2026</p>
+          <h2 class="version" id="latest-release">v1.4.0</h2>
+          <p class="release-date">Build 6 · phát hành ngày 31/08/2026</p>
           <!-- ?v= phải tăng theo mỗi lần phát hành: Cloudflare cache file theo URL
                với TTL 4 giờ, nên nếu giữ nguyên đường dẫn thì người tải vẫn nhận
                APK của bản trước cho tới khi cache hết hạn. -->
-          <a class="download" href="/downloads/remindrx-demo.apk?v=1.3.0" download>
+          <a class="download" href="/downloads/remindrx-demo.apk?v=1.4.0" download>
             <span class="download-icon" aria-hidden="true">↓</span>
             Tải APK mới nhất
           </a>
@@ -178,9 +178,9 @@
           <div>
             <p class="aside-title">Có gì mới</p>
             <ul class="changes">
-              <li>Mở khoá cữ thuốc sớm 15 phút, tự cập nhật mỗi 30 giây — không phải thoát ra vào lại để ghi nhận.</li>
-              <li>Ứng dụng nay được ký bằng chứng chỉ riêng của nhóm, không còn cảnh báo nghi mạo danh khi cài.</li>
-              <li>Dung lượng tải giảm từ 18,1 MB xuống 13,2 MB.</li>
+              <li>Lịch sử trò chuyện với trợ lý: xem lại các cuộc hội thoại cũ, mở tiếp và hỏi thêm.</li>
+              <li>Lưu hội thoại ngay trên máy — mở lại được cả khi đang mất mạng.</li>
+              <li>Trợ lý ghi nhận triệu chứng bất thường bạn kể trong lúc trò chuyện để bác sĩ theo dõi.</li>
             </ul>
           </div>
           <p class="build-note">Bản dùng cho demo đề tài. Vui lòng không nhập thông tin bệnh nhân thật.</p>
@@ -193,6 +193,13 @@
           <p>Các bản dưới đây đã bị thay thế. Nút tải được khóa để mọi người luôn dùng bản mới nhất.</p>
         </div>
         <div class="history">
+          <article class="history-row">
+            <div>
+              <div class="history-title"><strong>v1.3.0 · Build 5</strong><span>Đã thay thế ngày 31/08/2026</span></div>
+              <p>Bản đầu ký bằng chứng chỉ riêng của nhóm; mở khoá cữ thuốc sớm 15 phút.</p>
+            </div>
+            <span class="locked">Đã khóa tải</span>
+          </article>
           <article class="history-row">
             <div>
               <div class="history-title"><strong>v1.2.0 · Build 4</strong><span>Đã thay thế ngày 30/08/2026</span></div>
@@ -237,11 +244,11 @@
           <p>Chỉ cài trên điện thoại Android thật; iPhone không hỗ trợ tệp APK.</p>
         </div>
         <div class="install-grid">
-          <article class="install-step"><span class="step-number">01 — GỠ BẢN CŨ</span><h3>Gỡ RemindRx nếu đã cài</h3><p>Bắt buộc với ai đang dùng bản v1.2.0 trở về trước. Bỏ qua bước này sẽ gặp lỗi khi cài.</p></article>
-          <article class="install-step"><span class="step-number">02 — TẢI</span><h3>Tải tệp APK</h3><p>Dùng nút tải ở trên bằng trình duyệt trên điện thoại Android.</p></article>
-          <article class="install-step"><span class="step-number">03 — ĐĂNG NHẬP</span><h3>Mở RemindRx</h3><p>Nếu Android hỏi về nguồn không xác định, chọn Cho phép. Sau đó đăng nhập bằng tài khoản demo được nhóm cung cấp.</p></article>
+          <article class="install-step"><span class="step-number">01 — TẢI</span><h3>Tải tệp APK</h3><p>Dùng nút tải ở trên bằng trình duyệt trên điện thoại Android.</p></article>
+          <article class="install-step"><span class="step-number">02 — CHO PHÉP</span><h3>Mở tệp vừa tải</h3><p>Nếu Android hỏi về nguồn không xác định, chọn Cho phép để tiếp tục cài đặt.</p></article>
+          <article class="install-step"><span class="step-number">03 — ĐĂNG NHẬP</span><h3>Mở RemindRx</h3><p>Đăng nhập bằng tài khoản demo được nhóm cung cấp để bắt đầu trải nghiệm.</p></article>
         </div>
-        <p class="notice"><strong>Vì sao phải gỡ bản cũ:</strong> từ v1.3.0, ứng dụng được ký bằng chứng chỉ riêng của nhóm thay vì chứng chỉ thử nghiệm mặc định. Android chỉ cho cập nhật đè khi hai bản có cùng chữ ký, nên bản mới không thể cài chồng lên bản cũ — máy sẽ báo lỗi <em>“Ứng dụng chưa được cài đặt”</em>. Gỡ trước rồi cài lại là xong; đây là lần duy nhất phải làm vậy, các bản sau cập nhật bình thường.</p>
+        <p class="notice"><strong>Đang dùng v1.3.0?</strong> Cài đè trực tiếp, không cần gỡ. <strong>Đang dùng v1.2.0 trở về trước?</strong> Phải gỡ app cũ rồi mới cài được — v1.3.0 đổi sang chứng chỉ ký riêng của nhóm, nên bản cũ (ký chứng chỉ thử nghiệm) không cập nhật đè được, máy sẽ báo <em>“Ứng dụng chưa được cài đặt”</em>. Gỡ một lần là xong, các bản sau cập nhật bình thường.</p>
       </section>
     </main>
 
