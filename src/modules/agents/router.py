@@ -43,7 +43,7 @@ SchedulingServiceDep = Annotated[SchedulingService, Depends(get_scheduling_servi
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 DoctorUserDep = Annotated[dict, Depends(require_roles("DOCTOR"))]
 PatientUserDep = Annotated[dict, Depends(require_roles("PATIENT"))]
-ScheduleReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "CAREGIVER"))]
+ScheduleReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR"))]
 RunReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "ADMIN"))]
 RawTokenDep = Annotated[str | None, Depends(oauth2_scheme)]
 

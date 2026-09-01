@@ -26,5 +26,6 @@ from src.modules.adherence_review import models as _adherence_review_models  # n
 from src.modules.admin import models as _admin_models  # noqa: F401
 from src.modules.agents import models as _agents_models  # noqa: F401
 from src.modules.auth import models as _auth_models  # noqa: F401
+from src.modules.caregivers import models as _caregivers_models  # noqa: F401
 from src.modules.patients import models as _patients_models  # noqa: F401
 from src.modules.prescriptions import models as _prescriptions_models  # noqa: F401

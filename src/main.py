@@ -12,6 +12,7 @@ from src.common.middleware import RequestContextMiddleware
 from src.core.config import get_settings
 from src.core.firebase_app import init_firebase
 from src.core.redis import close_redis_connection
+from src.modules.caregivers.webhook_router import webhook_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -57,6 +58,7 @@ app.include_router(v1_router, prefix="/api/v1")
 # registers the dashboard feed as /ws/dashboard. Registered before the static
 # mount below so the catch-all does not shadow it.
 app.include_router(dashboard_ws_router)
+app.include_router(webhook_router)
 
 
 @app.get("/health")

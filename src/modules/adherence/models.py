@@ -233,10 +233,15 @@ class NotificationDelivery(Base):
         ForeignKey("alerts.id", ondelete="SET NULL"),
         nullable=True,
     )
-    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+    recipient_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+    )
+    caregiver_link_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("caregiver_links.id", ondelete="CASCADE"),
+        nullable=True,
     )
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     template_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -247,7 +252,7 @@ class NotificationDelivery(Base):
     )
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="QUEUED", server_default="'QUEUED'"
+        String(30), nullable=False, default="QUEUED", server_default="'QUEUED'"
     )
     attempt_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     scheduled_at: Mapped[datetime] = mapped_column(

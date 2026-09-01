@@ -18,7 +18,7 @@ from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
-from src.modules.patients.models import CaregiverLink, PatientProfile
+from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
@@ -142,16 +142,12 @@ async def _create_patient(phone: str, name: str) -> uuid.UUID:
         return user.id
 
 
-async def _create_caregiver(phone: str, patient_id: uuid.UUID, status: str = "ACTIVE") -> uuid.UUID:
+async def _create_caregiver(phone: str, patient_id: uuid.UUID | None = None) -> uuid.UUID:
     async with AsyncSessionLocal() as db:
         async with db.begin():
             user = await AuthRepository(db).create_user(
                 phone=phone, hashed_password=hash_password(PIN), role="CAREGIVER"
             )
-            db.add(CaregiverLink(
-                patient_id=patient_id, caregiver_user_id=user.id,
-                status=status, channels=["APP_NOTIFICATION"],
-            ))
         return user.id
 
 
@@ -826,30 +822,16 @@ async def test_export_pdf_returns_document_for_patient_self(client):
 
 
 @pytest.mark.asyncio
-async def test_export_pdf_returns_document_for_active_caregiver(client):
+async def test_export_pdf_hides_from_caregiver(client):
+    """404 -- caregivers no longer hold read access to prescriptions."""
     await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
     patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
-    await _create_caregiver(CAREGIVER_PHONE, patient_id, status="ACTIVE")
+    await _create_caregiver(CAREGIVER_PHONE, patient_id)
     med_id = await _create_medication()
     doctor_headers = await _login(client, DOCTOR_PHONE)
     approved = await _approved_with_item(client, doctor_headers, med_id)
 
     caregiver_headers = await _login(client, CAREGIVER_PHONE)
-    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=caregiver_headers)
-    assert response.status_code == 200
-    assert response.content[:5] == b"%PDF-"
-
-
-@pytest.mark.asyncio
-async def test_export_pdf_hides_from_inactive_caregiver(client):
-    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
-    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
-    await _create_caregiver(INACTIVE_CAREGIVER_PHONE, patient_id, status="INACTIVE")
-    med_id = await _create_medication()
-    doctor_headers = await _login(client, DOCTOR_PHONE)
-    approved = await _approved_with_item(client, doctor_headers, med_id)
-
-    caregiver_headers = await _login(client, INACTIVE_CAREGIVER_PHONE)
     response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=caregiver_headers)
     assert response.status_code == 404
 

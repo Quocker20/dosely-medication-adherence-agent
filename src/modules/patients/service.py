@@ -16,11 +16,9 @@ from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.auth.repository import AuthRepository
 from src.modules.patients.constants import DEFAULT_ROUTINE
-from src.modules.patients.models import CaregiverLink, PatientRoutine
-from src.modules.patients.repository import CaregiverRepository, PatientRepository
+from src.modules.patients.models import PatientRoutine
+from src.modules.patients.repository import PatientRepository
 from src.modules.patients.schemas import (
-    CaregiverLinkDetailResponse,
-    CreateCaregiverLinkRequest,
     CreatePatientByDoctorRequest,
     CreatePatientResponse,
     PatientDetailResponse,
@@ -45,14 +43,12 @@ class PatientService:
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
         auth_repository: AuthRepository | None = None,
-        caregiver_repository: CaregiverRepository | None = None,
     ) -> None:
         self._db = db
         self._patient_repo = patient_repository
         self._doctor_repo = doctor_repository
         self._audit_repo = audit_repository
         self._auth_repo = auth_repository or AuthRepository(db)
-        self._caregiver_repo = caregiver_repository or CaregiverRepository(db)
 
     @staticmethod
     def _generate_temp_pin() -> str:
@@ -238,21 +234,6 @@ class PatientService:
             updated_at=routine.updated_at,
         )
 
-    @staticmethod
-    def _to_caregiver_link_response(
-        link: CaregiverLink, temp_password: str | None = None
-    ) -> CaregiverLinkDetailResponse:
-        return CaregiverLinkDetailResponse(
-            id=link.id,
-            patient_id=link.patient_id,
-            caregiver_user_id=link.caregiver_user_id,
-            relationship=link.relationship_label,
-            channels=list(link.channels or []),
-            status=link.status,
-            created_at=link.created_at,
-            temp_password=temp_password,
-        )
-
     async def onboard_patient(
         self, request: PatientOnboardingRequest, actor_payload: dict
     ) -> PatientProfileDetailResponse:
@@ -395,22 +376,12 @@ class PatientService:
 
         Runs as its own transaction, separate from the link insert: an
         IntegrityError here (concurrent create on the same new phone) would
-        otherwise poison the outer transaction, since Postgres aborts the
-        whole transaction block on any statement error. Catching it here and
+        otherwise poison the outer transaction, since Postgre        whole transaction block on any statement error. Catching it here and
         re-reading the now-existing row keeps this call race-safe without
         SAVEPOINTs.
         """
         user = await self._auth_repo.get_user_by_phone(cleaned_phone)
         if self._db.in_transaction():
-            # commit(), not rollback(): ends the SELECT's autobegin transaction
-            # the same way rollback() would (nothing was written either way),
-            # but expire_on_commit=False on this sessionmaker means commit()
-            # leaves `user`'s attributes populated. rollback() unconditionally
-            # expires every object in the session regardless of that setting,
-            # so a bare `user.id` access later (outside an awaited call, hence
-            # outside the asyncio greenlet) raises MissingGreenlet trying to
-            # lazily reload it — reproduced against a real DB while building
-            # PrescriptionService's identical find-or-create-patient flow.
             await self._db.commit()
         if user is not None:
             return user, None
@@ -437,92 +408,3 @@ class PatientService:
             return user, None
         return user, temp_pin
 
-    async def create_caregiver_link(
-        self,
-        patient_id: uuid.UUID,
-        request: CreateCaregiverLinkRequest,
-        actor_payload: dict,
-        ip_address: str | None = None,
-    ) -> CaregiverLinkDetailResponse:
-        """PATIENT self-only (contract lists DOCTOR too, but caregiver
-        management is explicitly kept out of doctor scope for this platform —
-        deviation is intentional).
-
-        1. Resolve-or-create the caregiver account by phone (own transaction).
-        2. Insert the link; uq_caregiver_links_patient_caregiver rejects a
-           duplicate atomically via IntegrityError -> 409, no pre-check SELECT.
-        """
-        actor_id = uuid.UUID(actor_payload["sub"])
-        if actor_id != patient_id:
-            raise ForbiddenException(message="Cannot manage caregivers for another patient")
-
-        cleaned_phone = validate_phone_number(request.caregiver_phone)
-        caregiver_user, temp_pin = await self._resolve_or_create_caregiver(cleaned_phone)
-
-        try:
-            async with self._db.begin():
-                link = await self._caregiver_repo.create_link(
-                    patient_id=patient_id,
-                    caregiver_user_id=caregiver_user.id,
-                    relationship=request.relationship,
-                    channels=request.channels,
-                )
-                await self._audit_repo.create_audit_log(
-                    action="ADD_CAREGIVER_LINK",
-                    entity_type="CAREGIVER_LINK",
-                    actor_user_id=patient_id,
-                    entity_id=link.id,
-                    new_values={
-                        "caregiver_user_id": str(caregiver_user.id),
-                        "relationship": request.relationship,
-                    },
-                    ip_address=ip_address,
-                )
-        except IntegrityError as exc:
-            logger.warning(f"IntegrityError creating caregiver link: {exc}")
-            raise ConflictException(message="Caregiver is already linked to this patient")
-
-        return self._to_caregiver_link_response(link, temp_password=temp_pin)
-
-    async def list_caregiver_links(
-        self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> list[CaregiverLinkDetailResponse]:
-        """PATIENT (self) or ADMIN only — DOCTOR excluded, same as create."""
-        role = actor_payload.get("role")
-        if role == "PATIENT":
-            actor_id = uuid.UUID(actor_payload["sub"])
-            if actor_id != patient_id:
-                raise ForbiddenException(message="Cannot view another patient's caregivers")
-
-        links = await self._caregiver_repo.list_by_patient(patient_id)
-        return [self._to_caregiver_link_response(link) for link in links]
-
-    async def delete_caregiver_link(
-        self,
-        patient_id: uuid.UUID,
-        caregiver_link_id: uuid.UUID,
-        actor_payload: dict,
-        ip_address: str | None = None,
-    ) -> None:
-        """PATIENT (self) or ADMIN only. Hard delete. patient_id ownership is
-        re-verified via get_link before delete, blocking an IDOR where
-        caregiver_link_id belongs to a different patient."""
-        role = actor_payload.get("role")
-        if role == "PATIENT":
-            actor_id = uuid.UUID(actor_payload["sub"])
-            if actor_id != patient_id:
-                raise ForbiddenException(message="Cannot manage another patient's caregivers")
-
-        async with self._db.begin():
-            link = await self._caregiver_repo.get_link(caregiver_link_id, patient_id)
-            if link is None:
-                raise NotFoundException(message="Caregiver link not found")
-            await self._caregiver_repo.delete_link(caregiver_link_id)
-            await self._audit_repo.create_audit_log(
-                action="REMOVE_CAREGIVER_LINK",
-                entity_type="CAREGIVER_LINK",
-                actor_user_id=uuid.UUID(actor_payload["sub"]),
-                entity_id=caregiver_link_id,
-                old_values={"caregiver_user_id": str(link.caregiver_user_id)},
-                ip_address=ip_address,
-            )
