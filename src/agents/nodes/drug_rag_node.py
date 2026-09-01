@@ -144,9 +144,24 @@ async def _query_resolved_drugs(rag: SafeDrugRAG, question: str, drugs: list[tup
     return await asyncio.to_thread(rag.query, question, context_drugs=drugs)
 
 
+def _groundable_question(question: str, drug_name: str) -> str:
+    """Turn an instruction to repeat an absolute claim into a neutral RAG query."""
+    normalized = fold(question)
+    absolute_claim = any(marker in normalized for marker in (
+        "moi loai", "chua khoi tat ca", "luon luon chua", "chac chan chua",
+    ))
+    repeat_request = any(marker in normalized for marker in (
+        "ghi cau do", "hay xac nhan", "cu khang dinh", "noi rang",
+    ))
+    if drug_name and absolute_claim and repeat_request:
+        return f"{drug_name} có tác dụng và chỉ định gì?"
+    return question
+
+
 async def drug_rag_node(state: AgentState) -> dict:
     question = _last_human_text(state)
     analysis = state.get("intent_analysis") or {}
+    rag_question = _groundable_question(question, str(analysis.get("drug_name") or "").strip())
     if analysis.get("needs_clarification"):
         name = str(analysis.get("drug_name") or "thuốc này").strip()
         return {"messages": [AIMessage(content=(
@@ -168,7 +183,7 @@ async def drug_rag_node(state: AgentState) -> dict:
             context_drugs, catalog_entry = await _resolve_named_drug(
                 rag, str(analysis.get("drug_name") or "").strip()
             )
-        result = await _query_resolved_drugs(rag, question, context_drugs)
+        result = await _query_resolved_drugs(rag, rag_question, context_drugs)
         if result.status in {"needs_drug_name", "out_of_scope", "unsupported_language", "no_data"}:
             catalog_name = str(analysis.get("drug_name") or "").strip()
             if catalog_name:
@@ -180,20 +195,47 @@ async def drug_rag_node(state: AgentState) -> dict:
                 if len(entries) == 1:
                     entry = entries[0]
                     composition = str(entry.get("composition") or "").strip()
+                    catalog_identity_verified = False
                     if composition:
                         identities = resolve_catalog_medication(
                             str(entry.get("name") or catalog_name), composition, rag.rag
                         )
                         ingredients = ingredient_candidates(composition)
                         if ingredients and len(identities) == len(ingredients):
+                            catalog_identity_verified = True
                             context_drugs = [
                                 (identity.normalized_drug_name, identity.formulary_name)
                                 for identity in identities
                             ]
                             result = await _query_resolved_drugs(
-                                rag, question, context_drugs
+                                rag, rag_question, context_drugs
                             )
                     if result.status != "answered":
+                        # A catalog row proves that the product exists, not its
+                        # clinical use. If every ingredient cannot be mapped to
+                        # reviewed formulary headings, let the response LLM
+                        # explain that evidence gap instead of presenting the
+                        # catalog row as a grounded medical answer.
+                        if not catalog_identity_verified:
+                            reason = (
+                                "catalog_missing_verified_uses"
+                                if not str(entry.get("uses") or "").strip()
+                                else "catalog_drug_not_in_formulary"
+                            )
+                            return {
+                                "messages": [AIMessage(content="Catalog evidence is insufficient for a clinical answer.")],
+                                "grounding_valid": False,
+                                "grounding_errors": [reason],
+                                "rag_sources": [],
+                                "refusal_reason": reason,
+                                "metadata": {
+                                    "catalog_medication": {
+                                        "name": str(entry.get("name") or catalog_name),
+                                        "composition": composition,
+                                        "source_name": str(entry.get("source_name") or ""),
+                                    }
+                                },
+                            }
                         details = [f"Thông tin từ danh mục thuốc\n- Tên: {entry.get('name')}"]
                         if composition:
                             details.append(f"- Hoạt chất/thành phần: {composition}")
@@ -225,7 +267,15 @@ async def drug_rag_node(state: AgentState) -> dict:
                 "rag_sources": [],
             }
     answer = patient_facing_text(result.answer)
-    topic = _drug_topic(question)
+    if result.status == "needs_drug_name":
+        return {
+            "messages": [AIMessage(content=answer)],
+            "intent": "clarify",
+            "grounding_valid": True,
+            "grounding_errors": [],
+            "rag_sources": [],
+        }
+    topic = _drug_topic(rag_question)
     if result.status == "answered" and result.grounding_valid and topic:
         names = list(dict.fromkeys(source.drug_name for source in result.sources if source.drug_name))
         answer = _format_topic_answer(result.answer, ", ".join(names), *topic)

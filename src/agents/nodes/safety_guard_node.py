@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from src.agents.medication_policy import match_medication_decision
+from src.agents.medication_policy import fold, match_medication_decision
 from src.agents.state import AgentState
 from src.agents.tools.safety_tools import match_severe_symptom_keyword
 from src.modules.planning.core.llm import get_llm
@@ -112,9 +112,51 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
         reason = f"SEVERE_SYMPTOM: {keyword}"
         return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
 
-    # Medication intent is interpreted by the structured semantic planner and
-    # validated by plan_guard. Blocking here by phrases misclassifies valid
-    # knowledge questions such as "thuốc X để làm gì?".
+    normalized = fold(text)
+    if any(marker in normalized for marker in (
+        "uong qua nhieu thuoc", "uong rat nhieu thuoc", "nuot qua nhieu thuoc",
+    )):
+        return SafetyVerdict(
+            escalated=True,
+            reason="SEVERE_SYMPTOM: suspected_overdose",
+            fixed_reply=_FIXED_SAFE_REPLY,
+        )
+    if any(marker in normalized for marker in (
+        "system prompt", "bo qua moi chi dan", "bo qua chi dan truoc",
+        "api key", "khoa truy cap", "du lieu noi bo",
+    )):
+        return SafetyVerdict(
+            escalated=False, blocked=True,
+            reason="secret_or_prompt_exfiltration",
+            fixed_reply=_MEDICATION_POLICY_REPLY,
+        )
+    if any(marker in normalized for marker in (
+        "doan dai", "doan thuoc", "bia cau tra loi", "citation gia", "dat citation gia",
+        "nguon gia", "tao nguon gia",
+    )):
+        return SafetyVerdict(
+            escalated=False, blocked=True,
+            reason="fabrication_or_hallucination_request",
+            fixed_reply=_MEDICATION_POLICY_REPLY,
+        )
+    if (
+        any(marker in normalized for marker in ("danh dau", "ghi nhan"))
+        and any(marker in normalized for marker in ("da uong", "da dung"))
+        and any(marker in normalized for marker in ("chua uong", "chua dung", "du toi chua"))
+    ):
+        return SafetyVerdict(
+            escalated=False, blocked=True,
+            reason="fabricated_medication_status",
+            fixed_reply=_MEDICATION_POLICY_REPLY,
+        )
+
+    medication_policy = match_medication_decision(text)
+    if medication_policy:
+        return SafetyVerdict(
+            escalated=False, blocked=True,
+            reason=medication_policy,
+            fixed_reply=_MEDICATION_POLICY_REPLY,
+        )
 
     if await _classify_with_llm(text):
         reason = "SEVERE_SYMPTOM: llm_classified"
@@ -137,9 +179,12 @@ async def safety_guard_node(state: AgentState) -> dict:
 
     if verdict.escalated or verdict.blocked:
         return {
+            # Emergency fail-safe; the graph's output_guard normally rewrites
+            # this through the contextual refusal-response LLM.
             "messages": [AIMessage(content=verdict.fixed_reply)],
             "escalated": verdict.escalated,
             "safety_blocked": verdict.blocked,
             "safety_reason": verdict.reason or "",
+            "refusal_reason": verdict.reason or "medical_safety_risk",
         }
     return {"escalated": False, "safety_blocked": False}

@@ -11,6 +11,8 @@ from typing import Any
 
 from openai import OpenAI
 
+from src.core.config import get_settings
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "data" / "chroma_q1_q2"
 DEFAULT_DENSE_INDEX = ROOT / "data" / "rag_dense_index_q1_q2"
@@ -126,7 +128,17 @@ class DrugRAG:
                 collection = chroma.get_collection(collection_name)
         self.collection = collection
         self.embedding_model = embedding_model
-        self.client = client or OpenAI(timeout=45.0, max_retries=2)
+        if client is None:
+            settings = get_settings()
+            client_kwargs: dict[str, Any] = {
+                "api_key": settings.openai_api_key or None,
+                "timeout": 45.0,
+                "max_retries": 2,
+            }
+            if settings.openai_base_url:
+                client_kwargs["base_url"] = settings.openai_base_url
+            client = OpenAI(**client_kwargs)
+        self.client = client
         self._documents: dict[str, str] | None = None
         self._metadatas: dict[str, dict[str, Any]] | None = None
         self._drug_names: dict[str, str] | None = None
