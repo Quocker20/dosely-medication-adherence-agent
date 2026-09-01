@@ -5,7 +5,7 @@
 
 ---
 
-## Week 32 (03/08 - 09/08): Setup & nền móng
+## Week 2 (03/08 - 09/08): Setup & nền móng
 
 ### Mục tiêu tuần này
 - [x] Dựng hạ tầng backend chuẩn (FastAPI + Postgres + Redis + Celery + Docker)
@@ -30,7 +30,7 @@
 
 ---
 
-## Week 33 (10/08 - 16/08): Vertical slices
+## Week 3 (10/08 - 16/08): Vertical slices
 
 ### Mục tiêu tuần này
 - [x] Auth slice hoàn chỉnh (PIN, refresh token)
@@ -60,7 +60,7 @@
 
 ---
 
-## Week 34 (17/08 - 23/08): RAG, Planning Agent v1, FCM
+## Week 4 (17/08 - 23/08): RAG, Planning Agent v1, FCM
 
 ### Mục tiêu tuần này
 - [x] Drug formulary RAG pipeline có nguồn
@@ -87,7 +87,7 @@
 
 ---
 
-## Week 35 (24/08 - 30/08): Production thật
+## Week 5 (24/08 - 30/08): Production thật
 
 ### Mục tiêu tuần này
 - [x] Deploy hệ thống ra internet (web + API + APK tải được)
@@ -119,14 +119,14 @@
 
 ---
 
-## Week 36 (31/08 - 06/09): Guardrail & Planning Agent 2.0
+## Week 6 (31/08 - 06/09): Guardrail & Planning Agent 2.0
 
 ### Mục tiêu tuần này
 - [x] Chốt kiến trúc Planning Agent: deterministic core, bỏ LLM khỏi đường sinh lịch
 - [x] Cứng hóa guardrail chat: scope, abuse, khẩn cấp, câu trả lời không có nguồn
 - [x] API lịch sử hội thoại chat (list + detail)
 - [x] Android v1.4/v1.5 + PDF export đơn thuốc
-- [ ] Đưa `feature/planning-agent` vào PR/review
+- [x] Đưa `feature/planning-agent` vào PR/review
 
 ### Đã hoàn thành
 - **Planning Agent 2.0 (Son):** pipeline 3 phase (snapshot → deterministic draft → locked commit + audit) qua Celery, trả 202 + `agent_run_id`. Core `expand_schedule()` thuần rule: 4 slot neo bữa ăn, meal_relation offset, horizon 14 ngày, validators bằng code. Reschedule chỉ dời GIỜ — đúng HITL.
@@ -151,9 +151,9 @@
 - Tiếng Việt có dấu là bẫy khi so khớp verdict LLM — luôn normalize trước.
 
 ### Kế hoạch tuần sau
-- [ ] Tạo PR cho `feature/planning-agent`, bổ sung test API conversations trong `tests/test_api/`
-- [ ] Test E2E: doctor approve prescription → autoschedule → patient reschedule qua agent
-- [ ] Chuẩn bị demo Planning Agent cho buổi review nhóm
+- [x] Tạo PR cho `feature/planning-agent`, bổ sung test API conversations trong `tests/test_api/`
+- [x] Test E2E: doctor approve prescription → autoschedule → patient reschedule qua agent
+- [x] Chuẩn bị demo Planning Agent cho buổi review nhóm
 
 ---
 
