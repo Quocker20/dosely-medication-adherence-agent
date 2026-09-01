@@ -8,7 +8,6 @@ from src.agents.nodes.classify_intent_node import classify_intent_node
 from src.agents.nodes.clarification_node import clarification_node
 from src.agents.nodes.current_medications_node import current_medications_node
 from src.agents.nodes.drug_rag_node import drug_rag_node
-from src.agents.nodes.medication_catalog_node import medication_catalog_node
 from src.agents.nodes.explain_my_medications_node import explain_my_medications_node
 from src.agents.nodes.next_dose_node import next_dose_node
 from src.agents.nodes.multi_tool_executor_node import multi_tool_executor_node
