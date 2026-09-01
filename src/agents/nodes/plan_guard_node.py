@@ -48,6 +48,11 @@ def validate_plan(plan: SemanticPlan) -> list[str]:
         errors.append("too_many_steps")
     if sum(step.tool in _WRITE_TOOLS for step in plan.steps) > 1:
         errors.append("multiple_write_steps")
+    # Một write step không được kết hợp với bất kỳ step nào khác trong cùng 1 multi-tool plan.
+    # _EXECUTORS chỉ chứa read tools; để write step đi chung sẽ bị drop âm thầm
+    # (multi_tool_executor_node:18 vs plan_guard_node:24-25, bug #3).
+    if len(plan.steps) > 1 and any(step.tool in _WRITE_TOOLS for step in plan.steps):
+        errors.append("write_not_composable")
     if len(plan.steps) > 1 and any(step.tool in {"clarify", "general_response"} for step in plan.steps):
         errors.append("non_composable_step")
     signatures = [

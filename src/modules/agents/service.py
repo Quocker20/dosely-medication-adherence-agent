@@ -30,19 +30,28 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from src.core.cache import invalidate_prefix
+from src.common.schemas import PageResponse
+from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
 from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.grouping import schedule_rows_hmac
 from src.modules.agents.planner import PlanningNeedsReviewError
-from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
+from src.modules.agents.repository import (
+    AgentRunRepository,
+    ChatMemoryRepository,
+    ScheduledDoseRepository,
+    generate_conversation_title,
+)
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
     CancelRoutineOverrideRequest,
+    ChatConversationDetailResponse,
+    ChatConversationListItem,
+    ChatMessageItem,
     ChatResponse,
     GenerateScheduleRequest,
     NextDoseResponse,
@@ -811,6 +820,99 @@ class ChatService:
             message, patient_id, client_date, client_datetime, conversation_id
         )
         return ChatResponse(response=response_text, conversationId=conversation_id)
+
+    async def list_conversations(
+        self,
+        actor: dict,
+        page: int = 1,
+        size: int = 20,
+    ) -> PageResponse[ChatConversationListItem]:
+        patient_id = uuid.UUID(str(actor["sub"]))
+        cache_key = build_cache_key(
+            "chat:conversations:list",
+            actor=actor,
+            params={"page": page, "size": size},
+        )
+        ttl = get_settings().cache_ttl_chat_seconds
+
+        async def _load() -> PageResponse[ChatConversationListItem]:
+            if self._db is None or self._memory is None:
+                return PageResponse(
+                    content=[],
+                    page_no=page,
+                    page_size=size,
+                    total_elements=0,
+                    total_pages=0,
+                    last=True,
+                )
+            rows, total = await self._memory.list_conversations(patient_id, page=page, size=size)
+            items = [ChatConversationListItem.model_validate(r) for r in rows]
+            total_pages = (total + size - 1) // size if total > 0 else 0
+            return PageResponse(
+                content=items,
+                page_no=page,
+                page_size=size,
+                total_elements=total,
+                total_pages=total_pages,
+                last=page >= total_pages if total_pages > 0 else True,
+            )
+
+        return await cached_model(cache_key, ttl, PageResponse[ChatConversationListItem], _load)
+
+    async def get_conversation_detail(
+        self,
+        actor: dict,
+        conversation_id: uuid.UUID,
+        limit: int = 50,
+        before: str | None = None,
+    ) -> ChatConversationDetailResponse:
+        patient_id = uuid.UUID(str(actor["sub"]))
+        cache_key = build_cache_key(
+            "chat:conversations:detail",
+            actor=actor,
+            params={"conversation_id": str(conversation_id), "limit": limit, "before": before},
+        )
+        ttl = get_settings().cache_ttl_chat_seconds
+
+        async def _load() -> ChatConversationDetailResponse:
+            if self._db is None or self._memory is None:
+                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
+            try:
+                conv = await self._memory.get_conversation(patient_id, conversation_id)
+            except PermissionError as exc:
+                raise ForbiddenException(message="Không có quyền truy cập cuộc trò chuyện này") from exc
+
+            if conv is None:
+                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
+
+            messages, has_more, next_cursor = await self._memory.get_messages_paginated(
+                conversation_id=conversation_id,
+                limit=limit,
+                before=before,
+            )
+            msg_items = [
+                ChatMessageItem(
+                    id=m.id,
+                    role=m.role,
+                    content=m.content,
+                    intent=m.intent,
+                    created_at=m.created_at,
+                )
+                for m in messages
+            ]
+            preview = messages[-1].content if messages else None
+            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
+            return ChatConversationDetailResponse(
+                id=conv.id,
+                title=title,
+                created_at=conv.created_at,
+                updated_at=conv.updated_at,
+                messages=msg_items,
+                has_more=has_more,
+                next_cursor=next_cursor,
+            )
+
+        return await cached_model(cache_key, ttl, ChatConversationDetailResponse, _load)
 
     async def handle_voice_chat(
         self,

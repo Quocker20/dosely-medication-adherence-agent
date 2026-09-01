@@ -311,7 +311,23 @@ def _deterministic_topics(normalized: str) -> list[str]:
         ("identity", ("thuốc gì", "tên gì", "là thuốc gì")),
         ("indication", ("tác dụng", "công dụng", "dùng để", "chữa bệnh gì")),
         ("administration", ("cách dùng", "uống lúc", "trước hay sau ăn", "lúc đói", "dùng cùng")),
-        ("adverse_effect", ("tác dụng phụ", "phản ứng bất lợi", "chóng mặt", "buồn nôn", "do thuốc")),
+        (
+            "adverse_effect",
+            (
+                "tác dụng phụ",
+                "phản ứng bất lợi",
+                "chóng mặt",
+                "buồn nôn",
+                "do thuốc",
+                "dị ứng",
+                "mẫn cảm",
+                "phát ban",
+                "nổi mẩn",
+                "nổi mẫn",
+                "ngứa",
+                "mẩn ngứa",
+            ),
+        ),
         ("interaction", ("tương tác", "dùng cùng", "uống cùng")),
         ("contraindication", ("chống chỉ định", "không được dùng")),
         ("missed_dose", ("quên uống", "quên liều", "uống bù", "quá giờ")),
@@ -326,7 +342,9 @@ def _deterministic_topics(normalized: str) -> list[str]:
 def _deterministic_indirect_analysis(normalized: str) -> dict | None:
     topics = _deterministic_topics(normalized)
     symptoms = [
-        marker for marker in ("đau bụng", "buồn nôn", "chóng mặt", "tiêu chảy", "nổi mẩn") if marker in normalized
+        marker
+        for marker in ("đau bụng", "buồn nôn", "chóng mặt", "tiêu chảy", "nổi mẩn", "nổi mẫn", "dị ứng", "phát ban", "ngứa")
+        if marker in normalized
     ]
     time_match = re.search(r"\b([01]?\d|2[0-3])\s*(?::|h|giờ)\s*([0-5]\d)?\b", normalized)
     reference = _fallback_indirect_reference(normalized)
@@ -449,8 +467,27 @@ async def classify_intent_node(state: AgentState) -> dict:
     # LLM classifier. Its input guard resolves the exact drug name or asks the
     # user to provide one; it never performs an unscoped retrieval.
     if not requires_semantic_analysis and any(marker in normalized for marker in _DRUG_INFO_MARKERS):
+
+        def _extract_drug_name(text: str) -> str | None:
+            # Ưu tiên mẫu "của <tên thuốc>" (vd "tác dụng phụ của panadol là gì")
+            m = re.search(r"của\s+([a-z0-9][a-z0-9\- ]{1,30})", text)
+            if m:
+                candidate = m.group(1).strip().split(" là ")[0].split(" có ")[0].strip()
+                if candidate:
+                    return candidate.title()
+            m = re.search(r"thuốc\s+([a-z0-9]{2,})", text)
+            if m:
+                return m.group(1).strip().title()
+            if " có " in text:
+                return text.split(" có ", 1)[0].strip().title()
+            # Fallback: lấy cụm trước " là gì / là " nếu có
+            m = re.search(r"^(.+?)\s+là\s", text)
+            if m:
+                return m.group(1).strip().title()
+            return None
+
         topics = _deterministic_topics(normalized)
-        drug_name = normalized.split(" có ", 1)[0].strip().title() if " có " in normalized else None
+        drug_name = _extract_drug_name(normalized)
         return {
             "intent": "ask_drug_info",
             "intent_analysis": {
