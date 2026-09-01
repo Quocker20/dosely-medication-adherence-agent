@@ -44,6 +44,10 @@ celery_app.conf.update(
             "task": "agents.summarize_daily_adverse_events",
             "schedule": crontab(hour=22, minute=0),
         },
+        "send-caregiver-adherence-reports": {
+            "task": "agents.send_caregiver_adherence_reports",
+            "schedule": crontab(hour=8, minute=0),
+        },
     },
 )
 

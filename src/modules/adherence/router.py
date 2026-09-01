@@ -58,11 +58,11 @@ AlertServiceDep = Annotated[AlertService, Depends(get_alert_service)]
 PatientUserDep = Annotated[dict, Depends(require_roles("PATIENT"))]
 DoctorUserDep = Annotated[dict, Depends(require_roles("DOCTOR"))]
 DoctorOrAdminUserDep = Annotated[dict, Depends(require_roles("DOCTOR", "ADMIN"))]
-# Adherence read access is role-agnostic (self / doctor-prescribed / active-caregiver
+# Adherence read access is role-agnostic (self / doctor-prescribed
 # are independent facts checked in the service layer) -- RBAC here only narrows to
-# the three roles the contract lists; out-of-scope callers still get an empty
+# the roles the contract lists; out-of-scope callers still get an empty
 # result from the service, not a 403.
-AdherenceReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "CAREGIVER"))]
+AdherenceReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR"))]
 
 dose_actions_router = APIRouter(tags=["Adherence Logging & Safety Alerts"])
 patients_adherence_router = APIRouter(prefix="/patients", tags=["Adherence Logging & Safety Alerts"])

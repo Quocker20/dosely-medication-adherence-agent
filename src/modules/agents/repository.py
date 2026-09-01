@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from src.modules.agents.models import AgentRun, ChatConversation, ChatMessage, ScheduledDose
-from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine, RoutineOverride
+from src.modules.patients.models import PatientProfile, PatientRoutine, RoutineOverride
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -440,27 +440,14 @@ class ScheduledDoseRepository:
             .exists()
         )
 
-    @staticmethod
-    def _has_active_caregiver_filter(caregiver_user_id: uuid.UUID, patient_id_col: ColumnElement) -> Exists:
-        return (
-            select(CaregiverLink.id)
-            .where(
-                CaregiverLink.caregiver_user_id == caregiver_user_id,
-                CaregiverLink.patient_id == patient_id_col,
-                CaregiverLink.status == "ACTIVE",
-            )
-            .exists()
-        )
-
     @classmethod
     def _access_filter(cls, actor_id: uuid.UUID, patient_id_col: ColumnElement):
         """Role-agnostic access predicate, mirrors
-        PrescriptionRepository._access_filter: self-owned, doctor-prescribed,
-        or active-caregiver-linked are independent facts checked together."""
+        PrescriptionRepository._access_filter: self-owned or doctor-prescribed
+        are independent facts checked together."""
         return or_(
             patient_id_col == actor_id,
             cls._has_prescribed_filter(actor_id, patient_id_col),
-            cls._has_active_caregiver_filter(actor_id, patient_id_col),
         )
 
     async def get_patient_timezone_scoped(self, patient_id: uuid.UUID, actor_id: uuid.UUID) -> str | None:

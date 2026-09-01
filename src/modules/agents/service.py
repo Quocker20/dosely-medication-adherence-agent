@@ -778,20 +778,44 @@ class MissedDoseScanService:
             # days, not one afternoon — name the span so the message doesn't
             # imply same-day urgency it may not have.
             span_days = max(1, (now.date() - last_scheduled_at.date()).days + 1)
+            msg = (
+                f"{threshold}+ liều thuốc quan trọng liên tiếp bị bỏ lỡ/quá giờ "
+                f"(trong {span_days} ngày gần đây)."
+            )
+            created_deliveries: list[uuid.UUID] = []
             try:
                 async with self._db.begin():
-                    await self._alert_repo.create_alert(
+                    alert = await self._alert_repo.create_alert(
                         patient_id=patient_id,
                         triggered_by_type=_MISSED_DOSE_TRIGGERED_BY_TYPE,
                         triggered_by_id=last_dose_id,
                         alert_type=_MISSED_DOSE_ALERT_TYPE,
                         severity=_MISSED_DOSE_ALERT_SEVERITY,
-                        message=(
-                            f"{threshold}+ liều thuốc quan trọng liên tiếp bị bỏ lỡ/quá giờ "
-                            f"(trong {span_days} ngày gần đây)."
-                        ),
+                        message=msg,
                         idempotency_key=idempotency_key,
                     )
+                    from sqlalchemy import select
+                    from src.modules.adherence.repository import NotificationRepository
+                    from src.modules.caregivers.repository import CaregiverRepository
+                    from src.modules.patients.models import PatientProfile
+
+                    cg_repo = CaregiverRepository(self._db)
+                    links = await cg_repo.list_deliverable_for_patient(patient_id)
+                    if links:
+                        p_stmt = select(PatientProfile.name).where(PatientProfile.user_id == patient_id)
+                        patient_name = (await self._db.execute(p_stmt)).scalar_one_or_none() or "Người bệnh"
+                        cg_body = f"Cảnh báo bỏ lỡ thuốc - {patient_name}:\n{msg}"
+                        notif_repo = NotificationRepository(self._db)
+                        for link in links:
+                            deliv = await notif_repo.create_caregiver_delivery(
+                                caregiver_link_id=link.id,
+                                template_code="CG_MISSED_DOSE",
+                                title=f"Cảnh báo: {patient_name}",
+                                body=cg_body,
+                                metadata={"alert_id": str(alert.id)},
+                                idempotency_key=f"cg_missed:{alert.id}:{link.id}",
+                            )
+                            created_deliveries.append(deliv.id)
             except IntegrityError:
                 # Idempotent replay: this streak already raised an alert
                 # (still OPEN/unresolved) on a prior scan tick.
@@ -799,6 +823,16 @@ class MissedDoseScanService:
                     "Missed-dose alert already exists for patient %s (idempotent replay)",
                     patient_id,
                 )
+                continue
+
+            if created_deliveries:
+                try:
+                    from src.modules.agents.tasks import send_notification_task
+
+                    for d_id in created_deliveries:
+                        send_notification_task.delay(str(d_id))
+                except Exception as exc:
+                    logger.warning("Failed to queue caregiver notification task: %s", exc)
 
 
 class ChatService:

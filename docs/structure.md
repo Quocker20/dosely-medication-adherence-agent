@@ -68,12 +68,20 @@ src/
 │   │   ├── service.py
 │   │   └── schemas.py
 │   │
-│   ├── patients/           # 🧑‍⚕️ Slice 3 & 4: Patient profiles, routines & caregiver links
-│   │   ├── models.py       # (PatientProfile, PatientRoutine, CaregiverLink)
+│   ├── patients/           # 🧑‍⚕️ Slice 3 & 4: Patient profiles & routines
+│   │   ├── models.py       # (PatientProfile, PatientRoutine)
 │   │   ├── repository.py
-│   │   ├── router.py
-│   │   ├── service.py
+│   │   ├── router.py       # caregiver CRUD handlers still live here pending Stage 7 relocation
+│   │   ├── service.py      # caregiver CRUD methods still live here pending Stage 7 relocation
 │   │   └── schemas.py
+│   │
+│   ├── caregivers/         # 📵 Slice 4: Caregiver contacts & outbound Telegram notifications
+│   │   │                   # (redesigned — a caregiver is a phone-only business record,
+│   │   │                   # never an account; see docs/caregiver-telegram-implementation-plan.md.
+│   │   │                   # As of Stage 3: models.py + repository.py only — CRUD/router/send
+│   │   │                   # pipeline land in later stages.)
+│   │   ├── models.py       # (CaregiverLink)
+│   │   └── repository.py
 │   │
 │   ├── prescriptions/      # 💊 Slice 5: Medication directory & Prescriptions (Header/Item)
 │   │   ├── models.py       # (Medication, Prescription, PrescriptionItem)

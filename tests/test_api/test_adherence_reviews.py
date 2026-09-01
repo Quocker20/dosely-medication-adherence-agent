@@ -16,7 +16,8 @@ from src.modules.adherence_review.models import AdherenceReview
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
-from src.modules.patients.models import CaregiverLink, PatientProfile
+from src.modules.caregivers.models import CaregiverLink
+from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Prescription
 
@@ -154,15 +155,24 @@ class TestListPatientAdherenceReviews:
         assert response.json()["data"]["total_elements"] == 1
 
     @pytest.mark.asyncio
-    async def test_active_caregiver_sees_it(self, client):
+    async def test_caregiver_role_is_rejected(self, client):
+        """CAREGIVER is not in AdherenceReaderDep -- a caregiver is a phone-only
+        contact record, not an API actor."""
         patient_id = await _create_patient(PATIENT_PHONE)
-        await _create_caregiver(CAREGIVER_PHONE, patient_id)
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                await AuthRepository(db).create_user(
+                    phone=CAREGIVER_PHONE,
+                    hashed_password=hash_password(PIN),
+                    role="CAREGIVER",
+                )
         await _add_review(patient_id, date.today())
         headers = await _login(client, CAREGIVER_PHONE)
 
-        response = await client.get(f"/api/v1/patients/{patient_id}/adherence-reviews", headers=headers)
-        assert response.status_code == 200
-        assert response.json()["data"]["total_elements"] == 1
+        response = await client.get(
+            f"/api/v1/patients/{patient_id}/adherence-reviews", headers=headers
+        )
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_unrelated_doctor_gets_an_empty_page_not_403(self, client):

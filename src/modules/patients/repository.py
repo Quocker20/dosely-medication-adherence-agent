@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.auth.models import User
-from src.modules.patients.models import CaregiverLink, PatientProfile, PatientRoutine
+from src.modules.patients.models import PatientProfile, PatientRoutine
 from src.modules.prescriptions.models import Prescription
 
 logger = logging.getLogger(__name__)
@@ -46,27 +46,6 @@ class PatientRepository:
             .where(
                 Prescription.doctor_id == doctor_id,
                 Prescription.patient_id == patient_id_col,
-            )
-            .exists()
-        )
-
-    @staticmethod
-    def _has_active_caregiver_filter(caregiver_user_id: uuid.UUID) -> Exists:
-        """Build the access predicate for a caregiver reaching a patient's routine.
-
-        Mirrors _has_prescribed_filter: access is derived per request from a
-        single fact — an ACTIVE caregiver_links row for (patient, caregiver) —
-        not stored on the patient. Correlated on PatientRoutine.patient_id so it
-        composes directly into the routine SELECT with no extra round trip.
-        Rides uq_caregiver_links_patient_caregiver (patient_id, caregiver_user_id)
-        as an index-only probe.
-        """
-        return (
-            select(CaregiverLink.id)
-            .where(
-                CaregiverLink.caregiver_user_id == caregiver_user_id,
-                CaregiverLink.patient_id == PatientRoutine.patient_id,
-                CaregiverLink.status == "ACTIVE",
             )
             .exists()
         )
@@ -238,17 +217,15 @@ class PatientRepository:
         """Fetch a patient's routine, single row by unique patient_id.
 
         Access is role-agnostic: a single user can simultaneously be the
-        patient themselves, a doctor who has prescribed for them, and/or an
-        active caregiver for them — nothing on the users.role column
-        determines which; each is an independent fact checked in the same
-        query. Out-of-scope caller and non-existent routine both return None.
+        patient themselves or a doctor who has prescribed for them —
+        each is an independent fact checked in the same query. Out-of-scope
+        caller and non-existent routine both return None.
         """
         stmt = select(PatientRoutine).where(
             PatientRoutine.patient_id == patient_id,
             or_(
                 PatientRoutine.patient_id == actor_id,
                 self._has_prescribed_filter(actor_id, PatientRoutine.patient_id),
-                self._has_active_caregiver_filter(actor_id),
             ),
         )
         result = await self._db.execute(stmt)
@@ -331,58 +308,3 @@ class PatientRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
-
-
-class CaregiverRepository:
-    """Repository handling CaregiverLink database operations."""
-
-    def __init__(self, db: AsyncSession) -> None:
-        self._db = db
-
-    async def create_link(
-        self,
-        patient_id: uuid.UUID,
-        caregiver_user_id: uuid.UUID,
-        relationship: Optional[str],
-        channels: List[str],
-    ) -> CaregiverLink:
-        """Persist a new caregiver link. Relies on
-        uq_caregiver_links_patient_caregiver to reject duplicates via
-        IntegrityError — no pre-check SELECT (avoids TOCTOU race)."""
-        link = CaregiverLink(
-            patient_id=patient_id,
-            caregiver_user_id=caregiver_user_id,
-            relationship_label=relationship,
-            channels=channels,
-        )
-        self._db.add(link)
-        await self._db.flush()
-        return link
-
-    async def list_by_patient(self, patient_id: uuid.UUID) -> List[CaregiverLink]:
-        """Fetch all caregiver links for a patient.
-
-        Single SELECT, no join — the response only needs caregiver_user_id
-        (UUID), not the caregiver's user row, so there is no N+1 risk here.
-        Rides uq_caregiver_links_patient_caregiver (patient_id leading column).
-        """
-        stmt = select(CaregiverLink).where(CaregiverLink.patient_id == patient_id)
-        result = await self._db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_link(
-        self, link_id: uuid.UUID, patient_id: uuid.UUID
-    ) -> Optional[CaregiverLink]:
-        """Fetch a single link scoped to its owning patient — the patient_id
-        check blocks an IDOR where a valid link_id from a different patient is
-        passed in the path."""
-        stmt = select(CaregiverLink).where(
-            CaregiverLink.id == link_id, CaregiverLink.patient_id == patient_id
-        )
-        result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def delete_link(self, link_id: uuid.UUID) -> None:
-        """Hard-delete a caregiver link by ID."""
-        stmt = delete(CaregiverLink).where(CaregiverLink.id == link_id)
-        await self._db.execute(stmt)
