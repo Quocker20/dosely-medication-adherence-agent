@@ -127,24 +127,14 @@ async def _run_graphs(
 
 @pytest.mark.asyncio
 async def test_llm_grouping_changes_notification_metadata_only() -> None:
+    # Pure-rule: gom nhóm đã bỏ, mỗi cữ thông báo riêng — không còn LLM grouping
     repo = FakeDoseRepository([[_item(), _item()]])
-    structured = AsyncMock(
-        return_value={
-            "parsed": DoseGroupingProposal(groups=[[0, 1]]),
-            "raw": SimpleNamespace(response_metadata={"model_name": "served-model-2026"}),
-            "parsing_error": None,
-        }
-    )
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.with_structured_output.return_value.ainvoke = structured
-        final = await _run_graphs(repo, _settings())
+    final = await _run_graphs(repo, _settings())
 
-    assert final["candidate_source"] == "llm_grouped"
-    assert final["llm_model_version"] == "served-model-2026"
+    assert final["candidate_source"] == "deterministic"
+    assert final["llm_model_version"] is None
     assert len(repo.inserted_rows) == 2
-    group_ids = {row["notification_group_id"] for row in repo.inserted_rows}
-    assert len(group_ids) == 1
-    assert None not in group_ids
+    assert all(row["notification_group_id"] is None for row in repo.inserted_rows)
     for draft_row, final_row in zip(final["naive_rows_draft"], final["candidate_rows"], strict=True):
         assert final_row.original_scheduled_at == draft_row.original_scheduled_at
         assert final_row.current_scheduled_at == draft_row.current_scheduled_at
@@ -152,25 +142,20 @@ async def test_llm_grouping_changes_notification_metadata_only() -> None:
 
 @pytest.mark.asyncio
 async def test_llm_failure_completes_with_deterministic_fallback() -> None:
+    # Pure-rule: không gọi LLM nên mọi run đều deterministic
     repo = FakeDoseRepository([[_item(), _item()]])
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(side_effect=TimeoutError)
-        final = await _run_graphs(repo, _settings())
+    final = await _run_graphs(repo, _settings())
 
-    assert final["candidate_source"] == "deterministic_fallback_llm_error"
+    assert final["candidate_source"] == "deterministic"
     assert all(row["notification_group_id"] is None for row in repo.inserted_rows)
 
 
 @pytest.mark.asyncio
 async def test_invalid_llm_group_falls_back_without_changing_doses() -> None:
     repo = FakeDoseRepository([[_item(), _item()]])
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=DoseGroupingProposal(groups=[[0, 0]])
-        )
-        final = await _run_graphs(repo, _settings())
+    final = await _run_graphs(repo, _settings())
 
-    assert final["candidate_source"] == "deterministic_fallback_invalid_proposal"
+    assert final["candidate_source"] == "deterministic"
     assert all(row["notification_group_id"] is None for row in repo.inserted_rows)
 
 
@@ -178,13 +163,9 @@ async def test_invalid_llm_group_falls_back_without_changing_doses() -> None:
 async def test_stale_snapshot_rejects_old_llm_proposal() -> None:
     first_items = [_item(), _item()]
     repo = FakeDoseRepository([first_items, [*first_items, _item()]])
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=DoseGroupingProposal(groups=[[0, 1]])
-        )
-        final = await _run_graphs(repo, _settings())
+    final = await _run_graphs(repo, _settings())
 
-    assert final["candidate_source"] == "deterministic_fallback_stale_snapshot"
+    assert final["candidate_source"] == "deterministic"
     assert len(repo.inserted_rows) == 3
     assert all(row["notification_group_id"] is None for row in repo.inserted_rows)
 
@@ -192,10 +173,8 @@ async def test_stale_snapshot_rejects_old_llm_proposal() -> None:
 @pytest.mark.asyncio
 async def test_reschedule_never_calls_llm_or_groups_notifications() -> None:
     repo = FakeDoseRepository([[_item(), _item()]])
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        final = await _run_graphs(repo, _settings(), is_reschedule=True)
+    final = await _run_graphs(repo, _settings(), is_reschedule=True)
 
-    mock_get_llm.assert_not_called()
     assert final["candidate_source"] == "deterministic"
     assert repo.delete_calls == 1
 
@@ -203,10 +182,8 @@ async def test_reschedule_never_calls_llm_or_groups_notifications() -> None:
 @pytest.mark.asyncio
 async def test_disabled_grouping_keeps_deterministic_schedule() -> None:
     repo = FakeDoseRepository([[_item(), _item()]])
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        final = await _run_graphs(repo, _settings(grouping_enabled=False))
+    final = await _run_graphs(repo, _settings(grouping_enabled=False))
 
-    mock_get_llm.assert_not_called()
     assert final["candidate_source"] == "deterministic"
     assert all(row["notification_group_id"] is None for row in repo.inserted_rows)
 
@@ -215,13 +192,9 @@ async def test_disabled_grouping_keeps_deterministic_schedule() -> None:
 async def test_commit_refreshes_clock_and_drops_already_due_rows() -> None:
     repo = FakeDoseRepository([[_item(), _item()]])
     commit_now = datetime(2026, 8, 21, 2, 0, tzinfo=UTC)
-    with patch("src.agents.nodes.planning_generate_candidate_node.get_llm") as mock_get_llm:
-        mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=DoseGroupingProposal(groups=[[0, 1]])
-        )
-        final = await _run_graphs(repo, _settings(), commit_now=commit_now)
+    final = await _run_graphs(repo, _settings(), commit_now=commit_now)
 
-    assert final["candidate_source"] == "deterministic_fallback_stale_snapshot"
+    assert final["candidate_source"] == "deterministic"
     assert repo.inserted_rows == []
 
 

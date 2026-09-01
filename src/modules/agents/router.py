@@ -313,6 +313,48 @@ async def chat(
     )
 
 
+@chat_router.get(
+    "/chat/conversations",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def list_chat_conversations(
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    page: int = Query(1, ge=1, description="Số trang"),
+    size: int = Query(20, ge=1, le=100, description="Số cuộc trò chuyện trên một trang"),
+) -> JSONResponse:
+    """Lấy danh sách lịch sử cuộc trò chuyện (Patient only, self)."""
+    result = await service.list_conversations(actor=current_user, page=page, size=size)
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy danh sách cuộc trò chuyện thành công",
+    )
+
+
+@chat_router.get(
+    "/chat/conversations/{conversation_id}",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def get_chat_conversation_detail(
+    conversation_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    limit: int = Query(50, ge=1, le=100, description="Số tin nhắn tối đa"),
+    before: str | None = Query(None, description="Cursor phân trang (id tin nhắn hoặc timestamp)"),
+) -> JSONResponse:
+    """Lấy chi tiết tin nhắn trong một cuộc trò chuyện (Patient only, self)."""
+    result = await service.get_conversation_detail(
+        actor=current_user,
+        conversation_id=conversation_id,
+        limit=limit,
+        before=before,
+    )
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy chi tiết cuộc trò chuyện thành công",
+    )
+
+
 @chat_router.get("/chat/{conversation_id}")
 async def chat_history(
     conversation_id: uuid.UUID,
@@ -367,46 +409,4 @@ async def chat_voice(
     return success_response(
         data=result.model_dump(mode="json", by_alias=True),
         message="Voice chat reply generated successfully",
-    )
-
-
-@chat_router.get(
-    "/chat/conversations",
-    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
-)
-async def list_chat_conversations(
-    current_user: PatientUserDep,
-    service: ChatServiceDep,
-    page: int = Query(1, ge=1, description="Số trang"),
-    size: int = Query(20, ge=1, le=100, description="Số cuộc trò chuyện trên một trang"),
-) -> JSONResponse:
-    """Lấy danh sách lịch sử cuộc trò chuyện (Patient only, self)."""
-    result = await service.list_conversations(actor=current_user, page=page, size=size)
-    return success_response(
-        data=result.model_dump(mode="json", by_alias=True),
-        message="Lấy danh sách cuộc trò chuyện thành công",
-    )
-
-
-@chat_router.get(
-    "/chat/conversations/{conversation_id}",
-    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
-)
-async def get_chat_conversation_detail(
-    conversation_id: uuid.UUID,
-    current_user: PatientUserDep,
-    service: ChatServiceDep,
-    limit: int = Query(50, ge=1, le=100, description="Số tin nhắn tối đa"),
-    before: str | None = Query(None, description="Cursor phân trang (id tin nhắn hoặc timestamp)"),
-) -> JSONResponse:
-    """Lấy chi tiết tin nhắn trong một cuộc trò chuyện (Patient only, self)."""
-    result = await service.get_conversation_detail(
-        actor=current_user,
-        conversation_id=conversation_id,
-        limit=limit,
-        before=before,
-    )
-    return success_response(
-        data=result.model_dump(mode="json", by_alias=True),
-        message="Lấy chi tiết cuộc trò chuyện thành công",
     )

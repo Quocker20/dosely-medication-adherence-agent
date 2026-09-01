@@ -21,6 +21,7 @@ thường — trả thẳng câu trả lời cố định. Xem cách graph.py n�
 from __future__ import annotations
 
 import asyncio
+import unicodedata
 from dataclasses import dataclass
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -60,6 +61,13 @@ class SafetyVerdict:
     fixed_reply: str | None = None
 
 
+def _normalize_verdict(text: str) -> str:
+    """Strip diacritics and upper-case so 'Có'/'CÓ' matches 'CO'."""
+    nfd = unicodedata.normalize("NFD", text)
+    ascii_only = "".join(ch for ch in nfd if not unicodedata.combining(ch))
+    return ascii_only.strip().upper()
+
+
 async def _classify_with_llm(text: str) -> bool:
     try:
         llm = get_llm(temperature=0)
@@ -67,7 +75,7 @@ async def _classify_with_llm(text: str) -> bool:
             llm.ainvoke([SystemMessage(content=_CLASSIFY_PROMPT.format(text=text))]),
             timeout=_LLM_TIMEOUT_SECONDS,
         )
-        verdict = str(response.content).strip().upper()
+        verdict = _normalize_verdict(str(response.content))
     except Exception:  # noqa: BLE001 — Lớp 2 lỗi/timeout thì bỏ qua, không chặn luồng
         return False
     return verdict.startswith("CO")

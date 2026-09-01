@@ -223,12 +223,12 @@ async def _handle_busy_window(
     if start_t > end_t:
         schedule_days.append(target_d + timedelta(days=1))
 
-    schedule_payloads = []
+    # Fetch tuần tự cũ tốn 1 round-trip thừa cho window qua đêm — chuyển sang gather
     try:
-        for schedule_day in schedule_days:
-            schedule_data = await get(f"/patients/{patient_id}/schedules?date={schedule_day.isoformat()}")
-            if isinstance(schedule_data, dict):
-                schedule_payloads.append(schedule_data)
+        results = await asyncio.gather(
+            *(get(f"/patients/{patient_id}/schedules?date={d.isoformat()}") for d in schedule_days)
+        )
+        schedule_payloads = [r for r in results if isinstance(r, dict)]
     except Exception:
         return RescheduleResult(
             status="failed",
@@ -242,6 +242,24 @@ async def _handle_busy_window(
     )
     tz = ZoneInfo(tz_str)
 
+    # Build datetime window in patient local tz — fixes bug #6: chỉ so sánh time-of-day
+    # khiến dose 00:30 ngày target_d bị nhầm là trong window 22h-02h của tối target_d.
+    def _window_bounds() -> tuple[datetime, datetime]:
+        start_dt = datetime.combine(target_d, start_t, tzinfo=tz)
+        if start_t <= end_t:
+            end_dt = datetime.combine(target_d, end_t, tzinfo=tz)
+        else:
+            end_dt = datetime.combine(target_d + timedelta(days=1), end_t, tzinfo=tz)
+        return start_dt, end_dt
+
+    window_start, window_end = _window_bounds()
+
+    def _parse_local_dt(iso_str: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(tz)
+        except Exception:
+            return None
+
     conflicting_doses: list[dict] = []
     for d in doses:
         if d.get("status") in ("TAKEN", "SKIPPED", "CANCELLED"):
@@ -249,13 +267,12 @@ async def _handle_busy_window(
         sched_at_str = d.get("current_scheduled_at")
         if not sched_at_str:
             continue
-        try:
-            sched_dt = datetime.fromisoformat(sched_at_str.replace("Z", "+00:00")).astimezone(tz)
-            sched_t = sched_dt.time()
-            if _time_in_window(sched_t, start_t, end_t):
-                conflicting_doses.append({**d, "local_time": sched_dt.strftime("%H:%M")})
-        except Exception:
+        sched_dt = _parse_local_dt(sched_at_str)
+        if sched_dt is None:
             continue
+        # So sánh full datetime, không chỉ time-of-day
+        if window_start <= sched_dt <= window_end:
+            conflicting_doses.append({**d, "local_time": sched_dt.strftime("%H:%M")})
 
     if not conflicting_doses:
         return RescheduleResult(
