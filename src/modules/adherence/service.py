@@ -511,6 +511,7 @@ class HealthSurveyService:
 
         severe_codes = [s.symptom_code for s in request.symptoms if s.severity == "SEVERE"]
 
+        severe_alert = None
         try:
             async with self._db.begin():
                 survey = await self._survey_repo.create_survey(
@@ -521,7 +522,7 @@ class HealthSurveyService:
                     patient_id, survey.id, symptom_dicts
                 )
                 if severe_codes:
-                    await self._alert_repo.create_alert(
+                    severe_alert = await self._alert_repo.create_alert(
                         patient_id=patient_id,
                         triggered_by_type="SEVERE_SYMPTOM",
                         triggered_by_id=survey.id,
@@ -580,6 +581,17 @@ class HealthSurveyService:
                     patient_id,
                     request.survey_date,
                 )
+        if severe_alert is not None:
+            patient_row = await self._patient_repo.get_patient_with_user(patient_id)
+            p_name = patient_row[0].name if patient_row is not None else "Người bệnh"
+            await _dispatch_caregiver_alert_notification(
+                db=self._db,
+                patient_id=patient_id,
+                alert_id=severe_alert.id,
+                template_code="CG_ALERT_RED",
+                title=f"Cảnh báo: {p_name}",
+                body=f"Bác {p_name} vừa có triệu chứng nghiêm trọng ({', '.join(severe_codes)}). Bác sĩ đã được thông báo.",
+            )
 
         return HealthSurveyDetailResponse.model_validate(survey)
 
@@ -725,6 +737,17 @@ class AlertService:
         await publish_dashboard_event("alert.opened", response.model_dump(mode="json"))
         # A new alert changes open_alerts_count on the roster/detail cache.
         await invalidate_prefix("dash:patients")
+
+        # Notify active caregivers of safety alert
+        p_name = response.patient_name or "Người bệnh"
+        await _dispatch_caregiver_alert_notification(
+            db=self._db,
+            patient_id=patient_id,
+            alert_id=alert.id,
+            template_code="CG_ALERT_RED",
+            title=f"Cảnh báo: {p_name}",
+            body=f"Bác {p_name} vừa có cảnh báo cần chú ý ({request.message}). Bác sĩ đã được thông báo.",
+        )
         return response
 
     async def acknowledge_alert(
@@ -788,6 +811,16 @@ class AlertService:
         await publish_dashboard_event("alert.updated", response.model_dump(mode="json"))
         # RESOLVED drops out of open_alerts_count — must not linger cached.
         await invalidate_prefix("dash:patients")
+
+        p_name = response.patient_name or "Người bệnh"
+        await _dispatch_caregiver_alert_notification(
+            db=self._db,
+            patient_id=alert.patient_id,
+            alert_id=alert.id,
+            template_code="CG_ALERT_RESOLVED",
+            title=f"Cảnh báo đã xử lý: {p_name}",
+            body=f"Cảnh báo của bác {p_name} đã được bác sĩ xử lý.",
+        )
         return response
 
     async def _with_patient_name(self, alert: Alert) -> AlertDetailResponse:
@@ -841,3 +874,45 @@ class AlertService:
             content=content, page_no=page, page_size=size,
             total_elements=total_count, total_pages=total_pages, last=last,
         )
+
+
+async def _dispatch_caregiver_alert_notification(
+    db: AsyncSession,
+    patient_id: uuid.UUID,
+    alert_id: uuid.UUID,
+    template_code: str,
+    title: str,
+    body: str,
+) -> None:
+    try:
+        from src.modules.adherence.repository import NotificationRepository
+        from src.modules.agents.tasks import send_notification_task
+        from src.modules.caregivers.repository import CaregiverRepository
+
+        cg_repo = CaregiverRepository(db)
+        links = await cg_repo.list_deliverable_for_patient(patient_id)
+        if not links:
+            return
+
+        if db.in_transaction():
+            await db.commit()
+
+        delivery_ids = []
+        async with db.begin():
+            notif_repo = NotificationRepository(db)
+            for link in links:
+                deliv = await notif_repo.create_caregiver_delivery(
+                    caregiver_link_id=link.id,
+                    template_code=template_code,
+                    title=title,
+                    body=body,
+                    metadata={"alert_id": str(alert_id)},
+                    idempotency_key=f"cg_{template_code.lower()}:{alert_id}:{link.id}",
+                )
+                delivery_ids.append(deliv.id)
+
+        for d_id in delivery_ids:
+            send_notification_task.delay(str(d_id))
+    except Exception as exc:
+        logger.warning("Failed to dispatch caregiver alert notification (%s): %s", template_code, exc)
+
