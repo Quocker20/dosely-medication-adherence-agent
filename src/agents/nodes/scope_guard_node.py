@@ -92,7 +92,10 @@ def _obviously_allowed(normalized: str) -> str | None:
     if any(marker in normalized for marker in _ABUSIVE_OR_NOISE):
         return None
     padded = f" {normalized} "
-    has = lambda marker: f" {marker} " in padded
+
+    def has(marker: str) -> bool:
+        return f" {marker} " in padded
+
     if normalized in _GREETING:
         return "greeting"
     if any(has(marker) for marker in _CAPABILITY_MARKERS):
