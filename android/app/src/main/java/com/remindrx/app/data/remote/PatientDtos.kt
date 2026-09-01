@@ -167,18 +167,19 @@ data class PageResponseDto<T>(
 data class CreateCaregiverLinkRequestDto(
     val caregiverPhone: String,
     val relationship: String? = null,
-    val channels: List<String> = listOf("APP_NOTIFICATION"),
 )
 
 data class CaregiverLinkDetailResponseDto(
     val id: String,
     val patientId: String,
-    val caregiverUserId: String,
-    val relationship: String?,
-    val channels: List<String> = emptyList(),
+    val phone: String,
+    val relationship: String? = null,
+    val linkCode: String? = null,
+    val telegramDeepLink: String? = null,
     val status: String,
+    val telegramBoundAt: String? = null,
+    val lastMessageSentAt: String? = null,
     val createdAt: String,
-    val tempPassword: String?,
 )
 
 data class MessageResponseDto(val message: String)

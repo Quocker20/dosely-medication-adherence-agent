@@ -5,6 +5,7 @@ import { THEME_LABEL, useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
 import { setSession, type Session } from "../../session";
 import type { ActiveSchedule, AdherenceSummary, ScheduledDoseRow } from "../../types";
+import CaregiverView from "./components/CaregiverView";
 import ChatView, { chatStorageKey } from "./components/ChatView";
 import DashboardView from "./components/DashboardView";
 import DoseReminderStack from "./components/DoseReminderStack";
@@ -17,12 +18,13 @@ import SurveyView from "./components/SurveyView";
 import { useFcmReminders } from "./components/useFcmReminders";
 import { isoDate } from "./components/utils";
 
-type Tab = "dashboard" | "schedule" | "assistant" | "survey" | "sos" | "routine";
+type Tab = "dashboard" | "schedule" | "routine" | "caregivers" | "assistant" | "survey" | "sos";
 
 const navItems: Array<{ id: Tab; label: string; description: string; icon: IconName }> = [
   { id: "dashboard", label: "Tổng quan", description: "Sức khỏe hôm nay", icon: "home" },
   { id: "schedule", label: "Lịch uống thuốc", description: "Các cữ trong ngày", icon: "calendar" },
   { id: "routine", label: "Lịch sinh hoạt", description: "Đồng bộ với ứng dụng", icon: "clock" },
+  { id: "caregivers", label: "Người chăm sóc", description: "Bảo hộ qua Telegram", icon: "users" },
   { id: "assistant", label: "Trợ lý AI", description: "Hỏi về thuốc & lịch", icon: "assistant" },
   { id: "survey", label: "Khảo sát sức khỏe", description: "Cập nhật cho bác sĩ", icon: "heart" },
   { id: "sos", label: "Hỗ trợ khẩn cấp", description: "Gửi cảnh báo SOS", icon: "alert" },
@@ -200,10 +202,11 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
         <main className={`patient-content ${tab === "assistant" ? "chat-content" : ""}`}>
           {tab === "dashboard" && <DashboardView today={today} adherence={adherence} completed={completed} doses={doses} nextDose={nextDose} error={error} busyId={busyId} onRetry={refresh} onAction={action} onOpenSchedule={() => onTabChange("schedule")} onOpenSurvey={() => onTabChange("survey")}/>}
           {tab === "schedule" && <ScheduleView doses={doses} busyId={busyId} onAction={action}/>}
+          {tab === "routine" && <RoutineView patientId={patientId} accessToken={session.accessToken} onScheduleChanged={() => refresh().catch(() => {})} onNotice={notify} />}
+          {tab === "caregivers" && <CaregiverView patientId={patientId} onNotice={notify} />}
           {tab === "assistant" && <ChatView patientId={patientId}/>}
           {tab === "survey" && <SurveyView patientId={patientId} today={today} onDone={(message) => { notify(message); onTabChange("dashboard"); }}/>}
           {tab === "sos" && <SosView patientId={patientId} onDone={(message) => { if (message) notify(message); onTabChange("dashboard"); }}/>}
-          {tab === "routine" && <RoutineView patientId={patientId} accessToken={session.accessToken} onScheduleChanged={() => refresh().catch(() => {})} onNotice={notify} />}
         </main>
       </div>
       <DoseReminderStack reminders={reminders.active} onDismiss={reminders.dismiss} />

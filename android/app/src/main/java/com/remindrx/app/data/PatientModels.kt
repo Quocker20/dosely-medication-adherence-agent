@@ -103,14 +103,14 @@ data class Alert(
 data class CaregiverLink(
     val id: String,
     val patientId: String,
-    val caregiverUserId: String,
-    val relationship: String?,
-    val channels: List<String>,
+    val phone: String,
+    val relationship: String? = null,
+    val linkCode: String? = null,
+    val telegramDeepLink: String? = null,
     val status: String,
+    val telegramBoundAt: String? = null,
+    val lastMessageSentAt: String? = null,
     val createdAt: String,
-    val temporaryPassword: String?,
-    /** Present immediately after creation; the backend list response does not expose phone. */
-    val caregiverPhone: String? = null,
 )
 
 data class AgentRunRequest(

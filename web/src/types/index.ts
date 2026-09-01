@@ -20,3 +20,4 @@ export * from "./healthSurveys";
 export * from "./adherence";
 export * from "./adverseEvents";
 export * from "./chat";
+export * from "./caregivers";

@@ -46,6 +46,7 @@ import com.remindrx.app.ui.feature.patient.DashboardScreen
 import com.remindrx.app.ui.feature.patient.AdherenceHistoryScreen
 import com.remindrx.app.ui.feature.patient.AdherenceLogUi
 import com.remindrx.app.ui.feature.patient.AdherenceSummaryUi
+import com.remindrx.app.ui.feature.patient.CaregiverInviteUi
 import com.remindrx.app.ui.feature.patient.CaregiverScreen
 import com.remindrx.app.ui.feature.patient.CaregiverUi
 import com.remindrx.app.ui.feature.auth.LoginScreen
@@ -379,7 +380,12 @@ fun RemindRxApp() {
                     isAdding = patientState.isAddingCaregiver,
                     deletingLinkId = patientState.deletingCaregiverId,
                     error = patientState.caregiverError,
-                    createdTemporaryPin = patientState.createdCaregiverTemporaryPin,
+                    createdInvite = patientState.createdCaregiverInvite?.let {
+                        CaregiverInviteUi(
+                            linkCode = it.linkCode,
+                            telegramDeepLink = it.telegramDeepLink,
+                        )
+                    },
                     onBack = { navController.popBackStack() },
                     onRetry = patientViewModel::loadCaregivers,
                     onInputChanged = patientViewModel::clearCaregiverError,
@@ -466,9 +472,10 @@ private fun com.remindrx.app.data.MedicationDetail.toUi() = MedicationDetailUi(
 private fun com.remindrx.app.data.CaregiverLink.toUi() = CaregiverUi(
     linkId = id,
     relationship = relationship,
-    phone = caregiverPhone,
+    phone = phone,
     status = status,
-    channels = channels,
+    linkCode = linkCode,
+    telegramDeepLink = telegramDeepLink,
 )
 
 private fun com.remindrx.app.data.AdherenceSummary.toUi() = AdherenceSummaryUi(
