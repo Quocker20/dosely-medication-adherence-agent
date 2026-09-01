@@ -16,7 +16,7 @@ _SCAN_TASK_NAME = "adherence_review.scan"
 adherence_reviews_router = APIRouter(prefix="/patients", tags=["Adherence Logging & Safety Alerts"])
 admin_adherence_reviews_router = APIRouter(prefix="/admin/adherence-reviews", tags=["Admin & Doctor Management"])
 
-AdherenceReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR", "CAREGIVER"))]
+AdherenceReaderDep = Annotated[dict, Depends(require_roles("PATIENT", "DOCTOR"))]
 AdminUserDep = Annotated[dict, Depends(require_roles("ADMIN"))]
 
 

@@ -235,6 +235,14 @@ class Settings(BaseSettings):
     # an ellipsis past this length.
     pdf_max_free_text_chars: int = Field(default=2000, ge=100, le=20000)
 
+    # Telegram Bot for Caregiver notifications (docs/caregiver-telegram-implementation-plan.md)
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_webhook_secret: str = ""
+    telegram_bot_username: str = ""
+    telegram_api_base_url: str = "https://api.telegram.org"
+    caregiver_report_interval_days: int = Field(default=7, ge=1, le=30)
+
 
 @lru_cache
 def get_settings() -> Settings:

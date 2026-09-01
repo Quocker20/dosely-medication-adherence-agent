@@ -209,25 +209,111 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
             notif_repo = NotificationRepository(session)
             delivery = await notif_repo.get_delivery_by_id(delivery_id)
             if not delivery:
-                logger.warning("Delivery %s not found for push notification", delivery_id)
+                logger.warning("Delivery %s not found for notification", delivery_id)
                 return
 
             # Celery is at-least-once; a redelivered task must not push twice.
-            if delivery.status != "QUEUED":
+            if delivery.status not in ("QUEUED", "RETRYING"):
                 logger.info("Delivery %s already in status %s; skipping send", delivery_id, delivery.status)
                 return
 
+            # ── 1. Telegram / Caregiver Delivery Branch ───────────────────
+            if delivery.channel == "TELEGRAM" or delivery.caregiver_link_id is not None:
+                from src.core.telegram import (
+                    TelegramBlockedError,
+                    TelegramPermanentError,
+                    TelegramRateLimitError,
+                    TelegramTransientError,
+                    get_telegram_client,
+                )
+                from src.modules.caregivers.repository import CaregiverRepository
+
+                cg_repo = CaregiverRepository(session)
+                link = (
+                    await cg_repo.get_link_by_id(delivery.caregiver_link_id)
+                    if delivery.caregiver_link_id
+                    else None
+                )
+
+                if not link or link.status != "ACTIVE" or not link.telegram_chat_id:
+                    logger.info(
+                        "Caregiver link %s not active or missing telegram_chat_id; failing delivery",
+                        delivery.caregiver_link_id,
+                    )
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="FAILED",
+                        error_message="Caregiver link is not active or bound",
+                    )
+                    await session.commit()
+                    return
+
+                if not settings.telegram_enabled:
+                    logger.info("Telegram disabled; marking delivery %s as DELIVERED (mock)", delivery.id)
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="DELIVERED",
+                        provider_message_id="mock-telegram-disabled",
+                    )
+                    await session.commit()
+                    return
+
+                tg_client = get_telegram_client()
+                try:
+                    msg_id = await tg_client.send_message(
+                        chat_id=link.telegram_chat_id,
+                        text=delivery.body,
+                    )
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="DELIVERED",
+                        provider_message_id=str(msg_id),
+                    )
+                    await cg_repo.update_last_message_sent(link.id, datetime.now(timezone.utc))
+                    await session.commit()
+                except TelegramBlockedError as exc:
+                    logger.warning("Caregiver chat %s blocked bot: %s", link.telegram_chat_id, exc)
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="BLOCKED_BY_USER",
+                        error_message=str(exc),
+                    )
+                    await cg_repo.mark_blocked(link.telegram_chat_id)
+                    await session.commit()
+                except TelegramPermanentError as exc:
+                    logger.warning("Permanent error sending Telegram message: %s", exc)
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="FAILED",
+                        error_message=str(exc),
+                    )
+                    await session.commit()
+                except TelegramRateLimitError as exc:
+                    logger.warning("Telegram rate limit hit (retry_after=%s): %s", exc.retry_after, exc)
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="RETRYING",
+                        error_message=str(exc),
+                    )
+                    await session.commit()
+                    raise exc
+                except TelegramTransientError as exc:
+                    logger.warning("Transient error contacting Telegram: %s", exc)
+                    await notif_repo.update_delivery_result(
+                        delivery.id,
+                        status="RETRYING",
+                        error_message=str(exc),
+                    )
+                    await session.commit()
+                    raise exc
+                return
+
+            # ── 2. Patient FCM Push Notification Branch ────────────────────
             # Freshness gate for dose reminders only. Alert/SOS deliveries
             # carry no doses and must never be held back by this.
             if delivery.template_code == DOSE_REMINDER_TEMPLATE_CODE:
                 linked, still_due = await notif_repo.count_reminder_doses(delivery.id, delivery.scheduled_at)
                 if linked == 0 or still_due != linked:
-                    # Reminding someone to take a dose that was rescheduled,
-                    # snoozed or already taken is worse than not reminding at
-                    # all: they may take it at the wrong time. The 1-minute
-                    # scan re-derives a correct grouped reminder for whatever
-                    # is still due (a different dose set hashes to a different
-                    # idempotency key), so dropping this one loses nothing.
                     logger.info(
                         "Delivery %s superseded: %d of %d linked doses still due at %s",
                         delivery_id,
@@ -268,6 +354,102 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
         await engine.dispose()
 
 
-@celery_app.task(name="agents.send_notification")
-def send_notification_task(delivery_id: str) -> None:
-    asyncio.run(_execute_send_notification(delivery_id))
+@celery_app.task(
+    bind=True,
+    name="agents.send_notification",
+    max_retries=3,
+    default_retry_delay=5,
+)
+def send_notification_task(self, delivery_id: str) -> None:
+    from src.core.telegram import TelegramRateLimitError, TelegramTransientError
+
+    try:
+        asyncio.run(_execute_send_notification(delivery_id))
+    except TelegramRateLimitError as exc:
+        countdown = exc.retry_after if exc.retry_after is not None else 10
+        raise self.retry(exc=exc, countdown=countdown) from exc
+    except TelegramTransientError as exc:
+        raise self.retry(exc=exc, countdown=5 * (2 ** self.request.retries)) from exc
+
+
+async def _execute_send_caregiver_adherence_reports() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
+    now = datetime.now(timezone.utc)
+    interval_days = settings.caregiver_report_interval_days
+
+    try:
+        async with session_factory() as session:
+            from src.modules.adherence.repository import NotificationRepository
+            from src.modules.agents.models import ScheduledDose
+            from src.modules.caregivers.repository import CaregiverRepository
+            from src.modules.patients.models import PatientProfile
+
+            cg_repo = CaregiverRepository(session)
+            async with session.begin():
+                claimed_links = await cg_repo.claim_due_reports(now, interval_days)
+
+            if not claimed_links:
+                logger.info("No caregiver links due for adherence report at %s", now.isoformat())
+                return
+
+            notif_repo = NotificationRepository(session)
+            delivery_ids: list[uuid.UUID] = []
+
+            for link in claimed_links:
+                start_date = now - timedelta(days=interval_days)
+
+                p_stmt = select(PatientProfile.name).where(PatientProfile.user_id == link.patient_id)
+                patient_name = (await session.execute(p_stmt)).scalar_one_or_none() or "Người bệnh"
+
+                doses_stmt = select(ScheduledDose.status).where(
+                    ScheduledDose.patient_id == link.patient_id,
+                    ScheduledDose.current_scheduled_at >= start_date,
+                    ScheduledDose.current_scheduled_at <= now,
+                )
+                statuses = list((await session.execute(doses_stmt)).scalars().all())
+                total = len(statuses)
+                taken = sum(1 for s in statuses if s == "TAKEN")
+                missed = sum(1 for s in statuses if s in ("MISSED", "SKIPPED"))
+                rate = (taken / total * 100.0) if total > 0 else 100.0
+
+                body = (
+                    f"Báo cáo tuân thủ dùng thuốc định kỳ ({interval_days} ngày qua)\n"
+                    f"Người bệnh: {patient_name}\n"
+                    f"• Tổng số liều: {total}\n"
+                    f"• Đã uống: {taken}\n"
+                    f"• Quên/Bỏ lỡ: {missed}\n"
+                    f"• Tỷ lệ tuân thủ: {rate:.1f}%\n\n"
+                    f"Cảm ơn bạn đã đồng hành chăm sóc sức khỏe cùng RemindRx."
+                )
+
+                if session.in_transaction():
+                    await session.commit()
+
+                async with session.begin():
+                    delivery = await notif_repo.create_caregiver_delivery(
+                        caregiver_link_id=link.id,
+                        template_code="CG_REPORT",
+                        title=f"Báo cáo tuân thủ {patient_name}",
+                        body=body,
+                        metadata={
+                            "patient_id": str(link.patient_id),
+                            "interval_days": interval_days,
+                            "total_doses": total,
+                            "taken_doses": taken,
+                            "missed_doses": missed,
+                            "adherence_rate": rate,
+                        },
+                    )
+                    delivery_ids.append(delivery.id)
+
+            for d_id in delivery_ids:
+                send_notification_task.delay(str(d_id))
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="agents.send_caregiver_adherence_reports")
+def send_caregiver_adherence_reports_task() -> None:
+    asyncio.run(_execute_send_caregiver_adherence_reports())

@@ -18,7 +18,7 @@ from src.modules.adherence.models import (
 )
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import UserDevice
-from src.modules.patients.models import CaregiverLink, PatientProfile
+from src.modules.patients.models import PatientProfile
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,7 @@ def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
     """Role-agnostic access predicate, duplicated per structure.md's
     vertical-slice isolation rather than imported — mirrors
     PrescriptionRepository._access_filter / ScheduledDoseRepository._access_filter:
-    self-owned, doctor-prescribed, or active-caregiver-linked are independent
-    facts checked together."""
+    self-owned or doctor-prescribed are independent facts checked together."""
 
     def _has_prescribed_filter() -> Exists:
         return (
@@ -48,21 +47,9 @@ def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
             .exists()
         )
 
-    def _has_active_caregiver_filter() -> Exists:
-        return (
-            select(CaregiverLink.id)
-            .where(
-                CaregiverLink.caregiver_user_id == actor_id,
-                CaregiverLink.patient_id == patient_id_col,
-                CaregiverLink.status == "ACTIVE",
-            )
-            .exists()
-        )
-
     return or_(
         patient_id_col == actor_id,
         _has_prescribed_filter(),
-        _has_active_caregiver_filter(),
     )
 
 
@@ -890,6 +877,61 @@ class NotificationRepository:
                 status=status,
                 sent_at=func.now() if status in ("SENT", "DELIVERED") else None,
             )
+        )
+        await self._db.execute(stmt)
+
+    async def create_caregiver_delivery(
+        self,
+        caregiver_link_id: uuid.UUID,
+        template_code: str,
+        title: str,
+        body: str,
+        scheduled_at: Optional[datetime] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> NotificationDelivery:
+        """Create a notification delivery targeted at a caregiver via Telegram."""
+        now = datetime.now(dt_timezone.utc)
+        delivery = NotificationDelivery(
+            recipient_user_id=None,
+            caregiver_link_id=caregiver_link_id,
+            channel="TELEGRAM",
+            template_code=template_code,
+            title=title,
+            body=body,
+            delivery_metadata=metadata or {},
+            scheduled_at=scheduled_at or now,
+            idempotency_key=idempotency_key,
+            status="QUEUED",
+        )
+        self._db.add(delivery)
+        await self._db.flush()
+        return delivery
+
+    async def update_delivery_result(
+        self,
+        delivery_id: uuid.UUID,
+        status: str,
+        provider_message_id: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Update status, provider_message_id, error in metadata, and sent_at."""
+        values: Dict[str, Any] = {"status": status}
+        if status in ("SENT", "DELIVERED"):
+            values["sent_at"] = func.now()
+        if provider_message_id is not None:
+            values["provider_message_id"] = provider_message_id
+        if error_message is not None:
+            from sqlalchemy import cast
+            from sqlalchemy.dialects.postgresql import JSONB
+            values["delivery_metadata"] = func.coalesce(
+                NotificationDelivery.delivery_metadata, cast({}, JSONB)
+            ).op("||")(cast({"error": error_message}, JSONB))
+
+        stmt = (
+            update(NotificationDelivery)
+            .where(NotificationDelivery.id == delivery_id)
+            .values(**values)
         )
         await self._db.execute(stmt)
 
