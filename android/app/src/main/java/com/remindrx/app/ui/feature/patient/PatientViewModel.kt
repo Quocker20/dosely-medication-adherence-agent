@@ -61,6 +61,11 @@ enum class SosSubmissionStatus { IDLE, SENDING, SENT, QUEUED_OFFLINE, FAILED }
 private const val DOSE_LOCK_RESCAN_INTERVAL_MS = 30_000L
 private val DOSE_LOCK_EARLY_UNLOCK_WINDOW: Duration = Duration.ofMinutes(15)
 
+data class CreatedCaregiverInvite(
+    val linkCode: String,
+    val telegramDeepLink: String?,
+)
+
 data class PatientUiState(
     val isCheckingRoutine: Boolean = false,
     val routineCheckCompleted: Boolean = false,
@@ -91,6 +96,7 @@ data class PatientUiState(
     val deletingCaregiverId: String? = null,
     val caregiverError: String? = null,
     val createdCaregiverTemporaryPin: String? = null,
+    val createdCaregiverInvite: CreatedCaregiverInvite? = null,
     val historyWeekStart: LocalDate = currentWeekStart(),
     val historySummary: AdherenceSummary? = null,
     val historyLogs: List<AdherenceLog> = emptyList(),
@@ -540,6 +546,7 @@ class PatientViewModel @Inject constructor(
                     isAddingCaregiver = true,
                     caregiverError = null,
                     createdCaregiverTemporaryPin = null,
+                    createdCaregiverInvite = null,
                 )
             }
             runCatching { repository.createCaregiver(phone, relationship?.takeIf(String::isNotBlank)) }
@@ -548,7 +555,12 @@ class PatientViewModel @Inject constructor(
                         it.copy(
                             caregivers = listOf(created) + it.caregivers.filterNot { link -> link.id == created.id },
                             isAddingCaregiver = false,
-                            createdCaregiverTemporaryPin = created.temporaryPassword,
+                            createdCaregiverInvite = created.linkCode?.let { code ->
+                                CreatedCaregiverInvite(
+                                    linkCode = code,
+                                    telegramDeepLink = created.telegramDeepLink,
+                                )
+                            },
                             message = if (created.status == QUEUED_OFFLINE) {
                                 "Đã lưu người chăm sóc trên máy, chờ đồng bộ khi có mạng"
                             } else {
@@ -598,7 +610,13 @@ class PatientViewModel @Inject constructor(
     }
 
     fun clearCaregiverError() {
-        _state.update { it.copy(caregiverError = null, createdCaregiverTemporaryPin = null) }
+        _state.update {
+            it.copy(
+                caregiverError = null,
+                createdCaregiverTemporaryPin = null,
+                createdCaregiverInvite = null,
+            )
+        }
     }
 
     fun loadAdherenceHistory(resetPage: Boolean = true) {

@@ -212,12 +212,12 @@ class RemindRxApiServiceContractTest {
             {
               "id": "link-1",
               "patient_id": "patient-1",
-              "caregiver_user_id": "caregiver-1",
+              "phone": "+84901234567",
               "relationship": "Con gái",
-              "channels": ["APP_NOTIFICATION"],
+              "link_code": "CG001A",
+              "telegram_deep_link": "https://t.me/RemindRx_bot?start=CG001A",
               "status": "ACTIVE",
-              "created_at": "2026-08-14T00:00:00Z",
-              "temp_password": "123456"
+              "created_at": "2026-08-14T00:00:00Z"
             }
             """.trimIndent(),
             statusCode = 201,
@@ -240,9 +240,9 @@ class RemindRxApiServiceContractTest {
         )
         assertEquals("+84901234567", createBody["caregiver_phone"].asString)
         assertEquals("Con gái", createBody["relationship"].asString)
-        assertEquals("APP_NOTIFICATION", createBody["channels"].asJsonArray[0].asString)
         assertFalse(createBody.has("caregiverPhone"))
-        assertEquals("caregiver-1", created?.caregiverUserId)
+        assertEquals("+84901234567", created?.phone)
+        assertEquals("CG001A", created?.linkCode)
 
         enqueueSuccess("""{"message":"Caregiver link removed successfully"}""")
 
