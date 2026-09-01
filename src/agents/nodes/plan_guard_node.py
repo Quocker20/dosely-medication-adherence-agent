@@ -7,9 +7,8 @@ from src.agents.semantic_plan import SemanticPlan, SemanticStep
 from src.agents.state import AgentState
 
 _READ_TOOLS = {
-    "get_schedule", "get_next_dose", "get_current_medications",
-    "explain_current_medications", "resolve_prescribed_medication",
-    "search_drug_information", "clarify", "general_response",
+    "get_schedule", "get_next_dose", "resolve_medication",
+    "search_drug_knowledge", "search_medication_catalog",
 }
 _BLOCKED_REPLY = (
     "Mình không thể tự quyết định thay đổi liều, ngừng thuốc hoặc thay đổi điều trị. "
@@ -27,9 +26,9 @@ def _validate_step(plan: SemanticStep) -> list[str]:
         errors.append("treatment_change_not_authorized")
     if plan.tool == "report_meal_shift" and plan.requested_action not in {"change_schedule", "read", "other"}:
         errors.append("invalid_schedule_action")
-    if plan.tool == "search_drug_information" and not plan.drug_name and not plan.needs_clarification:
+    if plan.tool in {"search_drug_knowledge", "search_medication_catalog"} and not plan.drug_name and not plan.needs_clarification:
         errors.append("missing_drug_name")
-    if plan.tool == "resolve_prescribed_medication" and plan.drug_reference_type == "none":
+    if plan.tool == "resolve_medication" and plan.drug_reference_type == "none":
         errors.append("missing_prescription_reference")
     if plan.tool == "record_adverse_event" and not plan.symptoms:
         errors.append("missing_symptoms")

@@ -40,13 +40,16 @@ _DATE_TIME_MARKERS = (
     "hom nay ngay bao nhieu", "hom nay la ngay may", "bay gio la may gio",
     "may gio roi", "ngay hien tai",
 )
+_ABUSIVE_OR_NOISE = (
+    "dit me", "địt mẹ", "gay deo", "gãy đéo", "vcl", "dm", "dmm",
+)
 
 
 class ScopeClassification(BaseModel):
     category: Literal[
         "medication", "prescription_schedule", "adherence",
         "medication_related_symptom", "remindrx_help", "greeting",
-        "date_time", "out_of_scope",
+        "date_time", "out_of_scope", "abusive_noise",
     ]
     reason: str = Field(description="Lý do ngắn, không trả lời câu hỏi của người dùng")
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -72,6 +75,9 @@ Nếu câu có triệu chứng nhưng không rõ liên quan thuốc, chọn medi
 để tầng an toàn xử lý thận trọng, không chẩn đoán."""
 
 
+_SCOPE_PROMPT += "\nNếu tin nhắn chủ yếu là chửi tục, xúc phạm, khiêu khích hoặc nhiễu không có yêu cầu RemindRx, chọn category=abusive_noise."
+
+
 def _last_human_text(state: AgentState) -> str:
     for message in reversed(state.get("messages", [])):
         if isinstance(message, HumanMessage):
@@ -80,6 +86,10 @@ def _last_human_text(state: AgentState) -> str:
 
 
 def _obviously_allowed(normalized: str) -> str | None:
+    # Do not let an isolated medication keyword whitelist abusive/noise text.
+    # This is a pre-LLM safety/scope filter, not an intent classifier.
+    if any(marker in normalized for marker in _ABUSIVE_OR_NOISE):
+        return None
     padded = f" {normalized} "
     has = lambda marker: f" {marker} " in padded
     if normalized in _GREETING:
@@ -148,6 +158,11 @@ async def scope_guard_node(state: AgentState) -> dict:
             f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
         )
     category = result.category if result is not None else "unknown"
+    if category in {"abusive_noise", "out_of_scope"}:
+        return {"scope_blocked": True, "scope_category": category, "messages": [AIMessage(content=(
+            "Mình chỉ hỗ trợ tra cứu thông tin về thuốc, đơn thuốc và lịch uống thuốc của bạn. "
+            "Bạn hãy đặt một câu hỏi liên quan đến các nội dung này nhé."
+        ))]}
 
     # Scope is advisory. The main semantic parser owns intent/out-of-scope
     # understanding so an unusual valid phrasing is never rejected here.
