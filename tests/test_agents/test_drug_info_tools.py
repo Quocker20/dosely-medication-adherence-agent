@@ -23,9 +23,7 @@ def _medication(**overrides):
 
 @pytest.mark.asyncio
 async def test_short_query_returns_canned_message_without_calling_backend():
-    with patch(
-        "src.agents.tools.drug_info_tools.get", new=AsyncMock()
-    ) as mock_get:
+    with patch("src.agents.tools.drug_info_tools.get", new=AsyncMock()) as mock_get:
         result = await search_drug_info.ainvoke({"query": "a"})
 
     assert result == _NO_MATCH_MESSAGE

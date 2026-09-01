@@ -2,7 +2,10 @@ from src.agents.adverse_event_risk import classify_adverse_event_risk
 
 
 def test_adverse_event_risk_critical_keywords_override_llm_severity():
-    assert classify_adverse_event_risk("Tôi bị khó thở sau khi uống thuốc", [{"name": "mệt", "severity": "MILD"}]) == "CRITICAL"
+    assert (
+        classify_adverse_event_risk("Tôi bị khó thở sau khi uống thuốc", [{"name": "mệt", "severity": "MILD"}])
+        == "CRITICAL"
+    )
 
 
 def test_adverse_event_risk_uses_structured_severity_for_non_emergency():

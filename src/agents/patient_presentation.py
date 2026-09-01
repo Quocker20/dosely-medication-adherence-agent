@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import re
 
-_INLINE_CITATION = re.compile(
-    r"\s*\[(?:Nguồn|Source)\s*\d+]", re.IGNORECASE
-)
+_INLINE_CITATION = re.compile(r"\s*\[(?:Nguồn|Source)\s*\d+]", re.IGNORECASE)
 _SOURCE_ONLY_LINE = re.compile(
     r"^\s*(?:[-*•]\s*)?(?:Nguồn|Sources?|Tài liệu tham khảo)"
     r"(?:\s*\d+)?\s*[:：-]?(?:\s*(?:Dược thư|https?://|trang\s+\d+).*)?$",

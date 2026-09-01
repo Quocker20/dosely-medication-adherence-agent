@@ -18,9 +18,7 @@ def resolve_patient_address(profile: object, reference_date: date) -> str:
     except ValueError:
         return DEFAULT_PATIENT_ADDRESS
 
-    age = reference_date.year - dob.year - (
-        (reference_date.month, reference_date.day) < (dob.month, dob.day)
-    )
+    age = reference_date.year - dob.year - ((reference_date.month, reference_date.day) < (dob.month, dob.day))
     if age < 0:
         return DEFAULT_PATIENT_ADDRESS
     if age >= 60:

@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.medication_policy import match_medication_decision
 from src.agents.nodes.safety_guard_node import (
-    EmergencyAssessment,
     evaluate_safety,
     safety_guard_node,
 )
@@ -15,10 +14,7 @@ from src.agents.nodes.safety_guard_node import (
 def _mock_llm(content: str):
     patcher = patch("src.agents.nodes.safety_guard_node.get_llm")
     mock_get_llm = patcher.start()
-    assessment = EmergencyAssessment(
-        urgent=content.strip().upper().startswith("CO"), confidence=0.99, reason="test"
-    )
-    mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(return_value=assessment)
+    mock_get_llm.return_value.ainvoke = AsyncMock(return_value=AIMessage(content=content))
     return patcher, mock_get_llm
 
 
@@ -148,6 +144,10 @@ async def test_graph_node_benign_message_does_not_add_reply():
             "TAKE_MEDICATION_DECISION",
         ),
         ("Bạn có thể uống paracetamol sau khi uống bia.", "TAKE_MEDICATION_DECISION"),
+        (
+            "Hôm nay tôi ngủ trễ, với lại tăng liều thuốc huyết áp lên 2 viên nhé",
+            "DOSE_CHANGE",
+        ),
     ],
 )
 def test_medication_decisions_are_detected_by_code(message: str, expected: str):
@@ -171,20 +171,23 @@ def test_current_medication_list_question_is_not_blocked():
     assert match_medication_decision("Tôi đang dùng thuốc gì?") is None
 
 
-@pytest.mark.parametrize("message", [
-    "Giải thích giúp tôi cách dùng các thuốc trong đơn",
-    "Cho tôi xem hướng dẫn dùng thuốc bác sĩ đã kê",
-    "Tại sao bác sĩ cho tôi dùng metformin?",
-    "Bác sĩ vừa đổi liều của tôi thành bao nhiêu?",
-])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Giải thích giúp tôi cách dùng các thuốc trong đơn",
+        "Cho tôi xem hướng dẫn dùng thuốc bác sĩ đã kê",
+        "Tại sao bác sĩ cho tôi dùng metformin?",
+        "Bác sĩ vừa đổi liều của tôi thành bao nhiêu?",
+    ],
+)
 def test_read_only_personal_treatment_questions_are_not_blocked(message: str):
     assert match_medication_decision(message) is None
 
 
 def test_read_only_wording_does_not_hide_a_dose_change_request():
-    assert match_medication_decision(
-        "Giải thích đơn rồi cho tôi biết tôi có thể tăng liều được không?"
-    ) == "DOSE_CHANGE"
+    assert (
+        match_medication_decision("Giải thích đơn rồi cho tôi biết tôi có thể tăng liều được không?") == "DOSE_CHANGE"
+    )
 
 
 def test_children_word_is_not_mistaken_for_personal_pronoun():
@@ -192,23 +195,18 @@ def test_children_word_is_not_mistaken_for_personal_pronoun():
 
 
 def test_first_person_em_is_still_detected():
-    assert (
-        match_medication_decision("Em có thể uống paracetamol nữa được không?")
-        == "TAKE_MEDICATION_DECISION"
-    )
+    assert match_medication_decision("Em có thể uống paracetamol nữa được không?") == "TAKE_MEDICATION_DECISION"
 
 
 @pytest.mark.asyncio
 async def test_medication_policy_blocks_without_llm_or_red_alert():
-    with (
-        patch("src.agents.nodes.safety_guard_node.get_llm") as mock_llm,
-        patch("src.agents.nodes.safety_guard_node.trigger_red_alert") as mock_alert,
-    ):
+    with patch("src.agents.nodes.safety_guard_node.get_llm") as mock_llm:
         verdict = await evaluate_safety("Tôi tăng gấp đôi liều được không?", "patient-1")
-    assert verdict.blocked is False
+    assert verdict.blocked is True
     assert verdict.escalated is False
-    assert verdict.reason is None
-    mock_alert.ainvoke.assert_not_called()
+    assert verdict.reason == "MEDICATION_POLICY: DOSE_CHANGE"
+    assert verdict.fixed_reply is not None
+    mock_llm.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -220,5 +218,7 @@ async def test_graph_node_returns_blocked_flag_without_escalation():
                 "patient_id": "patient-1",
             }
         )
-    assert result["safety_blocked"] is False
+    assert result["safety_blocked"] is True
     assert result["escalated"] is False
+    assert "messages" in result
+    mock_llm.assert_not_called()
