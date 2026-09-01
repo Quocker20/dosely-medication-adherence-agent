@@ -30,6 +30,8 @@ class AgentState(TypedDict, total=False):
     # intent classifier, chat model, tool, or retrieval call.
     safety_blocked: bool
     safety_reason: str
+    # Exactly one canonical reason is exposed to the refusal-answer LLM.
+    refusal_reason: str
     scope_blocked: bool
     scope_category: str
     output_guarded: bool

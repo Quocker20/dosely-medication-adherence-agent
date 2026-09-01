@@ -4,6 +4,7 @@ import { ApiError, api } from "../../../api";
 import type { ChatConversationListItem } from "../../../types";
 import Icon from "./Icon";
 
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";

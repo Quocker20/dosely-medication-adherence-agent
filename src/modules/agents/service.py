@@ -796,7 +796,8 @@ class ChatService:
                 "patient_id": patient_id,
                 "conversation_id": str(conversation.id),
                 "patient_address": patient_address,
-                "client_date": client_date.isoformat() if client_date else None,
+                # Server is the source of truth for relative date phrases.
+                "client_date": reference_date.isoformat(),
                 "client_datetime": client_datetime.isoformat() if client_datetime else None,
                 "memory_context": working,
             }
