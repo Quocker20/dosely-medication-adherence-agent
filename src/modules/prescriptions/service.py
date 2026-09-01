@@ -28,14 +28,6 @@ from src.modules.auth.repository import AuthRepository
 from src.modules.patients.constants import DEFAULT_ROUTINE
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Prescription, PrescriptionItem
-from src.modules.prescriptions.pdf import (
-    PdfDoctor,
-    PdfItem,
-    PdfPatient,
-    PdfSeeds,
-    PrescriptionPdfData,
-    render_prescription_pdf,
-)
 from src.modules.prescriptions.repository import MedicationRepository, PrescriptionRepository
 from src.modules.prescriptions.schemas import (
     CancelPrescriptionRequest,
@@ -394,6 +386,18 @@ class PrescriptionService:
         apart. DRAFT/CANCELLED -> 422, checked only after the access gate so
         an out-of-scope caller learns nothing about a prescription's status.
         """
+        # PDF rendering is an optional path. Keep its fpdf2 dependency out of
+        # application startup so chatbot/API tests can run without importing
+        # the renderer.
+        from src.modules.prescriptions.pdf import (
+            PdfDoctor,
+            PdfItem,
+            PdfPatient,
+            PdfSeeds,
+            PrescriptionPdfData,
+            render_prescription_pdf,
+        )
+
         role = actor_payload.get("role")
         actor_id = None if role == "ADMIN" else uuid.UUID(actor_payload["sub"])
 
