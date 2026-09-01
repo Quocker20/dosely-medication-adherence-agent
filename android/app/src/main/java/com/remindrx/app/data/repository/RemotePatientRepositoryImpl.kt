@@ -318,29 +318,25 @@ class RemotePatientRepositoryImpl @Inject constructor(
     override suspend fun createCaregiver(
         caregiverPhone: String,
         relationship: String?,
-        channels: List<String>,
     ): CaregiverLink {
         val normalizedPhone = caregiverPhone.filterNot(Char::isWhitespace)
         val normalizedRelationship = relationship?.trim()?.takeIf(String::isNotEmpty)
-        val normalizedChannels = channels.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         require(normalizedPhone.matches(Regex("^\\+?[0-9]{9,15}$"))) {
             "Số điện thoại người thân phải có từ 9 đến 15 chữ số."
         }
         require(normalizedRelationship == null || normalizedRelationship.length <= 50) {
             "Mối quan hệ không được dài quá 50 ký tự."
         }
-        require(normalizedChannels.isNotEmpty()) { "Cần chọn ít nhất một kênh thông báo." }
         val patientId = sessionStore.requirePatientId()
         val request = CreateCaregiverLinkRequestDto(
             caregiverPhone = normalizedPhone,
             relationship = normalizedRelationship,
-            channels = normalizedChannels,
         )
         return try {
             api.createCaregiver(
                 patientId = patientId,
                 request = request,
-            ).requireData("Thêm người thân").toDomain(caregiverPhone = normalizedPhone)
+            ).requireData("Thêm người thân").toDomain()
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: IOException) {
@@ -352,19 +348,16 @@ class RemotePatientRepositoryImpl @Inject constructor(
                 payload = CreateCaregiverPayload(
                     caregiverPhone = normalizedPhone,
                     relationship = normalizedRelationship,
-                    channels = normalizedChannels,
+                    channels = listOf("TELEGRAM"),
                 ),
             )
             CaregiverLink(
                 id = id,
                 patientId = patientId,
-                caregiverUserId = "",
+                phone = normalizedPhone,
                 relationship = normalizedRelationship,
-                channels = normalizedChannels,
                 status = QUEUED_OFFLINE,
                 createdAt = nowIso(),
-                temporaryPassword = null,
-                caregiverPhone = normalizedPhone,
             )
         }
     }

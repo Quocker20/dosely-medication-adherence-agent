@@ -1,5 +1,7 @@
 package com.remindrx.app.ui.feature.patient
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.AlertDialog
@@ -23,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,19 +38,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.remindrx.app.ui.components.ChipTone
 import com.remindrx.app.ui.components.PrimaryButton
 import com.remindrx.app.ui.components.RemindRxPullRefresh
+import com.remindrx.app.ui.components.StatusChip
 import com.remindrx.app.ui.theme.LocalRemindRxColors
+
+data class CaregiverInviteUi(
+    val linkCode: String,
+    val telegramDeepLink: String?,
+)
 
 data class CaregiverUi(
     val linkId: String,
     val relationship: String?,
     val phone: String? = null,
     val status: String,
-    val channels: List<String>,
+    val linkCode: String? = null,
+    val telegramDeepLink: String? = null,
 )
 
 @Composable
@@ -56,7 +69,7 @@ fun CaregiverScreen(
     isAdding: Boolean,
     deletingLinkId: String?,
     error: String?,
-    createdTemporaryPin: String?,
+    createdInvite: CaregiverInviteUi?,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onInputChanged: () -> Unit,
@@ -64,6 +77,7 @@ fun CaregiverScreen(
     onDelete: (linkId: String) -> Unit,
 ) {
     val extras = LocalRemindRxColors.current
+    val context = LocalContext.current
     var phone by remember { mutableStateOf("") }
     var relationship by remember { mutableStateOf("") }
     var submittedAdd by remember { mutableStateOf(false) }
@@ -84,7 +98,7 @@ fun CaregiverScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Gỡ người chăm sóc?") },
-            text = { Text("Tài khoản này sẽ không còn được liên kết với hồ sơ của bạn.") },
+            text = { Text("Người thân này sẽ không còn nhận được thông báo về tình trạng sức khỏe của bạn.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -121,9 +135,18 @@ fun CaregiverScreen(
 
             item {
                 Text(
-                    "Liên kết tài khoản người thân bằng số điện thoại. Kênh mặc định là thông báo trong ứng dụng.",
+                    "Liên kết người thân để nhận thông báo khẩn cấp và báo cáo tuân thủ dùng thuốc qua Telegram Bot.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = extras.inkMuted,
+                )
+            }
+
+            item {
+                Text(
+                    "💡 3 bước đơn giản: 1. Điền SĐT người thân ➔ 2. Nhận link Telegram ➔ 3. Gửi cho người thân bấm START để kích hoạt.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
@@ -159,7 +182,7 @@ fun CaregiverScreen(
                             singleLine = true,
                         )
                         PrimaryButton(
-                            text = if (isAdding) "Đang liên kết…" else "Thêm người chăm sóc",
+                            text = if (isAdding) "Đang tạo liên kết…" else "Thêm người chăm sóc",
                             onClick = {
                                 onAdd(
                                     normalizedPhone,
@@ -173,27 +196,75 @@ fun CaregiverScreen(
                 }
             }
 
-            createdTemporaryPin?.let { pin ->
+            createdInvite?.let { invite ->
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = extras.warningTint),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = extras.primaryTint),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
                     ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("Mã PIN tạm thời", style = MaterialTheme.typography.titleMedium, color = extras.warning)
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "Mã liên kết Telegram",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                             Text(
-                                pin,
-                                style = MaterialTheme.typography.headlineMedium,
-                                modifier = Modifier.padding(top = 6.dp),
+                                invite.linkCode,
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                             Text(
-                                "Chỉ chia sẻ mã này trực tiếp với người chăm sóc. Mã chỉ xuất hiện khi hệ thống vừa tạo tài khoản mới.",
-                                style = MaterialTheme.typography.labelMedium,
+                                "Chia sẻ liên kết này với người thân. Người thân chỉ cần mở link và bấm START trên Telegram để kích hoạt nhận thông báo.",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = extras.inkMuted,
-                                fontWeight = FontWeight.Normal,
-                                modifier = Modifier.padding(top = 6.dp),
                             )
+                            invite.telegramDeepLink?.let { deepLink ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    PrimaryButton(
+                                        text = "Mở Telegram",
+                                        onClick = {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deepLink))
+                                            context.startActivity(intent)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            val sendIntent = Intent().apply {
+                                                action = Intent.ACTION_SEND
+                                                putExtra(
+                                                    Intent.EXTRA_TEXT,
+                                                    "Hãy tham gia làm người giám hộ chăm sóc sức khỏe của tôi trên RemindRx qua link: $deepLink",
+                                                )
+                                                type = "text/plain"
+                                            }
+                                            context.startActivity(Intent.createChooser(sendIntent, "Chia sẻ link Telegram"))
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text("Chia sẻ link")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -255,19 +326,36 @@ private fun CaregiverRow(caregiver: CaregiverUi, isDeleting: Boolean, onDelete: 
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        caregiver.relationship?.takeIf(String::isNotBlank) ?: "Người chăm sóc",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    StatusChip(
+                        text = when (caregiver.status) {
+                            "ACTIVE" -> "Đang hoạt động"
+                            "BLOCKED" -> "Đã chặn bot"
+                            else -> "Chờ kết nối"
+                        },
+                        tone = when (caregiver.status) {
+                            "ACTIVE" -> ChipTone.SUCCESS
+                            "BLOCKED" -> ChipTone.DANGER
+                            else -> ChipTone.WARNING
+                        },
+                    )
+                }
                 Text(
-                    caregiver.relationship?.takeIf(String::isNotBlank) ?: "Người chăm sóc",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    caregiver.phone?.takeIf(String::isNotBlank) ?: "Tài khoản đã được liên kết",
+                    caregiver.phone?.takeIf(String::isNotBlank) ?: "Tài khoản đã liên kết",
                     style = MaterialTheme.typography.labelMedium,
                     color = extras.inkMuted,
                     fontWeight = FontWeight.Normal,
                 )
                 Text(
-                    if (caregiver.channels.contains("APP_NOTIFICATION")) "Thông báo ứng dụng" else "Không có kênh thông báo",
+                    "Kênh: Telegram Bot",
                     style = MaterialTheme.typography.labelSmall,
                     color = extras.inkMuted,
                 )
@@ -292,7 +380,10 @@ private fun CaregiverScreenPreview() = com.remindrx.app.ui.preview.RemindRxPrevi
         isAdding = false,
         deletingLinkId = null,
         error = null,
-        createdTemporaryPin = null,
+        createdInvite = CaregiverInviteUi(
+            linkCode = "AB12CD",
+            telegramDeepLink = "https://t.me/RemindRx_bot?start=AB12CD",
+        ),
         onBack = {},
         onRetry = {},
         onInputChanged = {},

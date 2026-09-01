@@ -90,8 +90,8 @@ export default function App() {
     />;
   }
   if (session.user.role === "PATIENT") {
-    const tab = ["dashboard", "schedule", "assistant", "survey", "sos", "routine"].includes(requestedTab ?? "")
-      ? requestedTab as "dashboard" | "schedule" | "assistant" | "survey" | "sos" | "routine"
+    const tab = ["dashboard", "schedule", "routine", "caregivers", "assistant", "survey", "sos"].includes(requestedTab ?? "")
+      ? requestedTab as "dashboard" | "schedule" | "routine" | "caregivers" | "assistant" | "survey" | "sos"
       : "dashboard";
     return <PatientPortal session={session} tab={tab} onTabChange={(nextTab) => navigate(`/patient/${nextTab}`)} />;
   }

@@ -75,7 +75,6 @@ interface PatientRepository {
     suspend fun createCaregiver(
         caregiverPhone: String,
         relationship: String?,
-        channels: List<String> = listOf("APP_NOTIFICATION"),
     ): CaregiverLink
 
     suspend fun deleteCaregiver(caregiverLinkId: String): String

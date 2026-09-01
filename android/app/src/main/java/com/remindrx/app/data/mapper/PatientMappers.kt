@@ -120,17 +120,18 @@ fun AlertDto.toDomain(): Alert = Alert(
     createdAt = createdAt,
 )
 
-fun CaregiverLinkDetailResponseDto.toDomain(caregiverPhone: String? = null): CaregiverLink =
+fun CaregiverLinkDetailResponseDto.toDomain(): CaregiverLink =
     CaregiverLink(
         id = id,
         patientId = patientId,
-        caregiverUserId = caregiverUserId,
+        phone = phone,
         relationship = relationship,
-        channels = channels,
+        linkCode = linkCode,
+        telegramDeepLink = telegramDeepLink,
         status = status,
+        telegramBoundAt = telegramBoundAt,
+        lastMessageSentAt = lastMessageSentAt,
         createdAt = createdAt,
-        temporaryPassword = tempPassword,
-        caregiverPhone = caregiverPhone,
     )
 
 fun MedicationDetailResponseDto.toDomain(): MedicationDetail = MedicationDetail(

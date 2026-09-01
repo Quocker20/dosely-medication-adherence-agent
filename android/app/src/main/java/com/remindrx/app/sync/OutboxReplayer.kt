@@ -158,7 +158,6 @@ class OutboxReplayer @Inject constructor(
             request = CreateCaregiverLinkRequestDto(
                 caregiverPhone = payload.caregiverPhone,
                 relationship = payload.relationship,
-                channels = payload.channels,
             ),
         ).requireData("Đồng bộ thêm người thân")
     }
