@@ -6,6 +6,7 @@ import { adminApi } from "./admin";
 import { adherenceApi } from "./adherence";
 import { alertsApi } from "./alerts";
 import { authApi } from "./auth";
+import { caregiversApi } from "./caregivers";
 import { dashboardApi } from "./dashboard";
 import { healthSurveysApi } from "./healthSurveys";
 import { medicationsApi } from "./medications";
@@ -29,6 +30,7 @@ export const api = {
   ...adminApi,
   ...healthSurveysApi,
   ...adherenceApi,
+  ...caregiversApi,
 };
 
 /**

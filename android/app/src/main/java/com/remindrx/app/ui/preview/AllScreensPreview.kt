@@ -123,14 +123,16 @@ internal val previewCaregivers = listOf(
         relationship = "Con gái",
         phone = "090 123 4567",
         status = "ACTIVE",
-        channels = listOf("APP_NOTIFICATION"),
+        linkCode = "CG001A",
+        telegramDeepLink = "https://t.me/RemindRx_bot?start=CG001A",
     ),
     CaregiverUi(
         linkId = "caregiver-2",
         relationship = "Em trai",
         phone = "091 234 5678",
         status = "PENDING",
-        channels = listOf("APP_NOTIFICATION"),
+        linkCode = "CG002B",
+        telegramDeepLink = "https://t.me/RemindRx_bot?start=CG002B",
     ),
 )
 
