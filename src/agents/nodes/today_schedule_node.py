@@ -4,6 +4,37 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+import re
+
+
+def _resolve_weekday_reference(reference: str, base: date) -> date | None:
+    """Resolve Vietnamese weekday references without trusting an LLM date."""
+    text = str(reference or "").casefold().strip()
+    names = {"2": 0, "hai": 0, "3": 1, "ba": 1, "4": 2, "tư": 2, "tu": 2,
+             "5": 3, "năm": 3, "nam": 3, "6": 4, "sáu": 4, "sau": 4,
+             "7": 5, "bảy": 5, "bay": 5}
+    match = re.search(r"thứ\s*([234567]|hai|ba|tư|tu|năm|nam|sáu|sau|bảy|bay)\s+(?:tuần\s+)?(trước|truoc|sau|tới|toi|này)", text)
+    if not match:
+        return None
+    monday = base - timedelta(days=base.weekday())
+    week_offset = -7 if match.group(2) in {"trước", "truoc"} else (7 if match.group(2) in {"sau", "tới", "toi"} else 0)
+    return monday + timedelta(days=week_offset + names[match.group(1)])
+
+
+def _resolve_relative_date(reference: str, base: date) -> date | None:
+    """Resolve past and future relative dates from the server's local date."""
+    value = str(reference or "").casefold().strip()
+    offsets = {
+        "hôm qua": -1, "hom qua": -1, "yesterday": -1,
+        "hôm kia": -2, "hom kia": -2,
+        "day_before_yesterday": -2,
+        "hôm nay": 0, "hom nay": 0, "today": 0,
+        "ngày mai": 1, "ngay mai": 1, "mai": 1, "tomorrow": 1,
+        "ngày mốt": 2, "ngay mot": 2, "ngày kia": 2, "ngay kia": 2,
+        "day_after_tomorrow": 2,
+    }
+    offset = offsets.get(value)
+    return base + timedelta(days=offset) if offset is not None else None
 
 from langchain_core.messages import AIMessage
 
@@ -52,6 +83,15 @@ async def today_schedule_node(state: AgentState) -> dict:
         "ngày kia",
     } or bool(analysis.get("target_date"))
     target_date = analysis.get("target_date") or client_date
+    if client_date:
+        try:
+            base_date = date.fromisoformat(str(client_date))
+            resolved = _resolve_weekday_reference(date_reference, base_date) or _resolve_relative_date(date_reference, base_date)
+            if resolved:
+                target_date = resolved.isoformat()
+                future_reference = resolved > base_date
+        except ValueError:
+            pass
     if not analysis.get("target_date") and len(date_reference) == 10 and date_reference[4] == "-":
         try:
             parsed_reference = date.fromisoformat(date_reference)

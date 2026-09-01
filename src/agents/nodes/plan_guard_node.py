@@ -1,5 +1,4 @@
 """Post-LLM guardrail: validate semantic plans before any tool or data access."""
-
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage
@@ -8,12 +7,9 @@ from src.agents.semantic_plan import SemanticPlan, SemanticStep
 from src.agents.state import AgentState
 
 _READ_TOOLS = {
-    "get_schedule",
-    "get_next_dose",
-    "get_current_medications",
-    "explain_current_medications",
-    "resolve_medication",
-    "search_drug_knowledge",
+    "get_schedule", "get_next_dose", "get_current_medications", "explain_current_medications",
+    "resolve_medication", "resolve_prescribed_medication",
+    "search_drug_knowledge", "search_drug_information", "search_medication_catalog",
 }
 _BLOCKED_REPLY = (
     "Mình không thể tự quyết định thay đổi liều, ngừng thuốc hoặc thay đổi điều trị. "
@@ -31,9 +27,9 @@ def _validate_step(plan: SemanticStep) -> list[str]:
         errors.append("treatment_change_not_authorized")
     if plan.tool == "report_meal_shift" and plan.requested_action not in {"change_schedule", "read", "other"}:
         errors.append("invalid_schedule_action")
-    if plan.tool == "search_drug_knowledge" and not plan.drug_name and not plan.needs_clarification:
+    if plan.tool in {"search_drug_knowledge", "search_drug_information", "search_medication_catalog"} and not plan.drug_name and not plan.needs_clarification:
         errors.append("missing_drug_name")
-    if plan.tool == "resolve_medication" and plan.drug_reference_type == "none":
+    if plan.tool in {"resolve_medication", "resolve_prescribed_medication"} and plan.drug_reference_type == "none":
         errors.append("missing_prescription_reference")
     if plan.tool == "record_adverse_event" and not plan.symptoms:
         errors.append("missing_symptoms")
@@ -48,15 +44,11 @@ def validate_plan(plan: SemanticPlan) -> list[str]:
         errors.append("too_many_steps")
     if sum(step.tool in _WRITE_TOOLS for step in plan.steps) > 1:
         errors.append("multiple_write_steps")
-    # Một write step không được kết hợp với bất kỳ step nào khác trong cùng 1 multi-tool plan.
-    # _EXECUTORS chỉ chứa read tools; để write step đi chung sẽ bị drop âm thầm
-    # (multi_tool_executor_node:18 vs plan_guard_node:24-25, bug #3).
-    if len(plan.steps) > 1 and any(step.tool in _WRITE_TOOLS for step in plan.steps):
-        errors.append("write_not_composable")
     if len(plan.steps) > 1 and any(step.tool in {"clarify", "general_response"} for step in plan.steps):
         errors.append("non_composable_step")
     signatures = [
-        (step.tool, step.date_reference, step.schedule_time, step.drug_name, tuple(step.topics)) for step in plan.steps
+        (step.tool, step.date_reference, step.schedule_time, step.drug_name, tuple(step.topics))
+        for step in plan.steps
     ]
     if len(signatures) != len(set(signatures)):
         errors.append("duplicate_steps")
@@ -86,10 +78,13 @@ async def plan_guard_node(state: AgentState) -> dict:
                 "plan_errors": errors,
             }
         return {
+            # Internal fail-safe only; output_guard replaces it with an LLM
+            # response based on the question and one refusal reason.
             "messages": [AIMessage(content=_BLOCKED_REPLY)],
             "semantic_plan_valid": False,
             "safety_blocked": True,
             "safety_reason": errors[0],
+            "refusal_reason": errors[0],
             "plan_errors": errors,
         }
     return {"semantic_plan_valid": True, "plan_errors": []}

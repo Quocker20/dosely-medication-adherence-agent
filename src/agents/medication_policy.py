@@ -6,29 +6,11 @@ import re
 import unicodedata
 
 DECISION_MARKERS = (
-    "duoc khong",
-    "co nen",
-    "co the",
-    "an toan khong",
-    "giup toi",
-    "cho toi",
+    "duoc khong", "co nen", "co the", "an toan khong", "giup toi", "cho toi",
 )
 PERSONAL_MARKERS = ("toi", "minh", "chau", "ban", "me toi", "bo toi", "con toi")
 MEDICATION_RULES = (
-    (
-        "DOSE_CHANGE",
-        (
-            "tang lieu",
-            "giam lieu",
-            "doi lieu",
-            "gap doi lieu",
-            "bot lieu",
-            "them lieu",
-            "tang gap",
-            "uong them",
-            "uong gap doi",
-        ),
-    ),
+    ("DOSE_CHANGE", ("tang lieu", "giam lieu", "doi lieu", "gap doi lieu", "bot lieu", "them lieu", "tang gap", "uong them", "uong gap doi")),
     ("STOP_MEDICATION", ("ngung thuoc", "bo thuoc", "nghi thuoc")),
     ("PRESCRIBE_MEDICATION", ("ke thuoc", "mua thuoc gi", "dung thuoc gi", "uong thuoc gi", "cho toi thuoc")),
     ("COADMINISTRATION_DECISION", ("uong cung", "dung cung", "phoi hop", "uong chung", "dung chung")),
@@ -56,6 +38,19 @@ def match_medication_decision(text: str) -> str | None:
     """Return a policy code for patient-specific treatment decisions."""
     normalized = fold(text)
     raw = unicodedata.normalize("NFC", text.casefold())
+    # Food and drink compatibility is an information question, not a request
+    # to combine two medicines. It must continue to prescription/RAG lookup.
+    if any(marker in normalized for marker in ("voi sua", "cung sua", "voi do an", "cung do an", "voi thuc an")):
+        return None
+    # A patient reporting an event after taking a prescribed medicine is not
+    # asking the chatbot to decide whether they should take that medicine.
+    if (
+        any(marker in normalized for marker in ("ghi nhan", "bao cao", "toi bi", "toi dang bi"))
+        and any(marker in normalized for marker in (
+            "buon non", "chong mat", "noi man", "ngua", "dau", "met", "tieu chay",
+        ))
+    ):
+        return None
     # Asking what is already prescribed is a read-only database request, not
     # a request for the chatbot to choose a treatment.
     if re.search(
@@ -64,16 +59,8 @@ def match_medication_decision(text: str) -> str | None:
     ):
         return None
     unsafe_change_markers = (
-        "tang lieu",
-        "giam lieu",
-        "gap doi",
-        "uong them",
-        "ngung thuoc",
-        "bo thuoc",
-        "uong cung",
-        "uong chung",
-        "dung chung",
-        "phoi hop",
+        "tang lieu", "giam lieu", "gap doi", "uong them", "ngung thuoc",
+        "bo thuoc", "uong cung", "uong chung", "dung chung", "phoi hop",
     )
     if (
         _READ_ONLY_TREATMENT_REQUEST.search(normalized)
@@ -104,6 +91,9 @@ def match_medication_decision(text: str) -> str | None:
             return code
     # Catch patient-specific take/use decisions after the more specific rules,
     # so phrases such as "uong chung" remain coadministration decisions.
-    if has_decision and has_personal and re.search(r"\b(?:uong|dung|tiem|boi|dat)\b", normalized):
+    has_take_verb = bool(re.search(r"\b(?:uống|dùng|tiêm|bôi|đặt)\b", raw)) or bool(
+        re.search(r"\b(?:uong|tiem|boi|dat)\b", normalized)
+    )
+    if has_decision and has_personal and has_take_verb:
         return "TAKE_MEDICATION_DECISION"
     return None
