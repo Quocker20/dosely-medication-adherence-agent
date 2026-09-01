@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from langchain_core.runnables import RunnableConfig
@@ -54,6 +54,12 @@ async def planning_lock_and_revalidate_node(state: PlanningState, config: Runnab
         commit_now,
         settings.max_frequency_per_day,
     )
+    overrides = await dose_repo.get_active_overrides(
+        state["patient_id"],
+        start=normalized["today_local"],
+        end=normalized["today_local"] + timedelta(days=settings.schedule_horizon_days),
+        for_update=True,
+    )
     rows = expand_schedule(
         normalized["plannable_items"],
         normalized["routine_times"],
@@ -62,6 +68,7 @@ async def planning_lock_and_revalidate_node(state: PlanningState, config: Runnab
         horizon_days=settings.schedule_horizon_days,
         default_min_gap_minutes=settings.min_dose_gap_minutes,
         max_treatment_days=settings.max_treatment_days,
+        overrides=overrides,
     )
     rows = [row for row in rows if row.current_scheduled_at > commit_now]
 

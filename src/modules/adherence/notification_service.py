@@ -13,6 +13,13 @@ from src.modules.agents.repository import ScheduledDoseRepository
 
 logger = logging.getLogger(__name__)
 
+# The only template that produces dose-linked deliveries. The send-time
+# freshness guard keys off this rather than off the presence of linked doses:
+# rescheduling hard-deletes doses and the junction rows cascade away with
+# them, so "has no linked doses" cannot distinguish a stale reminder from an
+# alert delivery, which must never be held back.
+DOSE_REMINDER_TEMPLATE_CODE = "DOSE_REMINDER_GROUPED"
+
 
 class NotificationDispatchService:
     """Service that scans due scheduled doses and consolidates concurrent

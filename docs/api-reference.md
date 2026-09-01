@@ -476,13 +476,49 @@ Response `data` (`ActiveScheduleResponse`):
 ```
 
 ### POST /patients/{patient_id}/schedules/reschedule → 202 — role: PATIENT (self)
-Wipes future PENDING doses and regenerates from the current routine.
+Wipes future PENDING doses and regenerates from the current routine. Use this for "my
+routine changed going forward" — for a same-day, single-anchor deviation, prefer
+`POST .../routine-overrides` below (only the affected dose slot(s) move, not the whole
+day).
 
 Request body (`RescheduleRequest`):
 ```json
 { "reason": "Changed sleep schedule" }
 ```
 Response `data`: `AgentRunAsyncResponse` (shape above).
+
+### POST /patients/{patient_id}/routine-overrides → 202 — role: PATIENT (self)
+Reports a same-day deviation for exactly one routine anchor (`breakfast`/`lunch`/`dinner`/
+`sleep`). Only the dose slot(s) anchored to it move, and only for today — `override_date`
+must equal the patient's own local today or the request is rejected (422); a hard-constraint
+conflict (e.g. min inter-dose gap) still surfaces as `NEEDS_REVIEW` via
+`GET /agent-runs/{id}` like any other reschedule, leaving the active schedule untouched.
+
+Request body (`ReportRoutineDeviationRequest`):
+```json
+{
+  "override_date": "2026-08-30",
+  "anchor": "dinner",
+  "overridden_time": "20:30",
+  "source": "CHAT",
+  "reason": "Bệnh nhân báo ăn tối muộn hôm nay"
+}
+```
+Response `data`: `AgentRunAsyncResponse` (shape above).
+
+### GET /patients/{patient_id}/routine-overrides/recent — role: PATIENT (self)
+Read-only history of this patient's most recent reported overrides for one anchor — used
+to phrase a smarter chatbot clarifying question when a deviation is reported without a
+concrete time; never applies a time on its own.
+
+Query: `anchor` (required, one of `breakfast`/`lunch`/`dinner`/`sleep`), `limit` (default 5, max 20).
+
+Response `data` (`List[RecentRoutineOverrideResponse]`):
+```json
+[
+  { "override_date": "2026-08-23", "overridden_time": "20:00:00" }
+]
+```
 
 ### GET /agent-runs/{agent_run_id} — role: PATIENT/DOCTOR/ADMIN
 Response `data` (`AgentRunStatusResponse`):
@@ -603,7 +639,11 @@ Query: `from`, `to` (required), `page` (≤1000), `size` (≤100).
 Response `data`: `PageResponse<AdherenceLogDetailResponse>`.
 
 ### POST /patients/{patient_id}/health-surveys → 201 — role: PATIENT (self)
-A `SEVERE` symptom auto-raises a safety Alert in the same transaction.
+A `SEVERE` symptom auto-raises a safety Alert in the same transaction. A non-empty
+`routine_deviations` entry is forwarded to the same `report_routine_deviation` service
+used by `POST .../routine-overrides` above (one shared code path for both channels); if
+`survey_date` isn't today the override is silently skipped (fail-open) but the survey
+itself still saves.
 
 Request body (`SubmitHealthSurveyRequest`):
 ```json
@@ -612,10 +652,13 @@ Request body (`SubmitHealthSurveyRequest`):
   "answers_json": { "sleep_quality": "good", "appetite": "normal" },
   "symptoms": [
     { "symptom_code": "DIZZINESS", "severity": "MODERATE", "description": "Sáng dậy hơi choáng" }
+  ],
+  "routine_deviations": [
+    { "anchor": "dinner", "overridden_time": "20:30", "reason": "Ăn tối muộn hôm nay" }
   ]
 }
 ```
-`severity`: `MILD | MODERATE | SEVERE`.
+`severity`: `MILD | MODERATE | SEVERE`. `anchor`: `breakfast | lunch | dinner | sleep`.
 
 Response `data` (`HealthSurveyDetailResponse`):
 ```json

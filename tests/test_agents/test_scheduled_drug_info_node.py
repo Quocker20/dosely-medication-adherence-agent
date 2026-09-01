@@ -22,9 +22,17 @@ async def test_empty_stomach_question_uses_time_to_resolve_drug_not_list_schedul
         "src.agents.nodes.classify_intent_node.get_llm",
         **{"return_value.with_structured_output.return_value.ainvoke": AsyncMock(return_value=semantic_result)},
     ):
-        result = await classify_intent_node({"messages": [HumanMessage(content=(
-            "Tôi bị đau bụng, chắc do uống thuốc lúc đói, tra hộ tôi xem dùng thuốc ở cữ 7h30 như thế có sai không?"
-        ))]})
+        result = await classify_intent_node(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            "Tôi bị đau bụng, chắc do uống thuốc lúc đói, tra hộ tôi xem dùng thuốc ở cữ 7h30 như thế có sai không?"
+                        )
+                    )
+                ]
+            }
+        )
     assert result["intent"] == "ask_prescribed_drug_info"
     assert result["intent_analysis"]["schedule_time"] == "07:30"
     assert result["intent_analysis"]["symptoms"] == ["đau bụng"]
@@ -44,9 +52,7 @@ async def test_effect_question_about_timed_dose_uses_special_route():
         "src.agents.nodes.classify_intent_node.get_llm",
         **{"return_value.with_structured_output.return_value.ainvoke": AsyncMock(return_value=semantic_result)},
     ):
-        result = await classify_intent_node({
-            "messages": [HumanMessage(content="Thuốc ở cữ 07:30 có tác dụng gì?")]
-        })
+        result = await classify_intent_node({"messages": [HumanMessage(content="Thuốc ở cữ 07:30 có tác dụng gì?")]})
     assert result["intent"] == "ask_prescribed_drug_info"
 
 
@@ -56,38 +62,44 @@ async def test_semantic_parser_failure_keeps_safe_deterministic_fallback():
         "src.agents.nodes.classify_intent_node.get_llm",
         **{"return_value.with_structured_output.return_value.ainvoke": AsyncMock(side_effect=TimeoutError)},
     ):
-        result = await classify_intent_node({"messages": [HumanMessage(content=(
-            "Thuốc ở cữ 7h30 uống lúc đói có sai không?"
-        ))]})
+        result = await classify_intent_node(
+            {"messages": [HumanMessage(content=("Thuốc ở cữ 7h30 uống lúc đói có sai không?"))]}
+        )
     assert result["intent"] == "ask_prescribed_drug_info"
     assert result["intent_analysis"]["parser"] == "deterministic"
 
 
 @pytest.mark.asyncio
 async def test_node_resolves_only_authenticated_patients_exact_timed_drug(monkeypatch):
-    backend_get = AsyncMock(return_value={
-        "date": "2026-08-29",
-        "timezone": "Asia/Ho_Chi_Minh",
-        "doses": [{
-            "current_scheduled_at": "2026-08-29T00:30:00Z",
-            "medication_name": "A Doxid 100mg Capsule",
-            "meal_relation": "AFTER_MEAL",
-        }],
-    })
-    monkeypatch.setattr(module, "get", backend_get)
-    monkeypatch.setattr(module, "_lookup_exact_drug", lambda name, question: (
-        "Thuốc có chỉ định và phản ứng bất lợi đã được tra cứu.", True
-    ))
-
-    result = await module.scheduled_drug_info_node({
-        "patient_id": "patient-from-jwt",
-        "client_date": "2026-08-29",
-        "messages": [HumanMessage(content="Thuốc cữ 7h30 có tác dụng gì?")],
-    })
-
-    backend_get.assert_awaited_once_with(
-        "/patients/patient-from-jwt/schedules", params={"date": "2026-08-29"}
+    backend_get = AsyncMock(
+        return_value={
+            "date": "2026-08-29",
+            "timezone": "Asia/Ho_Chi_Minh",
+            "doses": [
+                {
+                    "current_scheduled_at": "2026-08-29T00:30:00Z",
+                    "medication_name": "A Doxid 100mg Capsule",
+                    "meal_relation": "AFTER_MEAL",
+                }
+            ],
+        }
     )
+    monkeypatch.setattr(module, "get", backend_get)
+    monkeypatch.setattr(
+        module,
+        "_lookup_exact_drug",
+        lambda name, question: ("Thuốc có chỉ định và phản ứng bất lợi đã được tra cứu.", True),
+    )
+
+    result = await module.scheduled_drug_info_node(
+        {
+            "patient_id": "patient-from-jwt",
+            "client_date": "2026-08-29",
+            "messages": [HumanMessage(content="Thuốc cữ 7h30 có tác dụng gì?")],
+        }
+    )
+
+    backend_get.assert_awaited_once_with("/patients/patient-from-jwt/schedules", params={"date": "2026-08-29"})
     answer = result["messages"][0].content
     assert "A Doxid 100mg Capsule" in answer
     assert "sau bữa ăn" in answer
@@ -96,19 +108,27 @@ async def test_node_resolves_only_authenticated_patients_exact_timed_drug(monkey
 
 @pytest.mark.asyncio
 async def test_multiple_drugs_at_same_time_requires_clarification(monkeypatch):
-    monkeypatch.setattr(module, "get", AsyncMock(return_value={
-        "date": "2026-08-29",
-        "timezone": "Asia/Ho_Chi_Minh",
-        "doses": [
-            {"current_scheduled_at": "2026-08-29T00:30:00Z", "medication_name": "Drug A"},
-            {"current_scheduled_at": "2026-08-29T00:30:00Z", "medication_name": "Drug B"},
-        ],
-    }))
-    result = await module.scheduled_drug_info_node({
-        "patient_id": "patient-from-jwt",
-        "client_date": "2026-08-29",
-        "messages": [HumanMessage(content="Thuốc cữ 7h30 có tác dụng gì?")],
-    })
+    monkeypatch.setattr(
+        module,
+        "get",
+        AsyncMock(
+            return_value={
+                "date": "2026-08-29",
+                "timezone": "Asia/Ho_Chi_Minh",
+                "doses": [
+                    {"current_scheduled_at": "2026-08-29T00:30:00Z", "medication_name": "Drug A"},
+                    {"current_scheduled_at": "2026-08-29T00:30:00Z", "medication_name": "Drug B"},
+                ],
+            }
+        ),
+    )
+    result = await module.scheduled_drug_info_node(
+        {
+            "patient_id": "patient-from-jwt",
+            "client_date": "2026-08-29",
+            "messages": [HumanMessage(content="Thuốc cữ 7h30 có tác dụng gì?")],
+        }
+    )
     answer = result["messages"][0].content
     assert "Drug A" in answer and "Drug B" in answer
     assert "thuốc nào" in answer
@@ -125,23 +145,33 @@ async def test_catalog_composition_bridges_brand_name_to_formulary(monkeypatch):
                 "source_name": "Medication catalog",
             }
         return {
-            "date": "2026-08-29", "timezone": "Asia/Bangkok",
-            "doses": [{
-                "medication_id": "med-1", "medication_name": "A Doxid 100mg Capsule",
-                "current_scheduled_at": "2026-08-29T07:00:00+07:00",
-            }],
+            "date": "2026-08-29",
+            "timezone": "Asia/Bangkok",
+            "doses": [
+                {
+                    "medication_id": "med-1",
+                    "medication_name": "A Doxid 100mg Capsule",
+                    "current_scheduled_at": "2026-08-29T07:00:00+07:00",
+                }
+            ],
         }
+
     monkeypatch.setattr(module, "get", backend_get)
     seen = {}
+
     def lookup(name, question):
         seen["name"] = name
         return ("Thông tin Dược thư của doxycycline.", True)
+
     monkeypatch.setattr(module, "_lookup_exact_drug", lookup)
 
-    result = await module.scheduled_drug_info_node({
-        "patient_id": "patient-1", "client_date": "2026-08-29",
-        "messages": [HumanMessage(content="Thuốc cữ 7h có tác dụng gì?")],
-    })
+    result = await module.scheduled_drug_info_node(
+        {
+            "patient_id": "patient-1",
+            "client_date": "2026-08-29",
+            "messages": [HumanMessage(content="Thuốc cữ 7h có tác dụng gì?")],
+        }
+    )
 
     assert seen["name"] == "DOXYCYCLIN"
     assert "Thông tin Dược thư của doxycycline" in result["messages"][0].content

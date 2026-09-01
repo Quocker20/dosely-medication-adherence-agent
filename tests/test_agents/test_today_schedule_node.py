@@ -31,13 +31,9 @@ async def test_today_schedule_reads_same_patient_and_device_date_as_app(monkeypa
     )
     monkeypatch.setattr(module, "get", get)
 
-    result = await module.today_schedule_node(
-        {"patient_id": "patient-123", "client_date": "2026-08-29"}
-    )
+    result = await module.today_schedule_node({"patient_id": "patient-123", "client_date": "2026-08-29"})
 
-    get.assert_awaited_once_with(
-        "/patients/patient-123/schedules", params={"date": "2026-08-29"}
-    )
+    get.assert_awaited_once_with("/patients/patient-123/schedules", params={"date": "2026-08-29"})
     answer = result["messages"][0].content
     assert "23:30" in answer
     assert "1 viên" in answer
@@ -53,44 +49,81 @@ async def test_today_schedule_empty_is_not_a_backend_error(monkeypatch):
         "get",
         AsyncMock(return_value={"date": "2026-08-29", "doses": []}),
     )
-    result = await module.today_schedule_node(
-        {"patient_id": "patient-123", "client_date": "2026-08-29"}
-    )
+    result = await module.today_schedule_node({"patient_id": "patient-123", "client_date": "2026-08-29"})
     assert "chưa có lịch" in result["messages"][0].content
 
 
 @pytest.mark.asyncio
 async def test_tomorrow_schedule_uses_next_device_date(monkeypatch):
-    backend = AsyncMock(return_value={"date": "2026-08-30", "timezone": "Asia/Bangkok", "doses": [
-        {"current_scheduled_at": "2026-08-30T07:00:00+07:00", "medication_name": "Tomorrow Drug", "status": "PENDING"},
-    ]})
-    monkeypatch.setattr(module, "get", backend)
-    result = await module.today_schedule_node({
-        "patient_id": "patient-123", "client_date": "2026-08-29",
-        "intent_analysis": {"date_reference": "tomorrow"},
-    })
-    backend.assert_awaited_once_with(
-        "/patients/patient-123/schedules", params={"date": "2026-08-30"}
+    backend = AsyncMock(
+        return_value={
+            "date": "2026-08-30",
+            "timezone": "Asia/Bangkok",
+            "doses": [
+                {
+                    "current_scheduled_at": "2026-08-30T07:00:00+07:00",
+                    "medication_name": "Tomorrow Drug",
+                    "status": "PENDING",
+                },
+            ],
+        }
     )
+    monkeypatch.setattr(module, "get", backend)
+    result = await module.today_schedule_node(
+        {
+            "patient_id": "patient-123",
+            "client_date": "2026-08-29",
+            "intent_analysis": {"date_reference": "tomorrow", "confirmation_state": "confirmed"},
+            "memory_context": {
+                "pending_schedule_request": {
+                    "target_date": "2026-08-30",
+                    "date_reference": "tomorrow",
+                    "stage": "confirm_routine",
+                }
+            },
+        }
+    )
+    backend.assert_awaited_once_with("/patients/patient-123/schedules", params={"date": "2026-08-30"})
     assert "Lịch uống thuốc ngày 2026-08-30" in result["messages"][0].content
     assert "Tomorrow Drug" in result["messages"][0].content
 
 
 @pytest.mark.asyncio
 async def test_missed_morning_question_filters_status_and_period(monkeypatch):
-    monkeypatch.setattr(module, "get", AsyncMock(return_value={
-        "date": "2026-08-29",
-        "timezone": "Asia/Bangkok",
-        "doses": [
-            {"current_scheduled_at": "2026-08-29T07:00:00+07:00", "medication_name": "Missed AM", "status": "MISSED"},
-            {"current_scheduled_at": "2026-08-29T08:00:00+07:00", "medication_name": "Taken AM", "status": "TAKEN"},
-            {"current_scheduled_at": "2026-08-29T19:00:00+07:00", "medication_name": "Missed PM", "status": "MISSED"},
-        ],
-    }))
-    result = await module.today_schedule_node({
-        "patient_id": "patient-123", "client_date": "2026-08-29",
-        "intent_analysis": {"topics": ["dose_status"], "dose_period": "morning"},
-    })
+    monkeypatch.setattr(
+        module,
+        "get",
+        AsyncMock(
+            return_value={
+                "date": "2026-08-29",
+                "timezone": "Asia/Bangkok",
+                "doses": [
+                    {
+                        "current_scheduled_at": "2026-08-29T07:00:00+07:00",
+                        "medication_name": "Missed AM",
+                        "status": "MISSED",
+                    },
+                    {
+                        "current_scheduled_at": "2026-08-29T08:00:00+07:00",
+                        "medication_name": "Taken AM",
+                        "status": "TAKEN",
+                    },
+                    {
+                        "current_scheduled_at": "2026-08-29T19:00:00+07:00",
+                        "medication_name": "Missed PM",
+                        "status": "MISSED",
+                    },
+                ],
+            }
+        ),
+    )
+    result = await module.today_schedule_node(
+        {
+            "patient_id": "patient-123",
+            "client_date": "2026-08-29",
+            "intent_analysis": {"topics": ["dose_status"], "dose_period": "morning"},
+        }
+    )
     answer = result["messages"][0].content
     assert "Missed AM" in answer
     assert "Taken AM" not in answer
@@ -99,19 +132,35 @@ async def test_missed_morning_question_filters_status_and_period(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_today_schedule_renders_taken_and_not_taken_in_vietnamese(monkeypatch):
-    monkeypatch.setattr(module, "get", AsyncMock(return_value={
-        "date": "2026-08-30",
-        "timezone": "Asia/Bangkok",
-        "doses": [
-            {"current_scheduled_at": "2026-08-30T07:00:00+07:00", "medication_name": "Paracetamol", "status": "TAKEN"},
-            {"current_scheduled_at": "2026-08-30T12:00:00+07:00", "medication_name": "Amoxicillin", "status": "PENDING"},
-            {"current_scheduled_at": "2026-08-30T19:00:00+07:00", "medication_name": "Metformin", "status": "MISSED"},
-        ],
-    }))
+    monkeypatch.setattr(
+        module,
+        "get",
+        AsyncMock(
+            return_value={
+                "date": "2026-08-30",
+                "timezone": "Asia/Bangkok",
+                "doses": [
+                    {
+                        "current_scheduled_at": "2026-08-30T07:00:00+07:00",
+                        "medication_name": "Paracetamol",
+                        "status": "TAKEN",
+                    },
+                    {
+                        "current_scheduled_at": "2026-08-30T12:00:00+07:00",
+                        "medication_name": "Amoxicillin",
+                        "status": "PENDING",
+                    },
+                    {
+                        "current_scheduled_at": "2026-08-30T19:00:00+07:00",
+                        "medication_name": "Metformin",
+                        "status": "MISSED",
+                    },
+                ],
+            }
+        ),
+    )
 
-    result = await module.today_schedule_node({
-        "patient_id": "patient-123", "client_date": "2026-08-30"
-    })
+    result = await module.today_schedule_node({"patient_id": "patient-123", "client_date": "2026-08-30"})
     answer = result["messages"][0].content
 
     assert "07:00 - Paracetamol - Đã uống" in answer

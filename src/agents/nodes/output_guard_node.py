@@ -1,4 +1,5 @@
 """Deterministic final boundary for every non-fixed chatbot response."""
+
 from __future__ import annotations
 
 import re
@@ -39,7 +40,10 @@ _ENGLISH_UI_LABEL = re.compile(
 )
 
 _GROUNDING_REQUIRED_INTENTS = {
-    "ask_drug_info", "ask_drug_catalog", "ask_prescribed_drug_info", "ask_scheduled_drug_info"
+    "ask_drug_info",
+    "ask_drug_catalog",
+    "ask_prescribed_drug_info",
+    "ask_scheduled_drug_info",
 }
 
 

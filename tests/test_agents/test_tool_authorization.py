@@ -6,9 +6,12 @@ from src.agents.tool_authorization import ToolAuthorizationError, authorize_pati
 
 
 def test_patient_write_requires_matching_jwt_owner():
-    with patch("src.agents.tool_authorization.get_actor_token", return_value="token"), patch(
-        "src.agents.tool_authorization.decode_token",
-        return_value={"type": "access", "role": "PATIENT", "sub": "p1"},
+    with (
+        patch("src.agents.tool_authorization.get_actor_token", return_value="token"),
+        patch(
+            "src.agents.tool_authorization.decode_token",
+            return_value={"type": "access", "role": "PATIENT", "sub": "p1"},
+        ),
     ):
         authorize_patient_write("reschedule_remaining_doses", "p1", intent="report_meal_shift")
         with pytest.raises(ToolAuthorizationError):
@@ -18,3 +21,16 @@ def test_patient_write_requires_matching_jwt_owner():
 def test_write_tool_rejects_wrong_intent_before_execution():
     with pytest.raises(ToolAuthorizationError):
         authorize_patient_write("reschedule_remaining_doses", "p1", intent="ask_schedule")
+
+
+def test_report_routine_deviation_requires_matching_jwt_owner():
+    with (
+        patch("src.agents.tool_authorization.get_actor_token", return_value="token"),
+        patch(
+            "src.agents.tool_authorization.decode_token",
+            return_value={"type": "access", "role": "PATIENT", "sub": "p1"},
+        ),
+    ):
+        authorize_patient_write("report_routine_deviation", "p1", intent="report_meal_shift")
+        with pytest.raises(ToolAuthorizationError):
+            authorize_patient_write("report_routine_deviation", "p2", intent="report_meal_shift")

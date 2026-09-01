@@ -11,6 +11,7 @@ Server-side validation (per cong_viec.md §2.2 constraint) must reject any
 attempt to change dosage/frequency/drug_id — this tool cannot bypass that,
 it only sends `reason`.
 """
+
 from __future__ import annotations
 
 from langchain_core.tools import tool
@@ -46,11 +47,58 @@ async def reschedule_remaining_doses(patient_id: str, reason: str) -> str:
     return str(result)
 
 
+# Tools return their failure as a plain string (LangChain tool results are
+# strings), so callers need a marker to tell a refusal apart from a success.
+# rescheduling_node matches on this rather than assuming the call worked.
+DEVIATION_TOOL_FAILURE_PREFIX = "Không báo được lệch giờ:"
+
+
+@tool
+async def report_routine_deviation(
+    patient_id: str, day_offset: int, anchor: str, overridden_time: str, reason: str
+) -> str:
+    """Báo lệch giờ sinh hoạt cho MỘT mốc cụ thể (breakfast/lunch/dinner/sleep).
+
+    Chỉ dời giờ (các) cữ thuốc neo vào đúng mốc đó, CHỈ trong đúng ngày đó.
+    Không đổi liều, không đổi số cữ. Nếu việc dời giờ vi phạm ràng buộc lâm
+    sàng, backend trả về NEEDS_REVIEW cho bác sĩ xử lý thay vì tự đoán.
+
+    Ngày được truyền dưới dạng ĐỘ LỆCH so với hôm nay, không phải ngày tuyệt
+    đối: chỉ backend mới biết timezone của bệnh nhân, nên chỉ backend mới quy
+    ra được ngày đúng.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+        day_offset: 0 = hôm nay, 1 = ngày mai, 2 = ngày kia
+        anchor: Mốc sinh hoạt bị lệch — "breakfast", "lunch", "dinner" hoặc "sleep"
+        overridden_time: Giờ mới, định dạng HH:MM
+        reason: Lý do bệnh nhân báo (nguyên văn hoặc diễn giải ngắn)
+
+    Returns:
+        Trạng thái yêu cầu (agent_run_id, status) dạng chuỗi, hoặc thông báo lỗi
+    """
+    try:
+        authorize_patient_write("report_routine_deviation", patient_id, intent="report_meal_shift")
+        result = await post(
+            f"/patients/{patient_id}/routine-overrides",
+            json={
+                "day_offset": day_offset,
+                "anchor": anchor,
+                "overridden_time": overridden_time,
+                "source": "CHAT",
+                "reason": reason,
+            },
+        )
+    except BackendAPIError as e:
+        return f"{DEVIATION_TOOL_FAILURE_PREFIX} {e.detail}"
+    return str(result)
+
+
 @tool
 async def record_dose_action(scheduled_dose_id: str, action: str, note: str = "") -> str:
     """Ghi nhận hành động uống thuốc của bệnh nhân qua đoạn chat.
 
-    Chỉ gọi tool này khi người dùng chủ động thông báo họ đã uống thuốc, 
+    Chỉ gọi tool này khi người dùng chủ động thông báo họ đã uống thuốc,
     hoặc bỏ thuốc.
 
     Args:

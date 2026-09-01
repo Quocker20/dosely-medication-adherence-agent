@@ -1,4 +1,5 @@
 """Fail-closed consistency checks for patient-specific medication instructions."""
+
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
@@ -25,9 +26,7 @@ def _identity(item: dict[str, Any]) -> str:
     return str(item.get("medication_id") or item.get("display_name") or "").strip().casefold()
 
 
-def validate_prescription_schedule(
-    medications: list[dict[str, Any]], doses: list[dict[str, Any]]
-) -> list[str]:
+def validate_prescription_schedule(medications: list[dict[str, Any]], doses: list[dict[str, Any]]) -> list[str]:
     """Return patient-readable reasons why instructions must not be presented."""
     issues: list[str] = []
     by_item: dict[str, dict[str, Any]] = {}
@@ -56,9 +55,7 @@ def validate_prescription_schedule(
     for identity, count in identities.items():
         if identity and count > 1:
             sample = next(item for item in medications if _identity(item) == identity)
-            issues.append(
-                f"{sample.get('display_name', 'Một thuốc')}: xuất hiện nhiều lần trong các đơn còn hiệu lực"
-            )
+            issues.append(f"{sample.get('display_name', 'Một thuốc')}: xuất hiện nhiều lần trong các đơn còn hiệu lực")
 
     seen_slots: set[tuple[str, str]] = set()
     for dose in doses:

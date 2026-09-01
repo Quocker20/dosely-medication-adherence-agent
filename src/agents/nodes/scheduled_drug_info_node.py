@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.patient_presentation import patient_facing_text
 from src.agents.medication_mapping import resolve_catalog_medication
+from src.agents.patient_presentation import patient_facing_text
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG
@@ -123,37 +123,63 @@ async def scheduled_drug_info_node(state: AgentState) -> dict:
             params={"date": client_date} if client_date else None,
         )
     except BackendAPIError:
-        return {"messages": [AIMessage(content=(
-            "Mình chưa thể kết nối tới dữ liệu lịch thuốc lúc này nên chưa xác định được đúng thuốc cần tra cứu. "
-            "Vui lòng thử lại sau hoặc kiểm tra trực tiếp trên App."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Mình chưa thể kết nối tới dữ liệu lịch thuốc lúc này nên chưa xác định được đúng thuốc cần tra cứu. "
+                        "Vui lòng thử lại sau hoặc kiểm tra trực tiếp trên App."
+                    )
+                )
+            ]
+        }
 
     timezone_name = (schedule or {}).get("timezone")
     matches = [
-        dose for dose in (schedule or {}).get("doses", [])
+        dose
+        for dose in (schedule or {}).get("doses", [])
         if _local_hour_minute(dose.get("current_scheduled_at"), timezone_name) == requested
     ]
     rendered_time = f"{requested[0]:02d}:{requested[1]:02d}"
     if not matches:
-        return {"messages": [AIMessage(content=(
-            f"Không tìm thấy cữ thuốc lúc {rendered_time} trong lịch ngày {(schedule or {}).get('date', client_date or 'hôm nay')}. "
-            "Bạn hãy kiểm tra lại giờ hiển thị trên App."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Không tìm thấy cữ thuốc lúc {rendered_time} trong lịch ngày {(schedule or {}).get('date', client_date or 'hôm nay')}. "
+                        "Bạn hãy kiểm tra lại giờ hiển thị trên App."
+                    )
+                )
+            ]
+        }
     if len(matches) > 1:
         names = ", ".join(dict.fromkeys(str(d.get("medication_name") or "thuốc chưa rõ tên") for d in matches))
-        return {"messages": [AIMessage(content=(
-            f"Lúc {rendered_time} có nhiều thuốc: {names}. Bạn muốn hỏi tác dụng hoặc cách dùng của thuốc nào?"
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Lúc {rendered_time} có nhiều thuốc: {names}. Bạn muốn hỏi tác dụng hoặc cách dùng của thuốc nào?"
+                    )
+                )
+            ]
+        }
 
     dose = matches[0]
     name = str(dose.get("medication_name") or "").strip()
     if not name:
-        return {"messages": [AIMessage(content=(
-            f"Cữ {rendered_time} chưa có tên thuốc rõ ràng nên mình sẽ không tra cứu rộng hoặc đoán thuốc."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Cữ {rendered_time} chưa có tên thuốc rõ ràng nên mình sẽ không tra cứu rộng hoặc đoán thuốc."
+                    )
+                )
+            ]
+        }
     relation = _MEAL.get(str(dose.get("meal_relation") or "").upper())
     prescription_line = (
-        f"Chỉ dẫn trong lịch: dùng {relation}." if relation
+        f"Chỉ dẫn trong lịch: dùng {relation}."
+        if relation
         else "Chỉ dẫn trong lịch chưa ghi rõ dùng trước, sau hay cùng bữa ăn."
     )
     try:
@@ -173,10 +199,12 @@ async def scheduled_drug_info_node(state: AgentState) -> dict:
         "messages": [AIMessage(content=answer)],
         "grounding_valid": grounded,
         "grounding_errors": [] if grounded else ["drug_information_unavailable"],
-        "metadata": {"resolved_medication": {
-            "display_name": name,
-            "medication_id": str(dose.get("medication_id") or ""),
-            "resolved_from": "schedule_time",
-            "resolved_value": rendered_time,
-        }},
+        "metadata": {
+            "resolved_medication": {
+                "display_name": name,
+                "medication_id": str(dose.get("medication_id") or ""),
+                "resolved_from": "schedule_time",
+                "resolved_value": rendered_time,
+            }
+        },
     }

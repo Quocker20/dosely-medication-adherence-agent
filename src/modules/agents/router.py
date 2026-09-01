@@ -12,7 +12,14 @@ from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import create_access_token, reset_actor_token, set_actor_token
 from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
-from src.modules.agents.schemas import ChatRequest, GenerateScheduleRequest, RescheduleRequest
+from src.modules.agents.schemas import (
+    CancelRoutineOverrideRequest,
+    ChatRequest,
+    GenerateScheduleRequest,
+    ReportRoutineDeviationRequest,
+    RescheduleRequest,
+    RoutineAnchor,
+)
 from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
 
@@ -171,6 +178,86 @@ async def reschedule_schedule(
     )
 
 
+@schedules_router.post(
+    "/patients/{patient_id}/routine-overrides",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_by_user("schedule", 10, 60))],
+)
+async def report_routine_deviation(
+    patient_id: uuid.UUID,
+    request_body: ReportRoutineDeviationRequest,
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+) -> JSONResponse:
+    """Report a routine deviation (Patient only, self-service).
+
+    Only the dose slot(s) anchored to the reported anchor move, and only on
+    the target day — given either as an absolute `override_date` or as a
+    `day_offset` from today, resolved server-side in the patient's timezone.
+    The deterministic scheduling validator (the same one that gates every
+    reschedule) still governs: a hard-constraint conflict returns
+    NEEDS_REVIEW via GET /agent-runs/{id}, leaving the active schedule
+    untouched."""
+    result = await service.report_routine_deviation(
+        patient_id=patient_id, request=request_body, actor_payload=current_user
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Routine deviation reported",
+        code=status.HTTP_202_ACCEPTED,
+    )
+
+
+@schedules_router.delete(
+    "/patients/{patient_id}/routine-overrides",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_by_user("schedule", 10, 60))],
+)
+async def cancel_routine_override(
+    patient_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+    override_date: date = Query(...),
+    anchor: RoutineAnchor = Query(...),
+) -> JSONResponse:
+    """Withdraw a previously reported override (Patient only, self-service).
+    That day's doses go back onto the permanent routine on the next
+    regeneration, which this dispatches."""
+    result = await service.cancel_routine_override(
+        patient_id=patient_id,
+        request=CancelRoutineOverrideRequest(override_date=override_date, anchor=anchor),
+        actor_payload=current_user,
+    )
+    return success_response(
+        data=result.model_dump(mode="json"),
+        message="Routine override cancelled",
+        code=status.HTTP_202_ACCEPTED,
+    )
+
+
+@schedules_router.get(
+    "/patients/{patient_id}/routine-overrides/recent",
+    dependencies=[Depends(rate_limit_by_user("schedule", 10, 60))],
+)
+async def get_recent_routine_overrides(
+    patient_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: SchedulingServiceDep,
+    anchor: RoutineAnchor = Query(...),
+    limit: int = Query(5, ge=1, le=20),
+) -> JSONResponse:
+    """Read-only: this patient's most recent reported overrides for one
+    anchor. Used to phrase a smarter clarifying question in chat; never
+    applies a time on its own."""
+    result = await service.get_recent_routine_overrides(
+        patient_id=patient_id, anchor=anchor, actor_payload=current_user, limit=limit
+    )
+    return success_response(
+        data=[row.model_dump(mode="json") for row in result],
+        message="Recent routine overrides fetched successfully",
+    )
+
+
 @agent_runs_router.get("/agent-runs/{agent_run_id}")
 async def get_agent_run_status(
     agent_run_id: uuid.UUID,
@@ -223,6 +310,48 @@ async def chat(
     return success_response(
         data=result.model_dump(mode="json", by_alias=True, exclude_none=True),
         message="Chat reply generated successfully",
+    )
+
+
+@chat_router.get(
+    "/chat/conversations",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def list_chat_conversations(
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    page: int = Query(1, ge=1, description="Số trang"),
+    size: int = Query(20, ge=1, le=100, description="Số cuộc trò chuyện trên một trang"),
+) -> JSONResponse:
+    """Lấy danh sách lịch sử cuộc trò chuyện (Patient only, self)."""
+    result = await service.list_conversations(actor=current_user, page=page, size=size)
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy danh sách cuộc trò chuyện thành công",
+    )
+
+
+@chat_router.get(
+    "/chat/conversations/{conversation_id}",
+    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
+)
+async def get_chat_conversation_detail(
+    conversation_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+    limit: int = Query(50, ge=1, le=100, description="Số tin nhắn tối đa"),
+    before: str | None = Query(None, description="Cursor phân trang (id tin nhắn hoặc timestamp)"),
+) -> JSONResponse:
+    """Lấy chi tiết tin nhắn trong một cuộc trò chuyện (Patient only, self)."""
+    result = await service.get_conversation_detail(
+        actor=current_user,
+        conversation_id=conversation_id,
+        limit=limit,
+        before=before,
+    )
+    return success_response(
+        data=result.model_dump(mode="json", by_alias=True),
+        message="Lấy chi tiết cuộc trò chuyện thành công",
     )
 
 
@@ -280,46 +409,4 @@ async def chat_voice(
     return success_response(
         data=result.model_dump(mode="json", by_alias=True),
         message="Voice chat reply generated successfully",
-    )
-
-
-@chat_router.get(
-    "/chat/conversations",
-    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
-)
-async def list_chat_conversations(
-    current_user: PatientUserDep,
-    service: ChatServiceDep,
-    page: int = Query(1, ge=1, description="Số trang"),
-    size: int = Query(20, ge=1, le=100, description="Số cuộc trò chuyện trên một trang"),
-) -> JSONResponse:
-    """Lấy danh sách lịch sử cuộc trò chuyện (Patient only, self)."""
-    result = await service.list_conversations(actor=current_user, page=page, size=size)
-    return success_response(
-        data=result.model_dump(mode="json", by_alias=True),
-        message="Lấy danh sách cuộc trò chuyện thành công",
-    )
-
-
-@chat_router.get(
-    "/chat/conversations/{conversation_id}",
-    dependencies=[Depends(rate_limit_by_user("chat_history", 60, 60))],
-)
-async def get_chat_conversation_detail(
-    conversation_id: uuid.UUID,
-    current_user: PatientUserDep,
-    service: ChatServiceDep,
-    limit: int = Query(50, ge=1, le=100, description="Số tin nhắn tối đa"),
-    before: str | None = Query(None, description="Cursor phân trang (id tin nhắn hoặc timestamp)"),
-) -> JSONResponse:
-    """Lấy chi tiết tin nhắn trong một cuộc trò chuyện (Patient only, self)."""
-    result = await service.get_conversation_detail(
-        actor=current_user,
-        conversation_id=conversation_id,
-        limit=limit,
-        before=before,
-    )
-    return success_response(
-        data=result.model_dump(mode="json", by_alias=True),
-        message="Lấy chi tiết cuộc trò chuyện thành công",
     )

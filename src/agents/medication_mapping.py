@@ -4,6 +4,7 @@ Brand names are resolved through the relational catalog's composition. Fuzzy
 matching never creates a clinical identity here; it remains a spelling aid in
 the formulary resolver after the active ingredient has been established.
 """
+
 from __future__ import annotations
 
 import re
@@ -38,9 +39,7 @@ def ingredient_candidates(composition: str) -> list[str]:
     return candidates
 
 
-def resolve_catalog_medication(
-    catalog_name: str, composition: str, rag: DrugRAG
-) -> list[FormularyIdentity]:
+def resolve_catalog_medication(catalog_name: str, composition: str, rag: DrugRAG) -> list[FormularyIdentity]:
     """Resolve catalog ingredients to reviewed formulary headings."""
     resolved: list[FormularyIdentity] = []
     for ingredient in ingredient_candidates(composition):

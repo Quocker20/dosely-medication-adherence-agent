@@ -3,9 +3,15 @@ from src.agents.prescription_consistency import validate_prescription_schedule
 
 def _item(**overrides):
     item = {
-        "id": "item-1", "medication_id": "med-1", "display_name": "Metformin 500mg",
-        "dose_unit": "viên", "route": "ORAL", "morning_dose": "1.000",
-        "noon_dose": None, "evening_dose": None, "bedtime_dose": None,
+        "id": "item-1",
+        "medication_id": "med-1",
+        "display_name": "Metformin 500mg",
+        "dose_unit": "viên",
+        "route": "ORAL",
+        "morning_dose": "1.000",
+        "noon_dose": None,
+        "evening_dose": None,
+        "bedtime_dose": None,
         "meal_relation": "AFTER_MEAL",
     }
     item.update(overrides)
@@ -14,9 +20,13 @@ def _item(**overrides):
 
 def _dose(**overrides):
     dose = {
-        "prescription_item_id": "item-1", "medication_id": "med-1",
-        "medication_name": "Metformin 500mg", "dose_slot": "MORNING",
-        "dose_value": "1", "dose_unit": "viên", "meal_relation": "AFTER_MEAL",
+        "prescription_item_id": "item-1",
+        "medication_id": "med-1",
+        "medication_name": "Metformin 500mg",
+        "dose_slot": "MORNING",
+        "dose_value": "1",
+        "dose_unit": "viên",
+        "meal_relation": "AFTER_MEAL",
     }
     dose.update(overrides)
     return dose
@@ -36,9 +46,7 @@ def test_wrong_dose_unit_and_meal_relation_are_all_reported():
 
 
 def test_schedule_row_from_inactive_item_is_rejected():
-    issues = validate_prescription_schedule(
-        [_item()], [_dose(prescription_item_id="other-item")]
-    )
+    issues = validate_prescription_schedule([_item()], [_dose(prescription_item_id="other-item")])
     assert any("không thuộc đơn còn hiệu lực" in issue for issue in issues)
 
 
