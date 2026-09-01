@@ -9,9 +9,18 @@ from pydantic import BaseModel, Field
 SemanticTool = Literal[
     "get_schedule",
     "get_next_dose",
+    "get_current_medications",
+    "explain_current_medications",
     "resolve_medication",
+    "resolve_prescribed_medication",
     "search_drug_knowledge",
+    "search_drug_information",
     "search_medication_catalog",
+    "report_meal_shift",
+    "record_adverse_event",
+    "get_recent_adverse_event",
+    "clarify",
+    "general_response",
 ]
 
 
@@ -61,7 +70,16 @@ class SemanticPlan(BaseModel):
 TOOL_TO_LEGACY_INTENT = {
     "get_schedule": "ask_schedule",
     "get_next_dose": "ask_next_dose",
+    "get_current_medications": "ask_my_medications",
+    "explain_current_medications": "explain_my_medications",
     "resolve_medication": "ask_prescribed_drug_info",
+    "resolve_prescribed_medication": "ask_prescribed_drug_info",
     "search_drug_knowledge": "ask_drug_info",
+    "search_drug_information": "ask_drug_info",
     "search_medication_catalog": "ask_drug_catalog",
+    "report_meal_shift": "report_meal_shift",
+    "record_adverse_event": "report_adverse_event",
+    "get_recent_adverse_event": "get_recent_adverse_event",
+    "clarify": "clarify",
+    "general_response": "general",
 }

@@ -120,14 +120,14 @@ def build_graph() -> CompiledStateGraph:
     graph.add_conditional_edges(
         "plan_guard", _route_after_plan_guard,
         {
-            "output_guard": "output_guard", "clarification": "clarification",
+            "output_guard": "output_guard", "clarification": "clarification", "clarify": "clarification",
             "rescheduling": "rescheduling", "drug_rag": "drug_rag", "medication_catalog": "medication_catalog",
             "adverse_event": "adverse_event",
             "recent_adverse_event": "recent_adverse_event",
             "scheduled_drug_info": "scheduled_drug_info", "prescribed_drug_info": "prescribed_drug_info",
             "current_medications": "current_medications", "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose", "today_schedule": "today_schedule",
-            "clarification": "clarification", "agent": "agent",
+            "clarification": "clarification", "clarify": "clarification", "agent": "agent",
             "multi_tool_executor": "multi_tool_executor",
         },
     )

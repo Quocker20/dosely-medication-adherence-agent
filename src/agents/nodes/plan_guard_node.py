@@ -7,8 +7,9 @@ from src.agents.semantic_plan import SemanticPlan, SemanticStep
 from src.agents.state import AgentState
 
 _READ_TOOLS = {
-    "get_schedule", "get_next_dose", "resolve_medication",
-    "search_drug_knowledge", "search_medication_catalog",
+    "get_schedule", "get_next_dose", "get_current_medications", "explain_current_medications",
+    "resolve_medication", "resolve_prescribed_medication",
+    "search_drug_knowledge", "search_drug_information", "search_medication_catalog",
 }
 _BLOCKED_REPLY = (
     "Mình không thể tự quyết định thay đổi liều, ngừng thuốc hoặc thay đổi điều trị. "
@@ -26,9 +27,9 @@ def _validate_step(plan: SemanticStep) -> list[str]:
         errors.append("treatment_change_not_authorized")
     if plan.tool == "report_meal_shift" and plan.requested_action not in {"change_schedule", "read", "other"}:
         errors.append("invalid_schedule_action")
-    if plan.tool in {"search_drug_knowledge", "search_medication_catalog"} and not plan.drug_name and not plan.needs_clarification:
+    if plan.tool in {"search_drug_knowledge", "search_drug_information", "search_medication_catalog"} and not plan.drug_name and not plan.needs_clarification:
         errors.append("missing_drug_name")
-    if plan.tool == "resolve_medication" and plan.drug_reference_type == "none":
+    if plan.tool in {"resolve_medication", "resolve_prescribed_medication"} and plan.drug_reference_type == "none":
         errors.append("missing_prescription_reference")
     if plan.tool == "record_adverse_event" and not plan.symptoms:
         errors.append("missing_symptoms")
@@ -77,10 +78,13 @@ async def plan_guard_node(state: AgentState) -> dict:
                 "plan_errors": errors,
             }
         return {
+            # Internal fail-safe only; output_guard replaces it with an LLM
+            # response based on the question and one refusal reason.
             "messages": [AIMessage(content=_BLOCKED_REPLY)],
             "semantic_plan_valid": False,
             "safety_blocked": True,
             "safety_reason": errors[0],
+            "refusal_reason": errors[0],
             "plan_errors": errors,
         }
     return {"semantic_plan_valid": True, "plan_errors": []}
