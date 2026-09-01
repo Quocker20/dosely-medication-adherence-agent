@@ -5,7 +5,14 @@
 // alert. Giữ nguyên nhóm này đúng như ranh giới cũ để không bịa ranh giới mới —
 // muốn tách riêng thì làm ở một đợt refactor có chủ đích khác.
 import { request } from "./client";
-import type { AdherenceSummary, AlertDetail, PageResponse, VoiceChatResponse } from "../types";
+import type {
+  AdherenceSummary,
+  AlertDetail,
+  ChatConversationDetailResponse,
+  ChatConversationListItem,
+  PageResponse,
+  VoiceChatResponse,
+} from "../types";
 
 export const alertsApi = {
   alerts: (params: { status?: string; patientId?: string; page?: number; size?: number } = {}) =>
@@ -74,4 +81,14 @@ export const alertsApi = {
       body: formData,
     });
   },
+
+  chatConversations: (page = 1, size = 20) =>
+    request<PageResponse<ChatConversationListItem>>("/chat/conversations", {
+      query: { page, size },
+    }),
+
+  chatConversationDetail: (conversationId: string, limit = 50, before?: string) =>
+    request<ChatConversationDetailResponse>(`/chat/conversations/${conversationId}`, {
+      query: { limit, before },
+    }),
 };

@@ -23,7 +23,9 @@ _ENGLISH_UI_LABEL = re.compile(
     r"taken|pending|missed|skipped|source|instructions?|result)\s*(?:[:：-]|$)"
 )
 
-_GROUNDING_REQUIRED_INTENTS = {"ask_drug_info", "ask_prescribed_drug_info", "ask_scheduled_drug_info"}
+_GROUNDING_REQUIRED_INTENTS = {
+    "ask_drug_info", "ask_drug_catalog", "ask_prescribed_drug_info", "ask_scheduled_drug_info"
+}
 
 
 def validate_patient_output(text: str) -> list[str]:

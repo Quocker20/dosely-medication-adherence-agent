@@ -13,7 +13,7 @@ connection doing one task anyway.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy import select, update
@@ -21,6 +21,13 @@ from sqlalchemy.pool import NullPool
 
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
+
+# Registers every ORM model module before anything below runs a query.
+# Without this, an ORM operation on Alert dies with NoReferencedTableError
+# the first time it needs to resolve assigned_doctor_id's target table --
+# see src/core/models_registry.py and docs/adherence-review-fix-plan.md
+# Defect 1/5.
+from src.core import models_registry as _models_registry  # noqa: F401
 from src.modules.adherence.fcm_service import FCMService
 from src.modules.adherence.notification_service import NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
@@ -73,9 +80,7 @@ def generate_schedule_task(self, run_id: str, patient_id: str, is_reschedule: bo
         ) from exc
 
 
-async def _execute_autoschedule(
-    patient_id: str, prescription_id: str | None, trigger_type: str
-) -> AutoscheduleOutcome:
+async def _execute_autoschedule(patient_id: str, prescription_id: str | None, trigger_type: str) -> AutoscheduleOutcome:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
@@ -138,9 +143,7 @@ def scan_missed_doses_task() -> None:
 async def _execute_scan_due_doses() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     try:
         async with session_factory() as session:
             service = NotificationDispatchService(
@@ -148,7 +151,7 @@ async def _execute_scan_due_doses() -> None:
                 scheduled_dose_repository=ScheduledDoseRepository(session),
                 notification_repository=NotificationRepository(session),
             )
-            await service.create_consolidated_reminders(datetime.now(timezone.utc))
+            await service.create_consolidated_reminders(datetime.now(UTC))
     finally:
         await engine.dispose()
 
@@ -199,9 +202,7 @@ def summarize_daily_adverse_events_task() -> None:
 async def _execute_send_notification(delivery_id_str: str) -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     delivery_id = uuid.UUID(delivery_id_str)
     try:
         async with session_factory() as session:
@@ -243,5 +244,3 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
 @celery_app.task(name="agents.send_notification")
 def send_notification_task(delivery_id: str) -> None:
     asyncio.run(_execute_send_notification(delivery_id))
-
-

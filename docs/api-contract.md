@@ -25,6 +25,13 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 
 ## 2. DETAILED ENDPOINT REGISTRY
 
+### APP RELEASE METADATA
+| HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`) |
+
+`downloadUrl` is generated from the server's own `/downloads/{apk_filename}` static mount. Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
+
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
@@ -91,10 +98,12 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | GET | /agent-runs/{agent_run_id} | Required (PATIENT/DOCTOR/ADMIN) | Path Param (agent_run_id: UUID) | 200 OK / AgentRunStatusResponse |
 | POST | /chat | Required (PATIENT) | ChatRequest | 200 OK / ChatResponse |
 | POST | /chat/voice | Required (PATIENT) | multipart/form-data (audio: UploadFile) | 200 OK / VoiceChatResponse |
+| GET | /chat/conversations | Required (PATIENT) | Query Params (page, size) | 200 OK / PageResponse[ChatConversationListItem] |
+| GET | /chat/conversations/{conversation_id} | Required (PATIENT) | Path Param (conversation_id: UUID) + Query Params (limit, before) | 200 OK / ChatConversationDetailResponse |
 
 **Internal trigger path.** Beyond the two HTTP-role-gated endpoints above, schedule generation/reschedule can also be kicked off internally by a Celery task (`src/modules/agents/tasks.py`) calling the service layer directly — that path does not go through an HTTP request or a role check, so there is no `SYSTEM` role in the codebase; it is a separate, code-level trigger, not a third caller role on these endpoints.
 
-**Chat AI notes.** Both endpoints act on the authenticated caller's own record: `patient_id` is read from the access token's `sub` and is never accepted from the request body or form. The agent's tools can record dose actions and raise alerts, so a caller-supplied id would be a write path into another patient's data. Both responses use the standard envelope like every other endpoint. `/chat/voice` returns `502` when the STT vendor fails and `422` when the audio yields an empty transcript; TTS failure is fail-open — the reply still returns `200` with `audio_base64: null`.
+**Chat AI notes.** All chat endpoints act on the authenticated caller's own record: `patient_id` is read from the access token's `sub` and is never accepted from the request body or form. The agent's tools can record dose actions and raise alerts, so a caller-supplied id would be a write path into another patient's data. Responses use the standard envelope like every other endpoint. `/chat/voice` returns `502` when the STT vendor fails and `422` when the audio yields an empty transcript; TTS failure is fail-open — the reply still returns `200` with `audio_base64: null`. Chat history is persisted in `chat_conversations`/`chat_messages`, with read endpoints cached in Redis under actor-scoped keys and invalidated after new exchanges.
 
 **Drug info lookup — not a separate endpoint.** The agent has two more capabilities reachable only through `POST /chat`/`/chat/voice`, both called by the LLM mid-conversation, neither with a dedicated HTTP route (not part of the request/response contract above, only of the agent's internal tool-calling loop):
 - `search_drug_info` — DB-backed lookup against the `medications` catalog (real implementation since commit `3cbd9bf`, not a stub).

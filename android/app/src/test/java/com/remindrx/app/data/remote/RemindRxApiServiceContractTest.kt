@@ -101,6 +101,31 @@ class RemindRxApiServiceContractTest {
     }
 
     @Test
+    fun `app update endpoint is public and parses camel case release metadata`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "versionCode": 7,
+              "versionName": "1.5.0",
+              "downloadUrl": "https://api.example.test/downloads/remindrx-demo.apk"
+            }
+            """.trimIndent(),
+        )
+
+        val latest = api.getLatestAppVersion().data
+        val request = server.takeRequest()
+
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/app/latest-version", request.requestUrl?.encodedPath)
+        assertEquals(7, latest?.versionCode)
+        assertEquals("1.5.0", latest?.versionName)
+        assertEquals(
+            "https://api.example.test/downloads/remindrx-demo.apk",
+            latest?.downloadUrl,
+        )
+    }
+
+    @Test
     fun `routine update uses PUT path and snake case JSON`() = runBlocking {
         enqueueSuccess(
             """
@@ -263,15 +288,90 @@ class RemindRxApiServiceContractTest {
     fun `chat endpoints unwrap the standard envelope`() = runBlocking {
         // src/modules/agents/router.py trả success_response() cho cả /chat và
         // /chat/voice, nên payload nằm trong data — đọc thẳng model trần sẽ ra null.
-        enqueueSuccess("""{"response": "Liều tiếp theo lúc 20:00."}""")
+        enqueueSuccess("""{"response": "Liều tiếp theo lúc 20:00.", "conversationId": "conv-1"}""")
 
-        val reply = api.sendChatMessage(ChatRequestDto(message = "Liều tiếp theo lúc mấy giờ?"))
+        val reply = api.sendChatMessage(
+            ChatRequestDto(
+                message = "Liều tiếp theo lúc mấy giờ?",
+                conversationId = "conv-1",
+                clientDate = "2026-08-29",
+                clientDateTime = "2026-08-29T23:30:00+07:00",
+            ),
+        )
 
         val request = server.takeRequest()
         assertEquals("POST", request.method)
         assertEquals("/api/v1/chat", request.requestUrl?.encodedPath)
+        val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+        assertEquals("conv-1", body.get("conversationId").asString)
+        assertEquals("2026-08-29", body.get("clientDate").asString)
+        assertEquals("2026-08-29T23:30:00+07:00", body.get("clientDateTime").asString)
+        assertFalse(body.has("conversation_id"))
         assertTrue(reply.success)
         assertEquals("Liều tiếp theo lúc 20:00.", reply.data?.response)
+        assertEquals("conv-1", reply.data?.conversationId)
+    }
+
+    @Test
+    fun `chat history endpoints parse camelCase payloads`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "content": [
+                {
+                  "id": "conv-1",
+                  "title": "Hỏi về thuốc",
+                  "preview": "Uống sau ăn",
+                  "messageCount": 2,
+                  "createdAt": "2026-08-30T10:00:00Z",
+                  "updatedAt": "2026-08-30T10:05:00Z"
+                }
+              ],
+              "page_no": 1,
+              "page_size": 20,
+              "total_elements": 1,
+              "total_pages": 1,
+              "last": true
+            }
+            """.trimIndent(),
+        )
+
+        val list = api.getChatConversations().data
+        val listRequest = server.takeRequest()
+        assertEquals("/api/v1/chat/conversations", listRequest.requestUrl?.encodedPath)
+        assertEquals("Hỏi về thuốc", list?.content?.first()?.title)
+        assertEquals(2, list?.content?.first()?.messageCount)
+        assertEquals("2026-08-30T10:05:00Z", list?.content?.first()?.updatedAt)
+
+        enqueueSuccess(
+            """
+            {
+              "id": "conv-1",
+              "title": "Hỏi về thuốc",
+              "createdAt": "2026-08-30T10:00:00Z",
+              "updatedAt": "2026-08-30T10:05:00Z",
+              "messages": [
+                {
+                  "id": "msg-1",
+                  "role": "user",
+                  "content": "Tôi uống thuốc lúc nào?",
+                  "intent": "ASK_SCHEDULE",
+                  "createdAt": "2026-08-30T10:00:00Z"
+                }
+              ],
+              "hasMore": true,
+              "nextCursor": "msg-1"
+            }
+            """.trimIndent(),
+        )
+
+        val detail = api.getChatConversationDetail("conv-1").data
+        val detailRequest = server.takeRequest()
+        assertEquals("/api/v1/chat/conversations/conv-1", detailRequest.requestUrl?.encodedPath)
+        assertEquals("2026-08-30T10:05:00Z", detail?.updatedAt)
+        assertEquals("2026-08-30T10:00:00Z", detail?.messages?.first()?.createdAt)
+        assertTrue(detail?.hasMore == true)
+        assertEquals("msg-1", detail?.nextCursor)
     }
 
     @Test
@@ -303,6 +403,36 @@ class RemindRxApiServiceContractTest {
         assertEquals("Tôi quên uống thuốc", reply?.transcript)
         assertEquals("Đừng uống bù gấp đôi.", reply?.response)
         assertEquals(null, reply?.audioBase64)
+    }
+
+    @Test
+    fun `voice chat omits conversation part when starting a new conversation`() = runBlocking {
+        enqueueSuccess(
+            """
+            {
+              "transcript": "Tôi quên uống thuốc",
+              "response": "Đừng uống bù gấp đôi.",
+              "conversationId": "conv-new",
+              "audio_base64": null
+            }
+            """.trimIndent(),
+        )
+
+        val part = okhttp3.MultipartBody.Part.createFormData(
+            "audio",
+            "audio.webm",
+            okhttp3.RequestBody.create(null, ByteArray(0)),
+        )
+        val reply = api.sendVoiceChatMessage(
+            part,
+            okhttp3.RequestBody.create(null, "2026-08-29"),
+            okhttp3.RequestBody.create(null, "2026-08-29T23:30:00+07:00"),
+            null,
+        ).data
+
+        val request = server.takeRequest()
+        assertFalse(request.body.readUtf8().contains("name=\"conversationId\""))
+        assertEquals("conv-new", reply?.conversationId)
     }
 
     @Test

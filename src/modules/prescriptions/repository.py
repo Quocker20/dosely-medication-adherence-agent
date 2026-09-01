@@ -25,6 +25,20 @@ class MedicationRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_by_ids(
+        self, medication_ids: List[uuid.UUID]
+    ) -> Dict[uuid.UUID, Medication]:
+        """Batch-resolve medications by ID (IN clause) instead of one query
+        per ID — avoids N+1 when rendering a prescription's item list (e.g.
+        the PDF export). Rides the medications PK. medication_id carries no
+        FK, so callers may pass IDs for rows since deleted; those are simply
+        absent from the returned mapping."""
+        if not medication_ids:
+            return {}
+        stmt = select(Medication).where(Medication.id.in_(medication_ids))
+        result = await self._db.execute(stmt)
+        return {m.id: m for m in result.scalars().all()}
+
     async def list_medications(
         self,
         page: int = 1,

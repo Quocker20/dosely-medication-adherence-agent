@@ -46,7 +46,8 @@ src/
 │   ├── redis.py            # Async Redis connection pool & caching client
 │   ├── security.py         # Phone + PIN auth, JWT encode/decode, RBAC guards
 │   ├── response.py         # Standardized API response envelope format
-│   └── celery_app.py       # Celery task queue & beat scheduler instance
+│   ├── celery_app.py       # Celery task queue & beat scheduler instance
+│   └── models_registry.py  # Imports every ORM models.py once, for alembic/env.py and tasks.py
 │
 ├── common/                 # 🛠️ Shared Utilities & Middlewares
 │   ├── exceptions.py       # Global domain exception hierarchy & FastAPI handlers
@@ -142,6 +143,7 @@ Single place for low-level technical infrastructure:
 - `redis.py`: Async Redis connection pool, plus the dashboard event channel (publish/subscribe and its frame envelope).
 - `response.py`: The standard API response envelope.
 - `celery_app.py`: Main Celery application setup.
+- `models_registry.py`: Imports every `src/modules/*/models.py` once, so a mapped class always registers on `Base.metadata` before `configure_mappers()` runs. `alembic/env.py` and every `src/modules/*/tasks.py` that touches the ORM import this module instead of hand-listing model modules — the same list duplicated across those files is what let `NoReferencedTableError` reach production undetected (`docs/adherence-review-fix-plan.md`).
 
 ### 3. API Router Aggregation (`src/api/`)
 - `deps.py`: Shared dependencies (`get_db`, `get_current_user`, `require_roles`).
