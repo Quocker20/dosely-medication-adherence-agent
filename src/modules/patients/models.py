@@ -1,8 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime, time, timezone
-from typing import List
 from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, Time, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
@@ -157,46 +156,7 @@ class RoutineOverride(Base):
     )
 
 
-class CaregiverLink(Base):
-    """Caregiver-to-Patient association link database model."""
-
-    __tablename__ = "caregiver_links"
-
-    # Backs both the duplicate-link guard (create) and the by-patient list scan
-    # (leading column) with a single index. See migration 0004.
-    __table_args__ = (
-        UniqueConstraint(
-            "patient_id", "caregiver_user_id", name="uq_caregiver_links_patient_caregiver"
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        server_default=text("gen_random_uuid()"),
-    )
-    patient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("patient_profiles.user_id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    caregiver_user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    relationship_label: Mapped[str | None] = mapped_column(
-        "relationship", String(50), nullable=True
-    )
-    channels: Mapped[List[str]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="ACTIVE"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        server_default="NOW()",
-    )
+## CaregiverLink moved to src.modules.caregivers.models -- a caregiver is no
+## longer an actor reachable through a patients-owned table; it is its own
+## slice (business record + Telegram send pipeline). See docs/
+## caregiver-telegram-implementation-plan.md.

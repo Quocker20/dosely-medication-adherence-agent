@@ -102,33 +102,3 @@ class PatientProfileDetailResponse(BaseModel):
 
     profile: PatientDetailResponse
     routine: PatientRoutineResponse
-
-
-class CreateCaregiverLinkRequest(BaseModel):
-    """Request schema for linking a Caregiver account to a patient."""
-
-    caregiver_phone: str = Field(..., pattern=r"^\+?[0-9]{9,15}$")
-    relationship: Optional[str] = Field(None, max_length=50)
-    channels: List[str] = Field(default_factory=lambda: ["APP_NOTIFICATION"])
-
-
-class CaregiverLinkDetailResponse(BaseModel):
-    """Response schema representing a Caregiver-Patient association link.
-
-    schema.md lists no temp_password field here, but caregiver_user_id is a
-    NOT NULL FK — a phone with no existing account must get one provisioned
-    on the spot (find-or-create), same as CreatePatientResponse. temp_password
-    is populated only when this call just created that account; an existing
-    caregiver being re-linked leaves it null. Deviation is intentional.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    patient_id: uuid.UUID
-    caregiver_user_id: uuid.UUID
-    relationship: Optional[str] = None
-    channels: List[str]
-    status: str
-    created_at: datetime
-    temp_password: Optional[str] = None

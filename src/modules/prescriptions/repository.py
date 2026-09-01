@@ -7,7 +7,6 @@ from sqlalchemy import Exists, delete, func, or_, select, update
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.patients.models import CaregiverLink
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -111,33 +110,13 @@ class PrescriptionRepository:
         )
 
     @staticmethod
-    def _has_active_caregiver_filter(
-        caregiver_user_id: uuid.UUID, patient_id_col: ColumnElement
-    ) -> Exists:
-        """Build the access predicate for a caregiver reaching a patient's
-        prescriptions. Mirrors PatientRepository._has_active_caregiver_filter,
-        parameterized on patient_id_col for the same correlation-safety reason.
-        """
-        return (
-            select(CaregiverLink.id)
-            .where(
-                CaregiverLink.caregiver_user_id == caregiver_user_id,
-                CaregiverLink.patient_id == patient_id_col,
-                CaregiverLink.status == "ACTIVE",
-            )
-            .exists()
-        )
-
-    @staticmethod
     def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
-        """Role-agnostic access predicate: self-owned, doctor-prescribed, or
-        active-caregiver-linked are independent facts, checked together so one
-        account can qualify through more than one (mirrors
-        PatientRepository.get_routine's access derivation)."""
+        """Role-agnostic access predicate: self-owned or doctor-prescribed
+        are independent facts, checked together so one account can qualify
+        through more than one (mirrors PatientRepository.get_routine's access derivation)."""
         return or_(
             patient_id_col == actor_id,
             PrescriptionRepository._has_prescribed_filter(actor_id, patient_id_col),
-            PrescriptionRepository._has_active_caregiver_filter(actor_id, patient_id_col),
         )
 
     # ── Prescription (header) ──

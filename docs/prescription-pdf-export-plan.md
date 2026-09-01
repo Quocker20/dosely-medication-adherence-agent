@@ -111,10 +111,11 @@ was never designed to hold.
 
 ### 4.4 Guardian field is dropped
 
-There is no `caregiver_profiles` table. A caregiver is a `users` row (role `CAREGIVER`) plus a
-`caregiver_links` row — **the caregiver's name is stored nowhere**, only phone and relationship
-label. The circular marks the guardian field "when necessary", so the row is omitted rather than
-half-rendered.
+There is no `caregiver_profiles` table. A caregiver is only a `caregiver_links` row (redesigned
+since this was written to a phone-only business record with no `users` row at all — see
+`docs/caregiver-telegram-implementation-plan.md`) — **the caregiver's name is stored nowhere**,
+only phone and relationship label, same conclusion as before the redesign. The circular marks the
+guardian field "when necessary", so the row is omitted rather than half-rendered.
 
 ---
 
@@ -346,6 +347,13 @@ folded into the same statement by `_access_filter`, so an out-of-scope prescript
 indistinguishable from a nonexistent one. **Write no new access logic** — a second, parallel rule is
 how the two drift apart.
 
+> **Being redesigned:** a caregiver is being moved to a phone-only business record with no API
+> access at all (see `docs/caregiver-telegram-implementation-plan.md`) — the active-caregiver
+> predicate below and the index it names are already gone from the schema as of that plan's
+> Stage 1; `_access_filter`'s caregiver disjunct itself is removed in that plan's Stage 4, not yet
+> landed as of this note. Treat the predicate and query-count table below as describing the
+> pre-redesign state, not current schema.
+
 #### 5b. Status gate
 
 ```python
@@ -382,13 +390,14 @@ medications = await self._med_repo.list_by_ids(tuple(med_ids))      # Q5
 `requesting_doctor_id=None` is deliberate: authorisation already passed in 5a, and re-applying the
 doctor scope here would break the patient and caregiver paths, which have no `doctor_id` to scope by.
 
-**Index coverage — every predicate:**
+**Index coverage — every predicate (as of when this was written; the caregiver row below is
+already stale, see the redesign note above):**
 
 | Query | Predicate | Index |
 |---|---|---|
 | Q1 prescription | `prescriptions.id` | PK |
 | Q1 access subquery | `(doctor_id, patient_id)` | `idx_prescriptions_doctor_patient` |
-| Q1 access subquery | `(patient_id, caregiver_user_id)` | `uq_caregiver_links_patient_caregiver` |
+| ~~Q1 access subquery~~ | ~~`(patient_id, caregiver_user_id)`~~ | ~~`uq_caregiver_links_patient_caregiver`~~ — column and index both dropped by migration `0030_caregiver_telegram` |
 | Q2 items | `prescription_items.prescription_id` | `idx_prescription_items_prescription_id` (migration 0006) |
 | Q3 patient | `patient_profiles.user_id` ⨝ `users.id` | both PK |
 | Q4 doctor | `doctor_profiles.user_id` ⨝ `users.id` | both PK |

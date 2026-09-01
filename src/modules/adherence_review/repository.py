@@ -38,7 +38,7 @@ from src.modules.adherence.models import HealthSurvey, SymptomReport
 from src.modules.adherence_review.models import AdherenceReview
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
-from src.modules.patients.models import CaregiverLink, PatientProfile
+from src.modules.patients.models import PatientProfile
 from src.modules.prescriptions.models import Prescription
 from src.modules.prescriptions.models import PrescriptionItem
 
@@ -382,9 +382,8 @@ class AdherenceIndicatorRepository:
 def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
     """Role-agnostic access predicate, duplicated per structure.md's
     vertical-slice isolation rather than imported — mirrors
-    AdherenceLogRepository._access_filter exactly: self-owned,
-    doctor-prescribed, or active-caregiver-linked are independent facts
-    checked together."""
+    AdherenceLogRepository._access_filter exactly: self-owned or
+    doctor-prescribed are independent facts checked together."""
 
     def _has_prescribed_filter() -> Exists:
         return (
@@ -393,21 +392,9 @@ def _access_filter(actor_id: uuid.UUID, patient_id_col: ColumnElement):
             .exists()
         )
 
-    def _has_active_caregiver_filter() -> Exists:
-        return (
-            select(CaregiverLink.id)
-            .where(
-                CaregiverLink.caregiver_user_id == actor_id,
-                CaregiverLink.patient_id == patient_id_col,
-                CaregiverLink.status == "ACTIVE",
-            )
-            .exists()
-        )
-
     return or_(
         patient_id_col == actor_id,
         _has_prescribed_filter(),
-        _has_active_caregiver_filter(),
     )
 
 

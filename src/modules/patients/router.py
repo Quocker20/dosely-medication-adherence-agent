@@ -12,9 +12,8 @@ from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.admin.service import AdminService
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import MessageResponse
-from src.modules.patients.repository import CaregiverRepository, PatientRepository
+from src.modules.patients.repository import PatientRepository
 from src.modules.patients.schemas import (
-    CreateCaregiverLinkRequest,
     CreatePatientByDoctorRequest,
     PatientOnboardingRequest,
     UpdateRoutineRequest,
@@ -30,7 +29,6 @@ def get_patient_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Patient
         doctor_repository=DoctorRepository(db),
         audit_repository=AuditLogRepository(db),
         auth_repository=AuthRepository(db),
-        caregiver_repository=CaregiverRepository(db),
     )
 
 
@@ -213,71 +211,4 @@ async def update_routine(
     return success_response(
         data=result.model_dump(mode="json"),
         message="Routine updated successfully",
-    )
-
-
-@self_router.post("/{patient_id}/caregivers", status_code=status.HTTP_201_CREATED)
-async def create_caregiver_link(
-    patient_id: uuid.UUID,
-    request_body: CreateCaregiverLinkRequest,
-    raw_request: Request,
-    current_user: PatientOnlyUserDep,
-    service: PatientServiceDep,
-) -> JSONResponse:
-    """Link a Caregiver account to the patient, creating the caregiver account
-    if the phone isn't registered yet (Patient only, self).
-
-    Deviation from api-contract.md: DOCTOR is excluded from this endpoint —
-    caregiver management is kept out of doctor scope on this platform.
-    """
-    ip_address = get_client_ip(raw_request)
-    result = await service.create_caregiver_link(
-        patient_id=patient_id,
-        request=request_body,
-        actor_payload=current_user,
-        ip_address=ip_address,
-    )
-    return success_response(
-        data=result.model_dump(mode="json"),
-        message="Caregiver linked successfully",
-        code=status.HTTP_201_CREATED,
-    )
-
-
-@self_router.get("/{patient_id}/caregivers")
-async def list_caregiver_links(
-    patient_id: uuid.UUID,
-    current_user: PatientOrAdminUserDep,
-    service: PatientServiceDep,
-) -> JSONResponse:
-    """List caregiver links for a patient (Patient self-only, or Admin).
-
-    Deviation from api-contract.md: DOCTOR is excluded, same as create.
-    """
-    result = await service.list_caregiver_links(patient_id=patient_id, actor_payload=current_user)
-    return success_response(
-        data=[item.model_dump(mode="json") for item in result],
-        message="Caregiver links fetched successfully",
-    )
-
-
-@self_router.delete("/{patient_id}/caregivers/{caregiver_link_id}")
-async def delete_caregiver_link(
-    patient_id: uuid.UUID,
-    caregiver_link_id: uuid.UUID,
-    raw_request: Request,
-    current_user: PatientOrAdminUserDep,
-    service: PatientServiceDep,
-) -> JSONResponse:
-    """Remove a caregiver link (Patient self-only, or Admin). Hard delete."""
-    ip_address = get_client_ip(raw_request)
-    await service.delete_caregiver_link(
-        patient_id=patient_id,
-        caregiver_link_id=caregiver_link_id,
-        actor_payload=current_user,
-        ip_address=ip_address,
-    )
-    return success_response(
-        data=MessageResponse(message="Caregiver link removed successfully").model_dump(mode="json"),
-        message="Caregiver link removed successfully",
     )
