@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -69,12 +69,25 @@ class SymptomEntry(BaseModel):
     description: Optional[str] = None
 
 
+class RoutineDeviationEntry(BaseModel):
+    """A single routine-deviation entry embedded in
+    SubmitHealthSurveyRequest.routine_deviations. Deliberately a structured
+    field, not folded into answers_json — answers_json is excluded from all
+    downstream aggregation (see adherence_review/repository.py), so anything
+    that needs to be acted on must not live there."""
+
+    anchor: Literal["breakfast", "lunch", "dinner", "sleep"]
+    overridden_time: time
+    reason: str | None = None
+
+
 class SubmitHealthSurveyRequest(BaseModel):
     """Request schema for POST /patients/{patient_id}/health-surveys."""
 
     survey_date: date
     answers_json: Dict[str, Any]
     symptoms: List[SymptomEntry] = Field(default_factory=list)
+    routine_deviations: list[RoutineDeviationEntry] = Field(default_factory=list)
 
 
 class HealthSurveyDetailResponse(BaseModel):

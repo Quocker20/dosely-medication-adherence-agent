@@ -121,6 +121,18 @@ text vào
 > `docs/architecture_diagram.md` mục "Planning Graph Flow"). Nguyên tắc cốt lõi — **"agent
 > tuyệt đối không tự tính giờ"** — vẫn đúng 100%, chỉ đường gọi cụ thể đã đổi.
 
+> ⚠️ **Cập nhật tiếp (tính năng "temporary routine override"):** extraction schema đã
+> tổng quát hóa từ `MealShiftExtraction` (chỉ bữa ăn) thành `RoutineDeviationExtraction`
+> (`event`, `anchor: breakfast|lunch|dinner|sleep`, `new_time`) — bao gồm cả lệch giờ
+> ngủ/thức khuya, không chỉ bữa ăn. Nhánh có `new_time` cụ thể giờ gọi tool
+> `report_routine_deviation(patient_id, override_date, anchor, overridden_time, reason)`
+> thay vì `reschedule_remaining_doses` — tool cũ chỉ nhận `reason` và khiến backend
+> regenerate mù toàn bộ ngày; tool mới ghi một `RoutineOverride` (patient, ngày, anchor,
+> giờ) rồi mới trigger lại đúng pipeline reschedule sẵn có, nên `planner.py`'s
+> `expand_schedule` chỉ dời đúng (các) cữ neo vào anchor đó, đúng ngày hôm đó — các cữ/ngày
+> khác giữ nguyên. `reschedule_remaining_doses` vẫn còn trong tool set (không xoá) nhưng
+> không còn được `rescheduling_node` gọi cho trường hợp có giờ cụ thể nữa.
+
 ```
 "hôm nay tôi ăn trưa muộn, tầm 2 giờ chiều"
         ↓ LLM extract (structured output)

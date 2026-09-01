@@ -1,5 +1,7 @@
 """Tests for grouped notifications and batch dose actions (Option A)."""
+
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,7 +11,10 @@ import pytest
 
 from src.common.exceptions import ConflictException, NotFoundException, ValidationException
 from src.modules.adherence.models import AdherenceLog, NotificationDelivery, NotificationDoseItem
-from src.modules.adherence.notification_service import NotificationDispatchService
+from src.modules.adherence.notification_service import (
+    DOSE_REMINDER_TEMPLATE_CODE,
+    NotificationDispatchService,
+)
 from src.modules.adherence.schemas import (
     BatchRecordDoseActionRequest,
     BatchRecordDoseActionResponse,
@@ -101,6 +106,109 @@ class TestNotificationTextFormatting:
         assert "Paracetamol 500mg (1 viên)" in body
 
 
+def _fake_delivery(delivery_id, *, status="QUEUED", template_code=DOSE_REMINDER_TEMPLATE_CODE):
+    return SimpleNamespace(
+        id=delivery_id,
+        recipient_user_id=PATIENT_ID,
+        title="Nhắc nhở",
+        body="Đến giờ uống thuốc",
+        status=status,
+        template_code=template_code,
+        scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=timezone.utc),
+    )
+
+
+@asynccontextmanager
+async def _patched_send_environment(delivery, *, tokens=("token_123",), fcm_result=(True, [])):
+    """Stand in for the engine/session/repo/FCM wiring _execute_send_notification
+    builds for itself, and hand back the repo and FCM mocks to assert on."""
+    mock_session = MagicMock()
+    mock_session.begin.return_value.__aenter__ = AsyncMock()
+    mock_session.begin.return_value.__aexit__ = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    with (
+        patch("src.modules.agents.tasks.create_async_engine") as mock_engine_cls,
+        patch("src.modules.agents.tasks.async_sessionmaker") as mock_sm_cls,
+        patch("src.modules.agents.tasks.NotificationRepository") as mock_repo_cls,
+        patch("src.modules.agents.tasks.FCMService.send_push_notification") as mock_fcm,
+    ):
+        mock_engine_cls.return_value = AsyncMock()
+        mock_sm = MagicMock()
+        mock_sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_sm.return_value.__aexit__ = AsyncMock()
+        mock_sm_cls.return_value = mock_sm
+
+        mock_repo = AsyncMock()
+        mock_repo.get_delivery_by_id.return_value = delivery
+        mock_repo.get_active_fcm_tokens.return_value = list(tokens)
+        mock_repo_cls.return_value = mock_repo
+        mock_fcm.return_value = fcm_result
+        yield mock_repo, mock_fcm
+
+
+@pytest.mark.asyncio
+class TestReminderFreshnessGate:
+    """A queued reminder can go stale before the worker delivers it. Pushing it
+    anyway tells the patient to take a dose at a time the schedule no longer
+    has — the failure mode this gate exists to prevent."""
+
+    async def test_a_rescheduled_away_reminder_is_superseded_instead_of_sent(self):
+        from src.modules.agents.tasks import _execute_send_notification
+
+        delivery_id = uuid.uuid4()
+        async with _patched_send_environment(_fake_delivery(delivery_id)) as (repo, fcm):
+            # delete_future_pending removed the doses; the junction rows went
+            # with them, so nothing is linked any more.
+            repo.count_reminder_doses.return_value = (0, 0)
+            await _execute_send_notification(str(delivery_id))
+
+        fcm.assert_not_called()
+        repo.update_delivery_status.assert_awaited_once_with(delivery_id, "SUPERSEDED")
+
+    async def test_a_partially_stale_group_is_superseded_rather_than_half_sent(self):
+        from src.modules.agents.tasks import _execute_send_notification
+
+        delivery_id = uuid.uuid4()
+        async with _patched_send_environment(_fake_delivery(delivery_id)) as (repo, fcm):
+            # One of three doses was snoozed or taken: the body text no longer
+            # describes what is actually due, so the next scan re-derives it.
+            repo.count_reminder_doses.return_value = (3, 2)
+            await _execute_send_notification(str(delivery_id))
+
+        fcm.assert_not_called()
+        repo.update_delivery_status.assert_awaited_once_with(delivery_id, "SUPERSEDED")
+
+    async def test_an_alert_delivery_is_never_held_back_by_the_dose_gate(self):
+        """SOS and alert deliveries share this table but carry no doses. If the
+        gate keyed off "has linked doses" instead of the template, it would
+        silently swallow every one of them."""
+        from src.modules.agents.tasks import _execute_send_notification
+
+        delivery_id = uuid.uuid4()
+        alert_delivery = _fake_delivery(delivery_id, template_code="ADHERENCE_SUGGESTION")
+        async with _patched_send_environment(alert_delivery) as (repo, fcm):
+            await _execute_send_notification(str(delivery_id))
+
+        repo.count_reminder_doses.assert_not_awaited()
+        fcm.assert_called_once()
+        repo.update_delivery_status.assert_awaited_once_with(delivery_id, "SENT")
+
+    async def test_an_already_sent_delivery_is_not_pushed_twice(self):
+        """Celery is at-least-once; a redelivered task must not re-notify."""
+        from src.modules.agents.tasks import _execute_send_notification
+
+        delivery_id = uuid.uuid4()
+        async with _patched_send_environment(_fake_delivery(delivery_id, status="SENT")) as (
+            repo,
+            fcm,
+        ):
+            await _execute_send_notification(str(delivery_id))
+
+        fcm.assert_not_called()
+        repo.update_delivery_status.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 class TestNotificationDispatchService:
     async def test_create_consolidated_reminders(self):
@@ -170,13 +278,9 @@ class TestNotificationDispatchService:
 
     async def test_execute_send_notification_success(self):
         from src.modules.agents.tasks import _execute_send_notification
+
         delivery_id = uuid.uuid4()
-        fake_delivery = SimpleNamespace(
-            id=delivery_id,
-            recipient_user_id=PATIENT_ID,
-            title="Nhắc nhở",
-            body="Đến giờ uống thuốc",
-        )
+        fake_delivery = _fake_delivery(delivery_id)
 
         mock_session = MagicMock()
         mock_session.begin.return_value.__aenter__ = AsyncMock()
@@ -197,6 +301,8 @@ class TestNotificationDispatchService:
 
             mock_repo = AsyncMock()
             mock_repo.get_delivery_by_id.return_value = fake_delivery
+            # Every linked dose still due: the freshness gate lets this through.
+            mock_repo.count_reminder_doses.return_value = (2, 2)
             mock_repo.get_active_fcm_tokens.return_value = ["token_123"]
             mock_repo_cls.return_value = mock_repo
             mock_fcm.return_value = (True, [])
@@ -215,13 +321,9 @@ class TestNotificationDispatchService:
 
     async def test_execute_send_notification_deactivates_dead_tokens(self):
         from src.modules.agents.tasks import _execute_send_notification
+
         delivery_id = uuid.uuid4()
-        fake_delivery = SimpleNamespace(
-            id=delivery_id,
-            recipient_user_id=PATIENT_ID,
-            title="Nhắc nhở",
-            body="Đến giờ uống thuốc",
-        )
+        fake_delivery = _fake_delivery(delivery_id)
 
         mock_session = MagicMock()
         mock_session.begin.return_value.__aenter__ = AsyncMock()
@@ -242,6 +344,8 @@ class TestNotificationDispatchService:
 
             mock_repo = AsyncMock()
             mock_repo.get_delivery_by_id.return_value = fake_delivery
+            # Every linked dose still due: the freshness gate lets this through.
+            mock_repo.count_reminder_doses.return_value = (2, 2)
             mock_repo.get_active_fcm_tokens.return_value = ["good_token", "dead_token"]
             mock_repo_cls.return_value = mock_repo
             mock_fcm.return_value = (True, ["dead_token"])
@@ -253,13 +357,9 @@ class TestNotificationDispatchService:
 
     async def test_execute_send_notification_no_device_tokens(self):
         from src.modules.agents.tasks import _execute_send_notification
+
         delivery_id = uuid.uuid4()
-        fake_delivery = SimpleNamespace(
-            id=delivery_id,
-            recipient_user_id=PATIENT_ID,
-            title="Nhắc nhở",
-            body="Đến giờ uống thuốc",
-        )
+        fake_delivery = _fake_delivery(delivery_id)
 
         mock_session = MagicMock()
         mock_session.begin.return_value.__aenter__ = AsyncMock()
@@ -280,6 +380,8 @@ class TestNotificationDispatchService:
 
             mock_repo = AsyncMock()
             mock_repo.get_delivery_by_id.return_value = fake_delivery
+            # Every linked dose still due: the freshness gate lets this through.
+            mock_repo.count_reminder_doses.return_value = (2, 2)
             mock_repo.get_active_fcm_tokens.return_value = []  # No tokens
             mock_repo_cls.return_value = mock_repo
 

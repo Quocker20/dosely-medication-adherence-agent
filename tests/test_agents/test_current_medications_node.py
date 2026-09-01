@@ -11,16 +11,10 @@ def test_my_medications_intent_has_deterministic_database_route():
 
 
 def test_explain_and_next_dose_have_deterministic_routes():
-    assert (
-        _route_after_classify_intent({"intent": "explain_my_medications"})
-        == "explain_my_medications"
-    )
+    assert _route_after_classify_intent({"intent": "explain_my_medications"}) == "explain_my_medications"
     assert _route_after_classify_intent({"intent": "ask_next_dose"}) == "next_dose"
     assert _route_after_classify_intent({"intent": "ask_schedule"}) == "today_schedule"
-    assert (
-        _route_after_classify_intent({"intent": "ask_scheduled_drug_info"})
-        == "scheduled_drug_info"
-    )
+    assert _route_after_classify_intent({"intent": "ask_scheduled_drug_info"}) == "scheduled_drug_info"
 
 
 @pytest.mark.asyncio

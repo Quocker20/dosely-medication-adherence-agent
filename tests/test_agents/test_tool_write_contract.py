@@ -5,7 +5,8 @@ Idempotency-Key on every adherence/alert write and the tools sent none, so
 `record_dose_action` and every automatic Red Alert returned 422 — the alert
 path swallowed it via its fail-open handler and reported success-shaped text.
 """
-from datetime import date, datetime, timezone
+
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -36,20 +37,20 @@ class TestIdempotencyKeys:
 
     def test_alert_key_collapses_repeats_inside_the_bucket(self):
         """Patient restating one symptom must not page the doctor twice."""
-        first = datetime(2026, 8, 14, 10, 0, 0, tzinfo=timezone.utc)
-        again = datetime(2026, 8, 14, 10, 3, 30, tzinfo=timezone.utc)
+        first = datetime(2026, 8, 14, 10, 0, 0, tzinfo=UTC)
+        again = datetime(2026, 8, 14, 10, 3, 30, tzinfo=UTC)
         reason = "SEVERE_SYMPTOM: tức ngực"
         assert alert_key("p1", reason, first) == alert_key("p1", reason, again)
 
     def test_alert_key_reopens_after_the_bucket(self):
         """Dedup has to stay bounded — the same symptom later is a new event."""
-        first = datetime(2026, 8, 14, 10, 0, 0, tzinfo=timezone.utc)
-        later = datetime(2026, 8, 14, 10, 30, 0, tzinfo=timezone.utc)
+        first = datetime(2026, 8, 14, 10, 0, 0, tzinfo=UTC)
+        later = datetime(2026, 8, 14, 10, 30, 0, tzinfo=UTC)
         reason = "SEVERE_SYMPTOM: tức ngực"
         assert alert_key("p1", reason, first) != alert_key("p1", reason, later)
 
     def test_alert_key_is_per_patient(self):
-        moment = datetime(2026, 8, 14, 10, 0, 0, tzinfo=timezone.utc)
+        moment = datetime(2026, 8, 14, 10, 0, 0, tzinfo=UTC)
         reason = "SEVERE_SYMPTOM: tức ngực"
         assert alert_key("p1", reason, moment) != alert_key("p2", reason, moment)
 
@@ -77,12 +78,8 @@ class TestTriggeredByTypeMapping:
 
 @pytest.mark.asyncio
 async def test_record_dose_action_sends_idempotency_key():
-    with patch(
-        "src.agents.tools.schedule_tools.post", new=AsyncMock(return_value={"id": "log-1"})
-    ) as mock_post:
-        await record_dose_action.ainvoke(
-            {"scheduled_dose_id": "dose-1", "action": "taken", "note": "ngủ quên"}
-        )
+    with patch("src.agents.tools.schedule_tools.post", new=AsyncMock(return_value={"id": "log-1"})) as mock_post:
+        await record_dose_action.ainvoke({"scheduled_dose_id": "dose-1", "action": "taken", "note": "ngủ quên"})
 
     kwargs = mock_post.call_args.kwargs
     assert kwargs["headers"]["Idempotency-Key"] == dose_action_key("dose-1", "TAKEN")
@@ -94,9 +91,7 @@ async def test_record_dose_action_sends_idempotency_key():
 async def test_send_alert_sends_key_and_structured_severity():
     """severity/triggered_by_type belong in their own columns, not buried in the
     message string where no query can filter on them."""
-    with patch(
-        "src.agents.tools.safety_tools.post", new=AsyncMock(return_value={"id": "alert-1"})
-    ) as mock_post:
+    with patch("src.agents.tools.safety_tools.post", new=AsyncMock(return_value={"id": "alert-1"})) as mock_post:
         await _send_alert("p1", "SEVERE_SYMPTOM: tức ngực", "HIGH", "tôi thấy tức ngực")
 
     args, kwargs = mock_post.call_args

@@ -4,6 +4,7 @@ import time as time_module
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from fastapi import status
@@ -47,12 +48,15 @@ from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
+    CancelRoutineOverrideRequest,
     ChatConversationDetailResponse,
     ChatConversationListItem,
     ChatMessageItem,
     ChatResponse,
     GenerateScheduleRequest,
     NextDoseResponse,
+    RecentRoutineOverrideResponse,
+    ReportRoutineDeviationRequest,
     RescheduleRequest,
     VoiceChatResponse,
 )
@@ -174,6 +178,183 @@ class SchedulingService:
 
         self._dispatch_generate(run.id, patient_id, is_reschedule=True)
         return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    async def report_routine_deviation(
+        self,
+        patient_id: uuid.UUID,
+        request: ReportRoutineDeviationRequest,
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """Single-anchor convenience wrapper over report_routine_deviations."""
+        return await self.report_routine_deviations(patient_id, [request], actor_payload)
+
+    async def report_routine_deviations(
+        self,
+        patient_id: uuid.UUID,
+        requests: list[ReportRoutineDeviationRequest],
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """PATIENT only, self-service. Upserts every reported RoutineOverride
+        in ONE transaction, then reuses request_reschedule verbatim — no
+        duplicated Celery dispatch/AgentRun creation.
+
+        Deliberately batched: uq_agent_runs_one_running permits a single
+        in-flight run per patient, so reporting anchors one at a time made the
+        second report fail with a 409. An end-of-day survey routinely carries
+        more than one deviation, so the batch is the primary path and the
+        single-anchor call is the special case.
+
+        The deterministic planner (expand_schedule plus its existing
+        validators) still governs: a hard constraint conflict still surfaces
+        as NEEDS_REVIEW via the same execute_run path, leaving the active
+        schedule untouched.
+        """
+        if not requests:
+            raise ValidationException(message="No routine deviations supplied")
+
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot report a deviation for another patient")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+        resolved_dates = [self._resolve_override_date(request, today_local) for request in requests]
+
+        # Two times for one anchor on one day contradict each other. The
+        # unique constraint would silently keep whichever was applied last,
+        # so reject instead of picking one — the planner never guesses.
+        keys = list(zip(resolved_dates, [request.anchor for request in requests]))
+        if len(set(keys)) != len(keys):
+            raise ValidationException(message="Duplicate anchor reported for the same day")
+
+        # The run row and the override rows must land in ONE transaction.
+        # _dispatch_generate below is fire-and-forget, so a worker starting
+        # between two separate commits would either miss the overrides or, on
+        # failure, be unable to find them to mark REJECTED. Creating the run
+        # first also means a 409 here leaves no orphaned override behind —
+        # previously the override was committed before the run was attempted
+        # and survived as an ACTIVE row nothing would ever consume.
+        #
+        # This is why the batch does not simply call request_reschedule: that
+        # method owns its own transaction and cannot enclose the upserts.
+        try:
+            async with self._db.begin():
+                run = await self._agent_run_repo.create_run(
+                    patient_id=patient_id,
+                    agent_type="RESCHEDULING_AGENT",
+                    trigger_type="MANUAL",
+                    graph_version=_GRAPH_VERSION,
+                )
+                for request, override_date in zip(requests, resolved_dates):
+                    await self._dose_repo.upsert_override(
+                        patient_id,
+                        override_date,
+                        request.anchor,
+                        request.overridden_time,
+                        request.source,
+                        request.reason,
+                        consumed_by_run_id=run.id,
+                    )
+        except IntegrityError:
+            raise ConflictException(message="An agent run is already in progress for this patient")
+
+        self._dispatch_generate(run.id, patient_id, is_reschedule=True)
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    @staticmethod
+    def _resolve_override_date(request: ReportRoutineDeviationRequest, today_local: date) -> date:
+        """Settle the target day in the patient's own timezone and bound it.
+
+        The window is [today, today + schedule_horizon_days] for a structural
+        reason, not an arbitrary policy one: get_active_overrides is queried
+        over exactly that range and expand_schedule only materialises days
+        inside it, so an override stored outside the window would never be
+        read by anything and would look accepted while doing nothing.
+        """
+        horizon_days = get_settings().schedule_horizon_days
+        if request.day_offset is not None:
+            override_date = today_local + timedelta(days=request.day_offset)
+        else:
+            # Guaranteed non-None by the schema's exactly-one validator.
+            override_date = cast(date, request.override_date)
+
+        if override_date < today_local:
+            raise ValidationException(message="Routine overrides cannot be applied to a past day")
+        if override_date > today_local + timedelta(days=horizon_days):
+            raise ValidationException(
+                message=f"Routine overrides can only be applied within the next {horizon_days} days"
+            )
+        return override_date
+
+    async def cancel_routine_override(
+        self,
+        patient_id: uuid.UUID,
+        request: CancelRoutineOverrideRequest,
+        actor_payload: dict,
+    ) -> AgentRunAsyncResponse:
+        """Withdraw a previously reported override and put that day's doses
+        back on the permanent routine.
+
+        Like reporting, this only stages data and then hands off to the same
+        deterministic pipeline: deleting the row is what makes the next
+        expand_schedule fall back to the permanent routine for that day.
+        """
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot cancel another patient's routine override")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        if self._db.in_transaction():
+            await self._db.commit()
+
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+        if request.override_date < today_local:
+            raise ValidationException(message="Routine overrides cannot be cancelled for a past day")
+
+        try:
+            async with self._db.begin():
+                run = await self._agent_run_repo.create_run(
+                    patient_id=patient_id,
+                    agent_type="RESCHEDULING_AGENT",
+                    trigger_type="MANUAL",
+                    graph_version=_GRAPH_VERSION,
+                )
+                deleted = await self._dose_repo.delete_override(patient_id, request.override_date, request.anchor)
+                if not deleted:
+                    raise NotFoundException(message="No routine override to cancel for that day and anchor")
+        except IntegrityError:
+            raise ConflictException(message="An agent run is already in progress for this patient")
+
+        self._dispatch_generate(run.id, patient_id, is_reschedule=True)
+        return AgentRunAsyncResponse(agent_run_id=run.id, status="RUNNING", message="Reschedule started")
+
+    async def get_recent_routine_overrides(
+        self, patient_id: uuid.UUID, anchor: str, actor_payload: dict, limit: int = 5
+    ) -> list[RecentRoutineOverrideResponse]:
+        """PATIENT only, self-service read. Used to phrase a smarter
+        clarifying question in chat when a deviation is reported without a
+        concrete time — never to auto-apply a time."""
+        actor_id = uuid.UUID(actor_payload["sub"])
+        if actor_id != patient_id:
+            raise ForbiddenException(message="Cannot read another patient's routine overrides")
+
+        patient_timezone = await self._dose_repo.get_patient_timezone_scoped(patient_id, actor_id)
+        if patient_timezone is None:
+            raise NotFoundException(message="Patient not found")
+        today_local = datetime.now(UTC).astimezone(ZoneInfo(patient_timezone)).date()
+
+        rows = await self._dose_repo.get_recent_overrides_for_anchor(patient_id, anchor, today_local, limit=limit)
+        return [
+            RecentRoutineOverrideResponse(override_date=override_date, overridden_time=overridden_time)
+            for override_date, overridden_time in rows
+        ]
 
     async def request_autoschedule(
         self,
@@ -468,6 +649,11 @@ class SchedulingService:
                     claim_token=claim_token,
                     **self._terminal_audit(draft_state, empty_hash, "needs_review"),
                 )
+                # Retire whatever routine overrides this run was carrying. The
+                # schedule is deliberately left untouched, so leaving them
+                # ACTIVE would let a later reschedule apply a change this run
+                # already established cannot be scheduled safely.
+                await self._dose_repo.mark_overrides_rejected(run_id)
             return
         except Exception as exc:
             logger.exception("Agent run %s failed", run_id)
@@ -777,11 +963,11 @@ class ChatService:
                 raise ForbiddenException(message=str(exc)) from exc
             except Exception:  # memory outage must not make medication chat unavailable
                 logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
-                actual_conv_id = conversation_id or uuid.uuid4()
+                actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
                 history_rows = []
                 persistence_available = False
         else:  # isolated unit/eval mode; production DI always supplies persistence
-            actual_conv_id = conversation_id or uuid.uuid4()
+            actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
             history_rows = []
         working = await load_working_memory(str(patient_id), str(actual_conv_id)) if persistence_available else {}
         history = [
@@ -794,7 +980,7 @@ class ChatService:
             {
                 "messages": history + [HumanMessage(content=message)],
                 "patient_id": patient_id,
-                "conversation_id": str(conversation.id),
+                "conversation_id": str(actual_conv_id),
                 "patient_address": patient_address,
                 # Server is the source of truth for relative date phrases.
                 "client_date": reference_date.isoformat(),

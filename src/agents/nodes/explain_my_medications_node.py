@@ -1,4 +1,5 @@
 """Patient instructions from the prescription, supplemented by drug-scoped RAG."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,9 +22,13 @@ _MEAL_RELATION_TEXT = {
     "WITH_MEAL": "Dùng cùng bữa ăn",
 }
 _ROUTE_TEXT = {
-    "ORAL": "Đường uống", "TOPICAL": "Dùng ngoài da", "INHALATION": "Đường hít",
-    "INJECTION": "Đường tiêm", "SUBLINGUAL": "Ngậm dưới lưỡi",
-    "RECTAL": "Đường trực tràng", "VAGINAL": "Đường âm đạo",
+    "ORAL": "Đường uống",
+    "TOPICAL": "Dùng ngoài da",
+    "INHALATION": "Đường hít",
+    "INJECTION": "Đường tiêm",
+    "SUBLINGUAL": "Ngậm dưới lưỡi",
+    "RECTAL": "Đường trực tràng",
+    "VAGINAL": "Đường âm đạo",
 }
 
 
@@ -35,8 +40,10 @@ def _get_rag_service() -> SafeDrugRAG:
 def _regimen(item: dict[str, Any]) -> str:
     doses = []
     for label, field in (
-        ("Sáng", "morning_dose"), ("Trưa", "noon_dose"),
-        ("Tối", "evening_dose"), ("Trước khi ngủ", "bedtime_dose"),
+        ("Sáng", "morning_dose"),
+        ("Trưa", "noon_dose"),
+        ("Tối", "evening_dose"),
+        ("Trước khi ngủ", "bedtime_dose"),
     ):
         rendered = format_dose_value(item.get(field))
         try:
@@ -82,15 +89,16 @@ def _explain_one(display_name: str) -> tuple[str, str]:
     if not normalized or not canonical_name:
         return "NO_DATA", "Không tìm thấy chuyên luận Dược Thư khớp chính xác với tên thuốc này."
     result = rag.query(
-        f"{canonical_name} có những lưu ý an toàn chung nào khi sử dụng? "
-        "Không đề xuất liều dùng cá nhân.",
+        f"{canonical_name} có những lưu ý an toàn chung nào khi sử dụng? Không đề xuất liều dùng cá nhân.",
         context_drug=(normalized, canonical_name),
     )
     if result.status != "answered" or not result.grounding_valid:
         return "NO_DATA", "Không tìm thấy thông tin Dược Thư phù hợp cho thuốc này."
     explanation = _without_citations(result.answer)
-    return ("ANSWERED", explanation) if explanation else (
-        "NO_DATA", "Không tìm thấy thông tin Dược Thư phù hợp cho thuốc này."
+    return (
+        ("ANSWERED", explanation)
+        if explanation
+        else ("NO_DATA", "Không tìm thấy thông tin Dược Thư phù hợp cho thuốc này.")
     )
 
 
@@ -101,40 +109,60 @@ async def explain_my_medications_node(state: AgentState) -> dict:
     client_date = state.get("client_date")
     try:
         if client_date:
-            result = await get(
-                "/patients/me/medications/current", params={"as_of": client_date}
-            )
+            result = await get("/patients/me/medications/current", params={"as_of": client_date})
         else:
             result = await get("/patients/me/medications/current")
     except BackendAPIError:
-        return {"messages": [AIMessage(content=(
-            f"Mình chưa thể kết nối tới dữ liệu đơn thuốc của {address} lúc này. "
-            "Vui lòng kiểm tra trực tiếp đơn thuốc hoặc hỏi bác sĩ/dược sĩ."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"Mình chưa thể kết nối tới dữ liệu đơn thuốc của {address} lúc này. "
+                        "Vui lòng kiểm tra trực tiếp đơn thuốc hoặc hỏi bác sĩ/dược sĩ."
+                    )
+                )
+            ]
+        }
 
     medications = (result or {}).get("medications", [])
     as_of = (result or {}).get("as_of", client_date or "hôm nay")
     if not medications:
-        return {"messages": [AIMessage(content=(
-            f"{addressed} không có đơn thuốc đã duyệt còn hiệu lực vào {as_of}. "
-            "Mình sẽ không suy đoán cách dùng thuốc khi không có đơn hợp lệ."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"{addressed} không có đơn thuốc đã duyệt còn hiệu lực vào {as_of}. "
+                        "Mình sẽ không suy đoán cách dùng thuốc khi không có đơn hợp lệ."
+                    )
+                )
+            ]
+        }
 
     patient_id = state.get("patient_id")
     if not patient_id:
-        return {"messages": [AIMessage(content=(
-            "Mình không xác định được tài khoản bệnh nhân nên không thể kiểm tra cách dùng thuốc an toàn."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Mình không xác định được tài khoản bệnh nhân nên không thể kiểm tra cách dùng thuốc an toàn."
+                    )
+                )
+            ]
+        }
     try:
-        schedule = await get(
-            f"/patients/{patient_id}/schedules", params={"date": str(as_of)}
-        )
+        schedule = await get(f"/patients/{patient_id}/schedules", params={"date": str(as_of)})
     except BackendAPIError:
-        return {"messages": [AIMessage(content=(
-            "Mình đã đọc được đơn thuốc nhưng chưa thể đối chiếu với lịch uống thuốc. "
-            "Để tránh hướng dẫn sai, mình chưa hiển thị cách dùng; vui lòng kiểm tra trên nhãn thuốc "
-            "hoặc xác nhận với bác sĩ/dược sĩ."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Mình đã đọc được đơn thuốc nhưng chưa thể đối chiếu với lịch uống thuốc. "
+                        "Để tránh hướng dẫn sai, mình chưa hiển thị cách dùng; vui lòng kiểm tra trên nhãn thuốc "
+                        "hoặc xác nhận với bác sĩ/dược sĩ."
+                    )
+                )
+            ]
+        }
 
     issues = validate_prescription_schedule(medications, (schedule or {}).get("doses", []))
     if issues:
@@ -150,9 +178,7 @@ async def explain_my_medications_node(state: AgentState) -> dict:
         key = str(item.get("medication_id") or item.get("display_name") or "unknown")
         grouped.setdefault(key, []).append(item)
 
-    sections = [
-        f"Cách dùng cá nhân dưới đây được đọc nguyên từ đơn đã duyệt còn hiệu lực vào {as_of}:"
-    ]
+    sections = [f"Cách dùng cá nhân dưới đây được đọc nguyên từ đơn đã duyệt còn hiệu lực vào {as_of}:"]
     for index, items in enumerate(grouped.values(), start=1):
         display_name = str(items[0].get("display_name") or "Thuốc chưa rõ tên")
         try:
@@ -165,9 +191,7 @@ async def explain_my_medications_node(state: AgentState) -> dict:
             suffix = "" if len(items) == 1 else f" #{regimen_index}"
             block.append(f"   Chỉ dẫn cá nhân từ đơn đã duyệt{suffix}: {_regimen(item)}")
         if rag_status == "ANSWERED":
-            block.append(
-                "   Lưu ý chung từ Dược Thư, không thay thế chỉ dẫn trong đơn: " + explanation
-            )
+            block.append("   Lưu ý chung từ Dược Thư, không thay thế chỉ dẫn trong đơn: " + explanation)
         else:
             block.append("   Thông tin Dược Thư: " + explanation)
         sections.append("\n".join(block))

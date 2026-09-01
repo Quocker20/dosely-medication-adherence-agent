@@ -89,6 +89,31 @@ async def get_scheduled_doses(patient_id: str, date: str) -> str:
 
 
 @tool
+async def get_recent_routine_overrides(patient_id: str, anchor: str) -> str:
+    """Lấy lịch sử báo lệch giờ gần đây của bệnh nhân cho một mốc sinh hoạt cụ thể.
+
+    Chỉ dùng để tham khảo/gợi ý khi hỏi lại bệnh nhân — không được dùng để tự
+    áp giờ mới mà không hỏi xác nhận.
+
+    Args:
+        patient_id: Mã UUID của bệnh nhân
+        anchor: Mốc sinh hoạt — "breakfast", "lunch", "dinner" hoặc "sleep"
+
+    Returns:
+        Danh sách (override_date, overridden_time) gần nhất dạng JSON string,
+        rỗng nếu chưa từng báo, hoặc thông báo lỗi
+    """
+    try:
+        result = await get(
+            f"/patients/{patient_id}/routine-overrides/recent",
+            params={"anchor": anchor},
+        )
+    except BackendAPIError as e:
+        return f"Không lấy được lịch sử báo lệch giờ: {e.detail}"
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@tool
 async def get_adherence_stats(patient_id: str, date_from: str, date_to: str) -> str:
     """Lấy thống kê tỷ lệ tuân thủ điều trị của bệnh nhân trong một khoảng thời gian.
 

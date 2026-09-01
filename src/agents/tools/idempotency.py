@@ -14,10 +14,11 @@ Each key carries a coarse time bucket so dedup stays bounded: the same patient
 reporting the same symptom again days later must raise a new alert, not be
 silently swallowed by a key minted long ago.
 """
+
 from __future__ import annotations
 
 import hashlib
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 # Two reports of one symptom inside this window are one clinical event, not two.
 _ALERT_BUCKET_SECONDS = 300
@@ -30,12 +31,12 @@ def _digest(*parts: str) -> str:
 def dose_action_key(scheduled_dose_id: str, action: str, today: date | None = None) -> str:
     """One key per (dose, action, day) — re-reporting "I took it" for the same
     dose on the same day is one fact, however many times it is said."""
-    day = (today or datetime.now(timezone.utc).date()).isoformat()
+    day = (today or datetime.now(UTC).date()).isoformat()
     return _digest("dose_action", scheduled_dose_id, action.upper(), day)
 
 
 def alert_key(patient_id: str, reason: str, now: datetime | None = None) -> str:
     """One key per (patient, reason, 5-minute bucket)."""
-    moment = now or datetime.now(timezone.utc)
+    moment = now or datetime.now(UTC)
     bucket = int(moment.timestamp()) // _ALERT_BUCKET_SECONDS
     return _digest("alert", patient_id, reason, str(bucket))
