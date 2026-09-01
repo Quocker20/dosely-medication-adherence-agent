@@ -34,9 +34,12 @@ _TEST_PHONES = [PATIENT_PHONE, CAREGIVER_PHONE]
 async def _setup(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "telegram_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "mock_bot_token_123")
     monkeypatch.setattr(settings, "caregiver_report_interval_days", 7)
     monkeypatch.setattr(settings, "missed_dose_alert_threshold", 3)
     monkeypatch.setattr(settings, "missed_dose_overdue_minutes", 120)
+    from src.modules.agents import tasks
+    monkeypatch.setattr(tasks.send_notification_task, "delay", lambda d_id: None)
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -61,7 +64,7 @@ async def _setup(monkeypatch):
 async def test_full_flow_link_bind_alert_and_telegram_send(monkeypatch):
     fake_client = FakeTelegramClient()
     monkeypatch.setattr("src.core.telegram.get_telegram_client", lambda: fake_client)
-    monkeypatch.setattr("src.modules.agents.tasks.get_telegram_client", lambda: fake_client)
+    monkeypatch.setattr("src.core.telegram._fake_instance", fake_client)
 
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
@@ -118,24 +121,22 @@ async def test_full_flow_link_bind_alert_and_telegram_send(monkeypatch):
     # Verify FakeTelegramClient recorded the message
     assert len(fake_client.sent_messages) == 1
     msg = fake_client.sent_messages[0]
-    assert msg.chat_id == 777123456
-    assert "Cụ Ông" in msg.text
-    assert "SOS" in msg.text
+    assert msg["chat_id"] == 777123456
+    assert "Cụ Ông" in msg["text"]
+    assert "SOS" in msg["text"]
 
-    # Verify delivery marked SENT
+    # Verify delivery marked DELIVERED
     async with AsyncSessionLocal() as db:
         d = await db.get(NotificationDelivery, delivery_id)
-        assert d.status == "SENT"
+        assert d.status == "DELIVERED"
 
 
 @pytest.mark.asyncio
 async def test_blocked_caregiver_marks_link_and_delivery_blocked(monkeypatch):
-    class BlockedFakeTelegramClient(FakeTelegramClient):
-        async def send_message(self, chat_id: int, text: str, reply_markup=None) -> int:
-            raise TelegramBlockedError("Forbidden: bot was blocked by the user")
-
-    monkeypatch.setattr("src.core.telegram.get_telegram_client", lambda: BlockedFakeTelegramClient())
-    monkeypatch.setattr("src.modules.agents.tasks.get_telegram_client", lambda: BlockedFakeTelegramClient())
+    fake_client = FakeTelegramClient()
+    fake_client.error_to_raise = TelegramBlockedError("Forbidden: bot was blocked by the user")
+    monkeypatch.setattr("src.core.telegram.get_telegram_client", lambda: fake_client)
+    monkeypatch.setattr("src.core.telegram._fake_instance", fake_client)
 
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
