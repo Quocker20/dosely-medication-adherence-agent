@@ -12,6 +12,7 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_URL=postgresql+asyncpg://remindrx:de76ea7719eb95f5e317621d3746f06b805efdabefb9891f@postgres:5432/remindrx_db
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379/0

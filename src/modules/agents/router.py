@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Annotated, Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -224,6 +224,29 @@ async def chat(
         data=result.model_dump(mode="json", by_alias=True, exclude_none=True),
         message="Chat reply generated successfully",
     )
+
+
+@chat_router.get("/chat/{conversation_id}")
+async def chat_history(
+    conversation_id: uuid.UUID,
+    current_user: PatientUserDep,
+    service: ChatServiceDep,
+) -> JSONResponse:
+    """Load a patient's durable conversation history after app reopen."""
+    if service._memory is None or service._db is None:
+        return success_response(data={"conversationId": str(conversation_id), "messages": []}, message="Chat history loaded")
+    try:
+        async with service._db.begin():
+            rows = await service._memory.get_history(uuid.UUID(str(current_user["sub"])), conversation_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    return success_response(data={
+        "conversationId": str(conversation_id),
+        "messages": [
+            {"id": str(row.id), "role": row.role, "content": row.content, "createdAt": row.created_at.isoformat()}
+            for row in rows
+        ],
+    }, message="Chat history loaded")
 
 
 @chat_router.post(

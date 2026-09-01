@@ -824,6 +824,10 @@ class ChatService:
             working.pop("pending_adverse_event", None)
         elif result.get("intent") == "report_adverse_event" and working.get("pending_adverse_event"):
             working.pop("pending_adverse_event", None)
+        if "pending_schedule_request" in metadata:
+            working["pending_schedule_request"] = metadata["pending_schedule_request"]
+        elif metadata.get("clear_pending_schedule_request"):
+            working.pop("pending_schedule_request", None)
         working["last_intent"] = result.get("intent")
         if persistence_available:
             await save_working_memory(str(patient_id), str(actual_conv_id), working)

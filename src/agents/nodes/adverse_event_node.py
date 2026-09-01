@@ -61,6 +61,19 @@ async def _medication_context(state: AgentState) -> list[dict]:
 
 
 async def adverse_event_node(state: AgentState) -> dict:
+    # Ordinary symptom/adverse-effect reports are intentionally private to the
+    # chat. Only the upstream emergency guard may create a clinician alert.
+    # Keep this route as a safe informational response for backwards
+    # compatibility, but never persist symptoms or expose them on the doctor
+    # dashboard.
+    return {"messages": [AIMessage(content=(
+        "Mình có thể cung cấp thông tin tham khảo về tác dụng phụ của thuốc. "
+        "Các triệu chứng thông thường không được lưu hoặc gửi lên dashboard bác sĩ. "
+        "Nếu bạn có dấu hiệu cấp cứu như khó thở, đau ngực, ngất hoặc sưng môi/lưỡi, "
+        "hãy gọi cấp cứu ngay."
+    ))], "metadata": {"clear_pending_adverse_event": True}}
+
+    # Legacy persistence flow retained below for reference; unreachable by design.
     analysis = state.get("intent_analysis") or {}
     symptoms = list(analysis.get("symptoms") or [])
     raw = _last_text(state)
