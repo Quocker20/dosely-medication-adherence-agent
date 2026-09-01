@@ -1,10 +1,10 @@
 """Structured semantic plan selected by the LLM, never executed directly."""
-
 from __future__ import annotations
 
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
 
 SemanticTool = Literal[
     "get_schedule",
@@ -12,7 +12,10 @@ SemanticTool = Literal[
     "get_current_medications",
     "explain_current_medications",
     "resolve_medication",
+    "resolve_prescribed_medication",
     "search_drug_knowledge",
+    "search_drug_information",
+    "search_medication_catalog",
     "report_meal_shift",
     "record_adverse_event",
     "get_recent_adverse_event",
@@ -43,34 +46,16 @@ class SemanticStep(BaseModel):
     is_hypothetical: bool = False
     confirmation_state: Literal["not_applicable", "pending", "confirmed", "denied", "unclear"] = "not_applicable"
     drug_reference_type: Literal[
-        "none",
-        "drug_name",
-        "schedule_time",
-        "dose_period",
-        "next_dose",
-        "recent_dose",
-        "meal_relation",
-        "prescription_ordinal",
-        "recent_context",
+        "none", "drug_name", "schedule_time", "dose_period", "next_dose",
+        "recent_dose", "meal_relation", "prescription_ordinal", "recent_context",
     ] = "none"
-    topics: list[
-        Literal[
-            "identity",
-            "indication",
-            "administration",
-            "adverse_effect",
-            "interaction",
-            "contraindication",
-            "missed_dose",
-            "storage",
-            "precaution",
-            "dose_status",
-            "other",
-        ]
-    ] = Field(default_factory=list)
-    requested_action: Literal["read", "explain", "check_status", "change_schedule", "change_treatment", "other"] = (
-        "read"
-    )
+    topics: list[Literal[
+        "identity", "indication", "administration", "adverse_effect", "interaction",
+        "contraindication", "missed_dose", "storage", "precaution", "dose_status", "other",
+    ]] = Field(default_factory=list)
+    requested_action: Literal[
+        "read", "explain", "check_status", "change_schedule", "change_treatment", "other"
+    ] = "read"
     needs_clarification: bool = False
     clarifying_question: str | None = None
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -88,7 +73,10 @@ TOOL_TO_LEGACY_INTENT = {
     "get_current_medications": "ask_my_medications",
     "explain_current_medications": "explain_my_medications",
     "resolve_medication": "ask_prescribed_drug_info",
+    "resolve_prescribed_medication": "ask_prescribed_drug_info",
     "search_drug_knowledge": "ask_drug_info",
+    "search_drug_information": "ask_drug_info",
+    "search_medication_catalog": "ask_drug_catalog",
     "report_meal_shift": "report_meal_shift",
     "record_adverse_event": "report_adverse_event",
     "get_recent_adverse_event": "get_recent_adverse_event",

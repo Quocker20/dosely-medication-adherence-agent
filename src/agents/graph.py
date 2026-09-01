@@ -8,10 +8,12 @@ from src.agents.nodes.classify_intent_node import classify_intent_node
 from src.agents.nodes.clarification_node import clarification_node
 from src.agents.nodes.current_medications_node import current_medications_node
 from src.agents.nodes.drug_rag_node import drug_rag_node
+from src.agents.nodes.medication_catalog_node import medication_catalog_node
 from src.agents.nodes.explain_my_medications_node import explain_my_medications_node
 from src.agents.nodes.next_dose_node import next_dose_node
 from src.agents.nodes.multi_tool_executor_node import multi_tool_executor_node
 from src.agents.nodes.output_guard_node import output_guard_node
+from src.agents.nodes.semantic_output_reviewer_node import semantic_output_reviewer_node
 from src.agents.nodes.plan_guard_node import plan_guard_node
 from src.agents.nodes.prescribed_drug_info_node import prescribed_drug_info_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
@@ -55,6 +57,8 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "adverse_event"
     if state.get("intent") == "get_recent_adverse_event":
         return "recent_adverse_event"
+    if state.get("intent") == "ask_drug_catalog":
+        return "medication_catalog"
     if state.get("intent") == "ask_drug_info":
         return "drug_rag"
     if state.get("intent") == "ask_scheduled_drug_info":
@@ -80,6 +84,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("safety_guard", safety_guard_node)
     graph.add_node("scope_guard", scope_guard_node)
     graph.add_node("output_guard", output_guard_node)
+    graph.add_node("semantic_output_reviewer", semantic_output_reviewer_node)
     graph.add_node("semantic_planner", semantic_planner_node)
     graph.add_node("plan_guard", plan_guard_node)
     graph.add_node("classify_intent", classify_intent_node)
@@ -87,6 +92,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("adverse_event", adverse_event_node)
     graph.add_node("recent_adverse_event", recent_adverse_event_node)
     graph.add_node("drug_rag", drug_rag_node)
+    graph.add_node("medication_catalog", medication_catalog_node)
     graph.add_node("scheduled_drug_info", scheduled_drug_info_node)
     graph.add_node("prescribed_drug_info", prescribed_drug_info_node)
     graph.add_node("current_medications", current_medications_node)
@@ -114,14 +120,14 @@ def build_graph() -> CompiledStateGraph:
     graph.add_conditional_edges(
         "plan_guard", _route_after_plan_guard,
         {
-            "output_guard": "output_guard", "clarification": "clarification",
-            "rescheduling": "rescheduling", "drug_rag": "drug_rag",
+            "output_guard": "output_guard", "clarification": "clarification", "clarify": "clarification",
+            "rescheduling": "rescheduling", "drug_rag": "drug_rag", "medication_catalog": "medication_catalog",
             "adverse_event": "adverse_event",
             "recent_adverse_event": "recent_adverse_event",
             "scheduled_drug_info": "scheduled_drug_info", "prescribed_drug_info": "prescribed_drug_info",
             "current_medications": "current_medications", "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose", "today_schedule": "today_schedule",
-            "clarification": "clarification", "agent": "agent",
+            "clarification": "clarification", "clarify": "clarification", "agent": "agent",
             "multi_tool_executor": "multi_tool_executor",
         },
     )
@@ -150,6 +156,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_edge("adverse_event", "output_guard")
     graph.add_edge("recent_adverse_event", "output_guard")
     graph.add_edge("drug_rag", "output_guard")
+    graph.add_edge("medication_catalog", "output_guard")
     graph.add_edge("scheduled_drug_info", "output_guard")
     graph.add_edge("prescribed_drug_info", "output_guard")
     graph.add_edge("current_medications", "output_guard")
@@ -158,7 +165,8 @@ def build_graph() -> CompiledStateGraph:
     graph.add_edge("today_schedule", "output_guard")
     graph.add_edge("clarification", "output_guard")
     graph.add_edge("multi_tool_executor", "output_guard")
-    graph.add_edge("output_guard", END)
+    graph.add_edge("output_guard", "semantic_output_reviewer")
+    graph.add_edge("semantic_output_reviewer", END)
 
     # ReAct loop: agent decides to call a tool -> tools runs -> back to agent,
     # until agent replies with no tool_calls left.
