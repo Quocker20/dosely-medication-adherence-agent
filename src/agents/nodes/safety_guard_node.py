@@ -17,6 +17,7 @@ if/else có thể viết sai.
 Khi escalated=True, graph phải NGẮT không đi tiếp vào agent_node bình
 thường — trả thẳng câu trả lời cố định. Xem cách graph.py nối node này.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.agents.medication_policy import match_medication_decision
 from src.agents.state import AgentState
-from src.agents.tools.safety_tools import match_severe_symptom_keyword, trigger_red_alert
+from src.agents.tools.safety_tools import match_severe_symptom_keyword
 from src.modules.planning.core.llm import get_llm
 
 _LLM_TIMEOUT_SECONDS = 3.0
@@ -39,8 +40,9 @@ _CLASSIFY_PROMPT = (
 )
 
 _FIXED_SAFE_REPLY = (
-    "Mình đã ghi nhận và báo cho người thân/bác sĩ của bạn ngay bây giờ. "
-    "Nếu đang trong tình huống khẩn cấp, hãy gọi cấp cứu 115 ngay."
+    "Các dấu hiệu bạn mô tả có thể là tình huống khẩn cấp. "
+    "Hãy bấm giữ nút Cảnh báo khẩn cấp (Alert) trên màn hình để gửi thông báo cho bác sĩ. "
+    "Nếu nguy hiểm tức thời, hãy gọi cấp cứu 115 ngay."
 )
 
 _MEDICATION_POLICY_REPLY = (
@@ -77,14 +79,6 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
     keyword = match_severe_symptom_keyword(text)
     if keyword:
         reason = f"SEVERE_SYMPTOM: {keyword}"
-        await trigger_red_alert.ainvoke(
-            {
-                "patient_id": patient_id,
-                "reason": reason,
-                "severity": "HIGH",
-                "evidence": text,
-            }
-        )
         return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
 
     medication_reason = match_medication_decision(text)
@@ -98,14 +92,6 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
 
     if await _classify_with_llm(text):
         reason = "SEVERE_SYMPTOM: llm_classified"
-        await trigger_red_alert.ainvoke(
-            {
-                "patient_id": patient_id,
-                "reason": reason,
-                "severity": "HIGH",
-                "evidence": text,
-            }
-        )
         return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
 
     return SafetyVerdict(escalated=False)

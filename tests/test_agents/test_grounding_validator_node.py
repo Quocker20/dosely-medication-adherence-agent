@@ -16,9 +16,7 @@ SOURCES = {
 
 
 def test_valid_cited_answer_passes():
-    result = validate_grounded_answer(
-        "Diphenhydramin làm giảm hấp thu PAS [Nguồn 1].", SOURCES
-    )
+    result = validate_grounded_answer("Diphenhydramin làm giảm hấp thu PAS [Nguồn 1].", SOURCES)
     assert result.valid is True
 
 
@@ -44,9 +42,7 @@ async def test_node_replaces_ungrounded_rag_answer():
             HumanMessage(content="PAS tương tác thế nào?"),
             AIMessage(
                 content="",
-                tool_calls=[
-                    {"name": "search_drug_formulary", "args": {"query": "PAS"}, "id": "1"}
-                ],
+                tool_calls=[{"name": "search_drug_formulary", "args": {"query": "PAS"}, "id": "1"}],
             ),
             ToolMessage(content=SOURCES[1], tool_call_id="1", name="search_drug_formulary"),
             AIMessage(content="PAS chữa khỏi mọi bệnh."),
@@ -63,16 +59,15 @@ async def test_node_does_not_require_citation_when_rag_was_not_used():
         {"messages": [HumanMessage(content="Xin chào"), AIMessage(content="Xin chào bạn!")]}
     )
     assert result == {"grounding_valid": True, "grounding_errors": []}
+
+
 def test_validator_accepts_cited_numbered_interaction_list() -> None:
     answer = (
         "Zolpidem có các tương tác đáng chú ý như sau:\n"
         "1. Rượu: Có thể làm tăng tác dụng an thần [Nguồn 1].\n"
         "2. Rifampicin: Phối hợp làm giảm tác dụng zolpidem [Nguồn 1]."
     )
-    sources = {
-        1: "[Nguồn 1] Rượu làm tăng tác dụng an thần. Rifampicin phối hợp "
-        "làm giảm tác dụng zolpidem."
-    }
+    sources = {1: "[Nguồn 1] Rượu làm tăng tác dụng an thần. Rifampicin phối hợp làm giảm tác dụng zolpidem."}
     result = validate_grounded_answer(answer, sources)
     assert result.valid is True
 

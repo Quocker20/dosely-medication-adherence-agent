@@ -181,6 +181,12 @@ def _parse_time_str(t_str: str | None) -> time | None:
         return None
 
 
+def _time_in_window(value: time, start: time, end: time) -> bool:
+    if start <= end:
+        return start <= value <= end
+    return value >= start or value <= end
+
+
 async def _handle_busy_window(
     patient_id: str,
     extraction: RoutineDeviationExtraction,
@@ -198,20 +204,42 @@ async def _handle_busy_window(
             message=f"Bạn có thể cho mình biết rõ khung giờ bận {day_label} từ mấy giờ đến mấy giờ được không?",
         )
 
-    # Tính target date để query lịch
+    if not client_date:
+        return RescheduleResult(
+            status="failed",
+            message="Mình chưa xác định được ngày theo thiết bị của bạn nên chưa thể kiểm tra lịch trong khung giờ bận.",
+        )
+
     try:
-        base_d = date.fromisoformat(client_date) if client_date else date.today()
-    except Exception:
-        base_d = date.today()
+        base_d = date.fromisoformat(client_date)
+    except ValueError:
+        return RescheduleResult(
+            status="failed",
+            message="Ngày trên thiết bị không hợp lệ nên mình chưa thể kiểm tra lịch trong khung giờ bận.",
+        )
     target_d = base_d + timedelta(days=day_offset)
 
-    try:
-        schedule_data = await get(f"/patients/{patient_id}/schedules?date={target_d.isoformat()}")
-    except Exception:
-        schedule_data = None
+    schedule_days = [target_d]
+    if start_t > end_t:
+        schedule_days.append(target_d + timedelta(days=1))
 
-    doses = schedule_data.get("doses", []) if isinstance(schedule_data, dict) else []
-    tz_str = schedule_data.get("timezone", "Asia/Ho_Chi_Minh") if isinstance(schedule_data, dict) else "Asia/Ho_Chi_Minh"
+    schedule_payloads = []
+    try:
+        for schedule_day in schedule_days:
+            schedule_data = await get(f"/patients/{patient_id}/schedules?date={schedule_day.isoformat()}")
+            if isinstance(schedule_data, dict):
+                schedule_payloads.append(schedule_data)
+    except Exception:
+        return RescheduleResult(
+            status="failed",
+            message="Mình chưa kiểm tra được lịch thuốc hiện tại trong khung giờ bận. Lịch uống thuốc hiện tại vẫn giữ nguyên.",
+        )
+
+    doses = [dose for payload in schedule_payloads for dose in payload.get("doses", [])]
+    tz_str = next(
+        (payload.get("timezone") for payload in schedule_payloads if payload.get("timezone")),
+        "Asia/Ho_Chi_Minh",
+    )
     tz = ZoneInfo(tz_str)
 
     conflicting_doses: list[dict] = []
@@ -224,7 +252,7 @@ async def _handle_busy_window(
         try:
             sched_dt = datetime.fromisoformat(sched_at_str.replace("Z", "+00:00")).astimezone(tz)
             sched_t = sched_dt.time()
-            if start_t <= sched_t <= end_t:
+            if _time_in_window(sched_t, start_t, end_t):
                 conflicting_doses.append({**d, "local_time": sched_dt.strftime("%H:%M")})
         except Exception:
             continue

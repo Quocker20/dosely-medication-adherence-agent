@@ -13,6 +13,7 @@ hóa, retention ngắn." Ở đây chỉ log metadata (patient_id, intent, có
 escalate không, độ dài phản hồi, timestamp) — đủ để trace luồng khi có sự
 cố, không đủ để lộ nội dung y tế nếu log bị rò rỉ.
 """
+
 from __future__ import annotations
 
 import logging

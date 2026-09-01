@@ -9,6 +9,7 @@ into the LLM prompt. This tool does not enforce that itself — the caller
 (node that builds `responses`/`symptoms`) is responsible for keeping raw
 free-text out of whatever it puts in front of the LLM.
 """
+
 from __future__ import annotations
 
 from typing import Any

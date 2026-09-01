@@ -3,7 +3,7 @@ import logging
 import time as time_module
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -69,7 +69,7 @@ class AgentRunLeaseBusyError(RuntimeError):
     """A redelivered task arrived before the previous claim expired."""
 
 
-class AutoscheduleOutcome(str, Enum):
+class AutoscheduleOutcome(StrEnum):
     """Why an automatic planning trigger did or didn't start a run."""
 
     DISPATCHED = "DISPATCHED"
@@ -850,22 +850,24 @@ class ChatService:
         self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
     ) -> tuple[str, uuid.UUID]:
         persistence_available = self._db is not None and self._memory is not None
+        actual_conv_id: uuid.UUID
         if self._db is not None and self._memory is not None:
             try:
                 async with self._db.begin():
                     conversation = await self._memory.get_or_create(uuid.UUID(str(patient_id)), conversation_id)
-                    history_rows = await self._memory.recent_messages(conversation.id, limit=10)
+                    actual_conv_id = conversation.id
+                    history_rows = await self._memory.recent_messages(actual_conv_id, limit=10)
             except PermissionError as exc:
                 raise ForbiddenException(message=str(exc)) from exc
             except Exception:  # memory outage must not make medication chat unavailable
                 logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
-                conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+                actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
                 history_rows = []
                 persistence_available = False
         else:  # isolated unit/eval mode; production DI always supplies persistence
-            conversation = type("Conversation", (), {"id": conversation_id or uuid.uuid4()})()
+            actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
             history_rows = []
-        working = await load_working_memory(str(patient_id), str(conversation.id)) if persistence_available else {}
+        working = await load_working_memory(str(patient_id), str(actual_conv_id)) if persistence_available else {}
         history = [
             HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
             for row in history_rows
@@ -876,6 +878,7 @@ class ChatService:
             {
                 "messages": history + [HumanMessage(content=message)],
                 "patient_id": patient_id,
+                "conversation_id": str(actual_conv_id),
                 "patient_address": patient_address,
                 "client_date": client_date.isoformat() if client_date else None,
                 "client_datetime": client_datetime.isoformat() if client_datetime else None,
@@ -888,17 +891,34 @@ class ChatService:
         response_text = patient_facing_text(result["messages"][-1].content)
         if persistence_available:
             async with self._db.begin():
-                await self._memory.append_exchange(conversation.id, message, response_text, result.get("intent"))
+                await self._memory.append_exchange(actual_conv_id, message, response_text, result.get("intent"))
+            await invalidate_prefix("chat:conversations")
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         if metadata.get("resolved_medication"):
             working["current_medication"] = metadata["resolved_medication"]
+        if metadata.get("adverse_event_id"):
+            # Redis only keeps a short-lived pointer. Clinical symptom data
+            # remains in PostgreSQL and is never copied wholesale into prompts.
+            working["last_adverse_event_id"] = metadata["adverse_event_id"]
+            working["last_adverse_event_at"] = metadata.get("adverse_event_reported_at")
+            working["has_unreviewed_adverse_event"] = metadata.get("adverse_event_review_status") != "REVIEWED"
+        if "pending_adverse_event" in metadata:
+            working["pending_adverse_event"] = metadata["pending_adverse_event"]
+        elif metadata.get("clear_pending_adverse_event"):
+            working.pop("pending_adverse_event", None)
+        elif result.get("intent") == "report_adverse_event" and working.get("pending_adverse_event"):
+            working.pop("pending_adverse_event", None)
+        if "pending_schedule_request" in metadata:
+            working["pending_schedule_request"] = metadata["pending_schedule_request"]
+        elif metadata.get("clear_pending_schedule_request"):
+            working.pop("pending_schedule_request", None)
         working["last_intent"] = result.get("intent")
         if persistence_available:
-            await save_working_memory(str(patient_id), str(conversation.id), working)
+            await save_working_memory(str(patient_id), str(actual_conv_id), working)
         log_turn(
             patient_id=patient_id,
             intent=result.get("intent"),
             escalated=bool(result.get("escalated")),
             response_length=len(response_text),
         )
-        return response_text, conversation.id
+        return response_text, actual_conv_id

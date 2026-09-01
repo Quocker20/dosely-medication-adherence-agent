@@ -214,6 +214,27 @@ class Settings(BaseSettings):
     doctor_name: str = "BS. Nguyễn Văn A"
     doctor_specialty: str = "Nội tim mạch"
 
+    # Prescription PDF export (docs/prescription-pdf-export-plan.md). Phụ lục I,
+    # TT 26/2025/TT-BYT requires clinic identity plus a handful of patient
+    # fields (CCCD, address, BHYT, weight) that no table in this schema
+    # stores. Values here are deliberately obvious placeholders — never a
+    # validly-formatted random CCCD or a plausible facility code — so an
+    # exported sheet can never pass as a real clinical document; the PDF
+    # renderer also stamps a watermark on every page for the same reason.
+    clinic_name: str = "Bệnh viện Đa khoa Quốc tế Viemec"
+    clinic_address: str = "Số 1, Đường Gầm Cầu, Phường Bờ Đê, Hà Nội"
+    clinic_phone: str = "1900 0000"
+    clinic_code: str = "01-018"
+    sim_patient_id_number: str = "033200000000"
+    sim_patient_address: str = "Số 100, Đường Cây Tre, Phường Cây Chuối, Hà Nội"
+    sim_patient_insurance_no: str = "0000000000"
+    sim_patient_weight: str = "60 kg"
+    sim_followup_note: str = "Tái khám theo lịch hẹn của bác sĩ."
+    # Guard against an unbounded diagnosis_note/instructions Text column
+    # blowing the PDF up to hundreds of pages; the renderer truncates with
+    # an ellipsis past this length.
+    pdf_max_free_text_chars: int = Field(default=2000, ge=100, le=20000)
+
 
 @lru_cache
 def get_settings() -> Settings:

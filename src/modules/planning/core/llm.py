@@ -16,6 +16,9 @@ def get_llm(
         "model": model or settings.model_name,
         "api_key": settings.openai_api_key or None,
         "temperature": temp,
+        # Bound provider connection/read time even when a caller forgets a
+        # wait_for wrapper.  This is a safety property for the chat API.
+        "request_timeout": kwargs.pop("request_timeout", settings.api_timeout_seconds),
         **kwargs,
     }
     if settings.openai_base_url:

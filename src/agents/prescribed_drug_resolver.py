@@ -4,6 +4,7 @@ This module never guesses a drug name.  It uses only the current prescription,
 the same dated schedule endpoint used by the App, or a previously verified
 medication stored in conversation working memory.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,7 +14,6 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from src.modules.planning.core.backend_client import BackendAPIError, get
-
 
 _EXPLICIT_TIME = re.compile(
     r"\b(?P<hour>[01]?\d|2[0-3])\s*(?::|h|giờ)\s*(?P<minute>[0-5]\d)?\b",
@@ -41,8 +41,14 @@ class ResolutionResult:
 
 
 _PERIOD_TO_SLOT = {
-    "morning": "MORNING", "noon": "NOON", "evening": "EVENING", "bedtime": "BEDTIME",
-    "sáng": "MORNING", "trưa": "NOON", "chiều": "EVENING", "tối": "EVENING",
+    "morning": "MORNING",
+    "noon": "NOON",
+    "evening": "EVENING",
+    "bedtime": "BEDTIME",
+    "sáng": "MORNING",
+    "trưa": "NOON",
+    "chiều": "EVENING",
+    "tối": "EVENING",
     "trước khi ngủ": "BEDTIME",
 }
 
@@ -60,7 +66,13 @@ def _local_time(value: object, timezone_name: str | None) -> tuple[int, int] | N
 def _deduplicate(items: list[dict]) -> list[dict]:
     unique: dict[str, dict] = {}
     for item in items:
-        key = str(item.get("medication_id") or item.get("prescription_item_id") or item.get("id") or item.get("medication_name") or item.get("display_name"))
+        key = str(
+            item.get("medication_id")
+            or item.get("prescription_item_id")
+            or item.get("id")
+            or item.get("medication_name")
+            or item.get("display_name")
+        )
         unique.setdefault(key, item)
     return list(unique.values())
 
@@ -140,7 +152,7 @@ async def resolve_prescribed_drug(state: dict) -> ResolutionResult:
             ordinal = int(analysis.get("prescription_ordinal"))
         except (TypeError, ValueError):
             return ResolutionResult(ResolutionStatus.INSUFFICIENT_REFERENCE, reference_type=ref_type)
-        matches = meds[ordinal - 1:ordinal] if ordinal > 0 else []
+        matches = meds[ordinal - 1 : ordinal] if ordinal > 0 else []
         value = str(ordinal)
     elif ref_type == "drug_name":
         value = str(analysis.get("drug_name") or "").strip()

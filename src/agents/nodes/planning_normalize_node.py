@@ -52,7 +52,7 @@ def normalize_planning_inputs(
             start_date=item.start_date,
             end_date=item.end_date,
             is_critical=item.is_critical,
-            interval_days=getattr(item, "interval_days", 1) or 1,
+            interval_days=getattr(item, "interval_days", 1),
         )
         for item, _prescription_id in item_pairs
     ]

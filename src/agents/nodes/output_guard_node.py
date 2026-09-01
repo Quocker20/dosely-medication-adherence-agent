@@ -1,4 +1,5 @@
 """Deterministic final boundary for every non-fixed chatbot response."""
+
 from __future__ import annotations
 
 import re
@@ -23,6 +24,13 @@ _ENGLISH_UI_LABEL = re.compile(
     r"taken|pending|missed|skipped|source|instructions?|result)\s*(?:[:：-]|$)"
 )
 
+_GROUNDING_REQUIRED_INTENTS = {
+    "ask_drug_info",
+    "ask_drug_catalog",
+    "ask_prescribed_drug_info",
+    "ask_scheduled_drug_info",
+}
+
 
 def validate_patient_output(text: str) -> list[str]:
     errors: list[str] = []
@@ -45,6 +53,11 @@ async def output_guard_node(state: AgentState) -> dict:
     messages = state.get("messages", [])
     text = str(messages[-1].content) if messages else ""
     errors = validate_patient_output(text)
+    # Medical knowledge answers must be grounded in the RAG/catalog result.
+    # A fluent fallback from the LLM is not evidence and must never reach the
+    # patient when retrieval failed or returned an unverified drug.
+    if state.get("intent") in _GROUNDING_REQUIRED_INTENTS and state.get("grounding_valid") is not True:
+        errors.append("missing_medical_grounding")
     if not errors:
         return {"output_guarded": True, "output_errors": []}
     return {

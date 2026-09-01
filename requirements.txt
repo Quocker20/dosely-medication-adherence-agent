@@ -8,6 +8,7 @@ tzdata>=2024.2  # zoneinfo has no IANA db on Windows without this
 python-multipart>=0.0.9  # required by FastAPI Form/File (POST /chat/voice)
 bcrypt>=4.0.0
 pyjwt>=2.8.0
+fpdf2>=2.8.0  # prescription PDF export (see docs/prescription-pdf-export-plan.md)
 
 # Task Queue & Cache
 celery>=5.3.0
@@ -36,5 +37,6 @@ langdetect>=1.0.9
 ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+pypdf>=6.0.0  # test-only: verifies rendered PDF content/page count in test_prescription_pdf.py
 firebase-admin>=6.0.0
 httpx>=0.28.0

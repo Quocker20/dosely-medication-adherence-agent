@@ -30,9 +30,7 @@ async def test_formulary_tool_returns_grounded_source():
         score=1.0,
     )
     with patch("src.agents.tools.drug_rag_tools._get_rag", return_value=FakeRAG([hit])):
-        result = await search_drug_formulary.ainvoke(
-            {"query": "Acid ascorbic có chỉ định gì?"}
-        )
+        result = await search_drug_formulary.ainvoke({"query": "Acid ascorbic có chỉ định gì?"})
     assert "[Nguồn 1]" in result
     assert "trang 100" in result
     assert "chunk-1" in result
@@ -42,7 +40,5 @@ async def test_formulary_tool_returns_grounded_source():
 @pytest.mark.asyncio
 async def test_formulary_tool_has_safe_no_match_response():
     with patch("src.agents.tools.drug_rag_tools._get_rag", return_value=FakeRAG([])):
-        result = await search_drug_formulary.ainvoke(
-            {"query": "Acid ascorbic có chỉ định gì?"}
-        )
+        result = await search_drug_formulary.ainvoke({"query": "Acid ascorbic có chỉ định gì?"})
     assert result == _NO_MATCH
