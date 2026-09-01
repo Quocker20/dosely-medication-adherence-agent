@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     # Android sideload release metadata. The API exposes only the current
     # release description and derives its download URL from the local static
     # /downloads mount; it never accepts a publisher-controlled external URL.
-    android_latest_version_code: int = Field(default=6, ge=1)
-    android_latest_version_name: str = "1.4.0"
+    android_latest_version_code: int = Field(default=8, ge=1)
+    android_latest_version_name: str = "1.6.0"
     android_latest_apk_filename: str = "remindrx-demo.apk"
 
     # PostgreSQL Database
