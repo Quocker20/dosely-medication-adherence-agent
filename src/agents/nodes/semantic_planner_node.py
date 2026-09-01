@@ -1,6 +1,8 @@
 """LLM-first semantic understanding for RemindRx."""
 from __future__ import annotations
 
+import asyncio
+
 from langchain_core.messages import HumanMessage
 from src.agents.semantic_plan import SemanticPlan, TOOL_TO_LEGACY_INTENT
 from src.agents.state import AgentState
@@ -43,7 +45,11 @@ async def semantic_planner_node(state: AgentState) -> dict:
         context += f"\nYÊU CẦU LỊCH TƯƠNG LAI CHỜ XÁC NHẬN: {pending_schedule}. Nếu người dùng xác nhận bình thường, chọn get_schedule; nếu nói bận, chọn clarify để hỏi khung giờ; chỉ đổi lịch khi đã đồng ý rõ ràng."
     try:
         planner = get_llm(temperature=0).with_structured_output(SemanticPlan)
-        plan = await planner.ainvoke([{"role": "system", "content": _PROMPT}, {"role": "user", "content": context}])
+        # Never let an upstream LLM/network stall the chat request indefinitely.
+        plan = await asyncio.wait_for(
+            planner.ainvoke([{"role": "system", "content": _PROMPT}, {"role": "user", "content": context}]),
+            timeout=10,
+        )
     except Exception:
         return {"semantic_plan": {}, "semantic_plan_valid": False, "use_legacy_classifier": True,
                 "parser_degraded": True, "intent": "clarify"}

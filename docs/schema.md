@@ -362,16 +362,27 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
   * `generated_dose_count` (Optional[int]): Số lượng cữ uống thuốc đã được tự động sinh ra.
   * `created_at` (datetime): Thời điểm chạy.
 
-### 6.4 ChatRequest / ChatResponse / VoiceChatResponse
-* **Mục đích**: Trao đổi hội thoại giữa bệnh nhân và AI agent (`POST /chat`, `POST /chat/voice`).
+### 6.4 ChatRequest / ChatResponse / VoiceChatResponse / Chat History
+* **Mục đích**: Trao đổi hội thoại giữa bệnh nhân và AI agent (`POST /chat`, `POST /chat/voice`) và đọc lịch sử hội thoại (`GET /chat/conversations`, `GET /chat/conversations/{conversation_id}`).
 * **Module**: `src.modules.agents.schemas`
 * **Ràng buộc định danh**: `ChatRequest` **KHÔNG** có trường `patient_id`. Service luôn lấy `patient_id` từ claim `sub` của access token. Lý do: tool của agent có quyền ghi (`record_dose_action`, `trigger_red_alert`), nên nhận `patient_id` từ body sẽ mở đường ghi dữ liệu sang hồ sơ bệnh nhân khác. Trường thừa gửi kèm trong body bị bỏ qua.
+* **Lưu trữ canonical**: `chat_conversations` / `chat_messages`. Bảng legacy `conversations` / `messages` không còn nằm trong snapshot DB.
+* **Cache**: endpoint đọc history dùng Redis read-through cache theo actor; cache bị invalidate sau mỗi lượt chat mới.
 * **Cấu trúc thuộc tính**:
   * `ChatRequest.message` (str, Field min_length=1, max_length=5000): Tin nhắn từ bệnh nhân.
+  * `ChatRequest.conversationId` (Optional[UUID]): Mã đoạn chat hiện tại. Nếu bỏ trống, backend tạo conversation mới.
   * `ChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `ChatResponse.conversationId` (Optional[UUID]): Mã đoạn chat thật sự được ghi.
   * `VoiceChatResponse.transcript` (str): Văn bản nhận dạng từ giọng nói.
   * `VoiceChatResponse.response` (str): Phản hồi dạng chữ từ agent.
+  * `VoiceChatResponse.conversationId` (Optional[UUID]): Mã đoạn chat thật sự được ghi.
   * `VoiceChatResponse.audio_base64` (Optional[str]): Phản hồi dạng giọng nói (mp3, base64). `null` khi TTS lỗi (fail-open).
+  * `ChatConversationListItem.id` (UUID): Mã đoạn chat.
+  * `ChatConversationListItem.title` (str): Tên đoạn chat lấy từ `chat_conversations.summary`; câu đầu được rút gọn deterministically nếu chưa có summary.
+  * `ChatConversationListItem.preview` (Optional[str]): Tin nhắn mới nhất.
+  * `ChatConversationListItem.messageCount` (int): Tổng số message trong đoạn chat.
+  * `ChatConversationDetailResponse.messages` (List[ChatMessageItem]): Tin nhắn trả theo trang, sắp theo thứ tự cũ → mới.
+  * `ChatConversationDetailResponse.hasMore` / `nextCursor`: Phân trang để tải tin nhắn cũ hơn.
 
 ### 6.5 ActiveScheduleResponse
 * **Mục đích**: Trả về danh sách các cữ uống thuốc cụ thể trong ngày (`scheduled_doses`) của bệnh nhân.

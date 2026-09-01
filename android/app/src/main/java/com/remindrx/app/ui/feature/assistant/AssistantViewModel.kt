@@ -49,10 +49,23 @@ class AssistantViewModel @Inject constructor(
     private var activePatientId: String? = null
     private var sessionRevision: Long = 0
     private var replyJob: Job? = null
+    private var conversationsJob: Job? = null
+    private var messagesJob: Job? = null
 
     fun startSession(patientId: String) {
         if (activePatientId == patientId) return
         resetSession(patientId)
+        val revision = sessionRevision
+        conversationsJob = viewModelScope.launch {
+            repository.observeConversations(patientId).collect { list ->
+                if (isCurrentSession(revision)) {
+                    _state.update { it.copy(conversations = list) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            runCatching { repository.refreshConversations(patientId) }
+        }
     }
 
     fun endSession() {
@@ -64,6 +77,10 @@ class AssistantViewModel @Inject constructor(
         activePatientId = patientId
         replyJob?.cancel()
         replyJob = null
+        conversationsJob?.cancel()
+        conversationsJob = null
+        messagesJob?.cancel()
+        messagesJob = null
         stopRecorderQuietly()
         recordingFile?.delete()
         recordingFile = null
@@ -80,17 +97,21 @@ class AssistantViewModel @Inject constructor(
 
     fun sendMessage(content: String) {
         val question = content.trim()
-        if (activePatientId == null || question.isBlank() || _state.value.isReplying) return
+        val patientId = activePatientId
+        if (patientId == null || question.isBlank() || _state.value.isReplying) return
         appendUserMessage(question)
         val revision = sessionRevision
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
-            val result = runCatching { repository.sendText(question, conversationId) }
+            val conversationId = activeConversationId
+            val result = runCatching { repository.sendText(question, conversationId, patientId) }
             if (!isCurrentSession(revision)) return@launch
             result
-                .onSuccess(::appendAssistantMessage)
+                .onSuccess { chatResult ->
+                    activeConversationId = chatResult.conversationId ?: conversationId
+                    appendAssistantMessage(chatResult.responseText)
+                }
                 .onFailure { error ->
                     _state.update {
                         it.copy(
@@ -140,6 +161,7 @@ class AssistantViewModel @Inject constructor(
 
     fun stopRecordingAndSend() {
         if (!_state.value.isRecording) return
+        val patientId = activePatientId ?: return
         val file = recordingFile
         stopRecorderQuietly()
         recordingFile = null
@@ -149,14 +171,15 @@ class AssistantViewModel @Inject constructor(
 
         replyJob = viewModelScope.launch {
             _state.update { it.copy(isReplying = true, error = null) }
-            val conversationId = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
-            val result = runCatching { repository.sendVoice(file, "audio/mp4", conversationId) }
+            val conversationId = activeConversationId
+            val result = runCatching { repository.sendVoice(file, "audio/mp4", conversationId, patientId) }
             if (!isCurrentSession(revision)) {
                 file.delete()
                 return@launch
             }
             result
                 .onSuccess { voiceResult ->
+                    activeConversationId = voiceResult.conversationId ?: conversationId
                     appendUserMessage(voiceResult.transcript)
                     appendAssistantMessage(voiceResult.responseText)
                     voiceResult.audioBase64?.let(::playReply)
@@ -175,14 +198,26 @@ class AssistantViewModel @Inject constructor(
 
     fun openConversation(conversationId: String) {
         if (activePatientId == null) return
-        val conversation = _state.value.conversations.firstOrNull { it.id == conversationId } ?: return
         activeConversationId = conversationId
-        _state.update { it.copy(messages = conversation.messages, isReplying = false) }
+        val revision = sessionRevision
+        messagesJob?.cancel()
+        messagesJob = viewModelScope.launch {
+            repository.observeMessages(conversationId).collect { msgs ->
+                if (isCurrentSession(revision)) {
+                    _state.update { it.copy(messages = if (msgs.isNotEmpty()) msgs else listOf(welcomeMessage()), isReplying = false) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            runCatching { repository.loadConversationDetail(conversationId) }
+        }
     }
 
     fun startNewConversation() {
         if (activePatientId == null) return
         activeConversationId = null
+        messagesJob?.cancel()
+        messagesJob = null
         _state.update { it.copy(messages = listOf(welcomeMessage()), isReplying = false) }
     }
 
@@ -228,23 +263,11 @@ class AssistantViewModel @Inject constructor(
             time = "Bây giờ",
         )
         _state.update { current ->
-            val messages = current.messages + message
             current.copy(
-                messages = messages,
-                conversations = saveConversation(current.conversations, messages),
+                messages = current.messages + message,
                 isReplying = false,
             )
         }
-    }
-
-    private fun saveConversation(
-        conversations: List<ChatConversation>,
-        messages: List<ChatMessage>,
-    ): List<ChatConversation> {
-        val id = activeConversationId ?: UUID.randomUUID().toString().also { activeConversationId = it }
-        val title = messages.firstOrNull { it.role == ChatRole.USER }?.content?.take(42) ?: "Cuộc trò chuyện mới"
-        val conversation = ChatConversation(id = id, title = title, updatedAt = "Vừa xong", messages = messages)
-        return listOf(conversation) + conversations.filterNot { it.id == id }
     }
 
     private fun isCurrentSession(revision: Long): Boolean =
@@ -253,6 +276,8 @@ class AssistantViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         replyJob?.cancel()
+        conversationsJob?.cancel()
+        messagesJob?.cancel()
         stopRecorderQuietly()
         player?.release()
     }

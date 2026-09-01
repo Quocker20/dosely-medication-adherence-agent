@@ -15,6 +15,9 @@ import retrofit2.http.Query
 
 interface RemindRxApiService {
 
+    @GET("app/latest-version")
+    suspend fun getLatestAppVersion(): ApiEnvelope<LatestAppVersionDto>
+
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequestDto): ApiEnvelope<AuthTokenResponseDto>
 
@@ -128,6 +131,19 @@ interface RemindRxApiService {
         @Path("agentRunId") agentRunId: String,
     ): ApiEnvelope<AgentRunStatusResponseDto>
 
+    @GET("chat/conversations")
+    suspend fun getChatConversations(
+        @Query("page") page: Int = 1,
+        @Query("size") size: Int = 20,
+    ): ApiEnvelope<PageResponseDto<ChatConversationListItemDto>>
+
+    @GET("chat/conversations/{conversationId}")
+    suspend fun getChatConversationDetail(
+        @Path("conversationId") conversationId: String,
+        @Query("limit") limit: Int = 50,
+        @Query("before") before: String? = null,
+    ): ApiEnvelope<ChatConversationDetailDto>
+
     @POST("chat")
     suspend fun sendChatMessage(@Body request: ChatRequestDto): ApiEnvelope<ChatResponseDto>
 
@@ -137,7 +153,7 @@ interface RemindRxApiService {
         @Part audio: MultipartBody.Part,
         @Part("clientDate") clientDate: RequestBody,
         @Part("clientDateTime") clientDateTime: RequestBody,
-        @Part("conversationId") conversationId: RequestBody,
+        @Part("conversationId") conversationId: RequestBody? = null,
     ): ApiEnvelope<VoiceChatResponseDto>
 
     @POST("auth/device-token")
