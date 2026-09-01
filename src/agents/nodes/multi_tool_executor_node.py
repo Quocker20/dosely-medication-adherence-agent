@@ -9,6 +9,7 @@ from src.agents.nodes.current_medications_node import current_medications_node
 from src.agents.nodes.drug_rag_node import drug_rag_node
 from src.agents.nodes.explain_my_medications_node import explain_my_medications_node
 from src.agents.nodes.next_dose_node import next_dose_node
+from src.agents.nodes.medication_catalog_node import medication_catalog_node
 from src.agents.nodes.prescribed_drug_info_node import prescribed_drug_info_node
 from src.agents.nodes.rescheduling_node import rescheduling_node
 from src.agents.nodes.today_schedule_node import today_schedule_node
@@ -22,6 +23,7 @@ _EXECUTORS = {
     "get_next_dose": next_dose_node,
     "resolve_medication": prescribed_drug_info_node,
     "search_drug_knowledge": drug_rag_node,
+    "search_medication_catalog": medication_catalog_node,
 }
 
 

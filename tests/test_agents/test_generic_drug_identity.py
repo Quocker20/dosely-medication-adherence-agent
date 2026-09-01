@@ -103,3 +103,39 @@ async def test_combination_brand_queries_every_catalogued_ingredient(monkeypatch
     assert {item["drug_name"] for item in result["rag_sources"]} == {
         "CLINDAMYCIN", "NICOTINAMID",
     }
+
+
+@pytest.mark.asyncio
+async def test_catalog_only_drug_is_not_presented_as_grounded_clinical_answer(monkeypatch):
+    class IdentityRag:
+        def infer_drug(self, _value):
+            return None, None
+
+    class SafeRag:
+        rag = IdentityRag()
+
+        def query(self, _question, **_kwargs):
+            return SimpleNamespace(
+                answer="Ngoài phạm vi.", status="out_of_scope",
+                grounding_valid=True, grounding_errors=[], sources=[],
+            )
+
+    async def fake_get(*_args, **_kwargs):
+        return {"content": [{
+            "name": "Beclometasone",
+            "composition": "Beclometasone",
+            "uses": "",
+            "source_name": "WHO_EML_2023_STARTER",
+        }]}
+
+    monkeypatch.setattr(module, "_get_rag_service", lambda: SafeRag())
+    monkeypatch.setattr(module, "get", fake_get)
+    result = await module.drug_rag_node({
+        "messages": [HumanMessage(content="Beclometasone có tác dụng gì?")],
+        "intent_analysis": {"drug_name": "Beclometasone"},
+    })
+
+    assert result["grounding_valid"] is False
+    assert result["grounding_errors"] == ["catalog_missing_verified_uses"]
+    assert result["refusal_reason"] == "catalog_missing_verified_uses"
+    assert result["metadata"]["catalog_medication"]["name"] == "Beclometasone"
