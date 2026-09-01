@@ -316,7 +316,7 @@
 
 :root[data-theme="dark"] .patient-web-shell {
   --p-bg: #0b0f14;
-  --p-ink: #eef1f4;
+  --p-ink: #d6dce2;
   --p-muted: #93a0ad;
   --p-border: #232b33;
   --p-primary: #5ab8f2;
@@ -338,15 +338,73 @@
 :root[data-theme="dark"] .patient-topbar,
 :root[data-theme="dark"] .patient-empty,
 :root[data-theme="dark"] .dose-reminder-card,
-:root[data-theme="dark"] .notification-panel {
+:root[data-theme="dark"] .notification-panel,
+:root[data-theme="dark"] .sos-page {
   background: #12171d;
+}
+:root[data-theme="dark"] .sos-page {
+  border-color: #382422;
+}
+:root[data-theme="dark"] .sos-info-panel li {
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .sos-disclaimer {
+  background: #231413;
+  border-color: #482320;
+}
+:root[data-theme="dark"] .sos-disclaimer span {
+  color: #e5b8b4;
 }
 :root[data-theme="dark"] .patient-header {
   background: rgba(18, 23, 29, 0.88);
 }
+:root[data-theme="dark"] .chat-new-btn,
+:root[data-theme="dark"] .chat-toggle-sidebar-btn,
+:root[data-theme="dark"] .chat-composer .chat-mic {
+  background: #1a2128;
+  border-color: #2e3846;
+  color: var(--p-primary);
+}
+:root[data-theme="dark"] .chat-new-btn:hover,
+:root[data-theme="dark"] .chat-toggle-sidebar-btn:hover {
+  background: #232b33;
+  border-color: #38424e;
+  color: var(--p-primary);
+}
 :root[data-theme="dark"] .patient-dose,
 :root[data-theme="dark"] .chat-bubble {
   background: #1a2128;
+}
+:root[data-theme="dark"] .chat-bubble > b {
+  color: #a795f5;
+}
+:root[data-theme="dark"] .chat-avatar,
+:root[data-theme="dark"] .chat-ai-mark {
+  background: #201e33;
+  color: #a795f5;
+  border: 1px solid #3b3355;
+}
+:root[data-theme="dark"] .chat-sidebar-head,
+:root[data-theme="dark"] .chat-panel-head {
+  border-bottom-color: var(--p-border);
+}
+:root[data-theme="dark"] .chat-history-item:hover {
+  background: #1a2128;
+}
+:root[data-theme="dark"] .chat-history-item.active {
+  background: #201e33;
+  border-color: #3b3355;
+}
+:root[data-theme="dark"] .chat-history-item.active .chat-item-title {
+  color: #a795f5;
+}
+:root[data-theme="dark"] .chat-composer textarea {
+  border-color: var(--p-border);
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .chat-composer textarea:focus {
+  border-color: #8f7ae8;
+  box-shadow: 0 0 0 3px rgba(111, 86, 199, 0.25);
 }
 :root[data-theme="dark"] .patient-dose:hover {
   background: #202932;
@@ -356,6 +414,10 @@
 :root[data-theme="dark"] .form-submit-row,
 :root[data-theme="dark"] .routine-page-footer {
   background: #151b22;
+  border-top-color: var(--p-border);
+}
+:root[data-theme="dark"] .form-section {
+  border-top-color: var(--p-border);
 }
 :root[data-theme="dark"] .next-web-card .next-dose {
   background: linear-gradient(130deg, #10222e, #132b3c);
@@ -390,13 +452,103 @@
 :root[data-theme="dark"] .symptoms button,
 :root[data-theme="dark"] .severity-row button {
   background: #1a2128;
+  border-color: var(--p-border);
+  color: var(--p-muted);
+}
+:root[data-theme="dark"] .mood-row button:hover,
+:root[data-theme="dark"] .symptoms button:hover,
+:root[data-theme="dark"] .severity-row button:hover {
+  background: #232b33;
+  border-color: #384554;
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .mood-row button.picked {
+  background: #1a8efd;
+  border-color: #38a6ff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(26, 142, 253, 0.35);
+}
+:root[data-theme="dark"] .mood-row button.picked b {
+  color: #ffffff;
+}
+:root[data-theme="dark"] .symptoms button.picked {
+  background: #3b1c19;
+  border-color: #f2948a;
+  color: #ffc2bb;
+  box-shadow: 0 2px 10px rgba(242, 148, 138, 0.25);
+  font-weight: 700;
+}
+:root[data-theme="dark"] .severity-row button.picked {
+  background: #1a8efd;
+  border-color: #38a6ff;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(26, 142, 253, 0.3);
+  font-weight: 700;
+}
+:root[data-theme="dark"] .severity-row button.picked.severe {
+  background: #d0372b;
+  border-color: #f2948a;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(208, 55, 43, 0.35);
+  font-weight: 700;
+}
+:root[data-theme="dark"] .survey-other-input {
+  background: #1a2128;
+  border-color: var(--p-border);
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .survey-other-input:focus {
+  border-color: #38a6ff;
+  box-shadow: 0 0 0 2px rgba(56, 166, 255, 0.25);
+}
+:root[data-theme="dark"] .survey-submit {
+  background: #1a8efd;
+  border-color: #1a8efd;
+  color: #ffffff;
+}
+:root[data-theme="dark"] .survey-submit:hover:not(:disabled) {
+  background: #38a6ff;
+  border-color: #38a6ff;
 }
 :root[data-theme="dark"] .web-welcome button {
   background: #1a2128;
   border-color: #2e3846;
 }
+:root[data-theme="dark"] .adherence-visual .progress-ring {
+  background: conic-gradient(var(--p-primary) var(--progress), #222b35 0);
+}
 :root[data-theme="dark"] .adherence-visual .progress-ring:after {
   background: #12171d;
+}
+:root[data-theme="dark"] .adherence-legend {
+  border-top-color: var(--p-border);
+}
+:root[data-theme="dark"] .web-card-head,
+:root[data-theme="dark"] .patient-dose {
+  border-bottom-color: var(--p-border);
+}
+:root[data-theme="dark"] .patient-web-shell .dose-status.locked,
+:root[data-theme="dark"] .patient-web-shell .dose-done-mark.locked {
+  background: #1a2128;
+  border: 1px solid #28323e;
+  color: var(--p-muted);
+}
+:root[data-theme="dark"] .patient-web-shell .next-dose.locked {
+  background: linear-gradient(130deg, #10222e, #132b3c);
+}
+:root[data-theme="dark"] .dose-actions button:not(.take):not(.skip) {
+  background: #1a2128;
+  border-color: #2e3846;
+  color: var(--p-ink);
+}
+:root[data-theme="dark"] .dose-actions button:not(.take):not(.skip):hover {
+  background: #232b33;
+}
+:root[data-theme="dark"] .timeline-marker i {
+  border-color: #12171d;
+}
+:root[data-theme="dark"] .timeline-marker b {
+  background: var(--p-border);
 }
 :root[data-theme="dark"] .patient-safe-card {
   background: #11291e;
@@ -415,7 +567,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .patient-web-shell {
     --p-bg: #0b0f14;
-    --p-ink: #eef1f4;
+    --p-ink: #d6dce2;
     --p-muted: #93a0ad;
     --p-border: #232b33;
     --p-primary: #5ab8f2;
@@ -437,15 +589,73 @@
   :root:not([data-theme="light"]) .patient-topbar,
   :root:not([data-theme="light"]) .patient-empty,
   :root:not([data-theme="light"]) .dose-reminder-card,
-  :root:not([data-theme="light"]) .notification-panel {
+  :root:not([data-theme="light"]) .notification-panel,
+  :root:not([data-theme="light"]) .sos-page {
     background: #12171d;
+  }
+  :root:not([data-theme="light"]) .sos-page {
+    border-color: #382422;
+  }
+  :root:not([data-theme="light"]) .sos-info-panel li {
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .sos-disclaimer {
+    background: #231413;
+    border-color: #482320;
+  }
+  :root:not([data-theme="light"]) .sos-disclaimer span {
+    color: #e5b8b4;
   }
   :root:not([data-theme="light"]) .patient-header {
     background: rgba(18, 23, 29, 0.88);
   }
+  :root:not([data-theme="light"]) .chat-new-btn,
+  :root:not([data-theme="light"]) .chat-toggle-sidebar-btn,
+  :root:not([data-theme="light"]) .chat-composer .chat-mic {
+    background: #1a2128;
+    border-color: #2e3846;
+    color: var(--p-primary);
+  }
+  :root:not([data-theme="light"]) .chat-new-btn:hover,
+  :root:not([data-theme="light"]) .chat-toggle-sidebar-btn:hover {
+    background: #232b33;
+    border-color: #38424e;
+    color: var(--p-primary);
+  }
   :root:not([data-theme="light"]) .patient-dose,
   :root:not([data-theme="light"]) .chat-bubble {
     background: #1a2128;
+  }
+  :root:not([data-theme="light"]) .chat-bubble > b {
+    color: #a795f5;
+  }
+  :root:not([data-theme="light"]) .chat-avatar,
+  :root:not([data-theme="light"]) .chat-ai-mark {
+    background: #201e33;
+    color: #a795f5;
+    border: 1px solid #3b3355;
+  }
+  :root:not([data-theme="light"]) .chat-sidebar-head,
+  :root:not([data-theme="light"]) .chat-panel-head {
+    border-bottom-color: var(--p-border);
+  }
+  :root:not([data-theme="light"]) .chat-history-item:hover {
+    background: #1a2128;
+  }
+  :root:not([data-theme="light"]) .chat-history-item.active {
+    background: #201e33;
+    border-color: #3b3355;
+  }
+  :root:not([data-theme="light"]) .chat-history-item.active .chat-item-title {
+    color: #a795f5;
+  }
+  :root:not([data-theme="light"]) .chat-composer textarea {
+    border-color: var(--p-border);
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .chat-composer textarea:focus {
+    border-color: #8f7ae8;
+    box-shadow: 0 0 0 3px rgba(111, 86, 199, 0.25);
   }
   :root:not([data-theme="light"]) .patient-dose:hover {
     background: #202932;
@@ -455,6 +665,10 @@
   :root:not([data-theme="light"]) .form-submit-row,
   :root:not([data-theme="light"]) .routine-page-footer {
     background: #151b22;
+    border-top-color: var(--p-border);
+  }
+  :root:not([data-theme="light"]) .form-section {
+    border-top-color: var(--p-border);
   }
   :root:not([data-theme="light"]) .next-web-card .next-dose {
     background: linear-gradient(130deg, #10222e, #132b3c);
@@ -489,13 +703,103 @@
   :root:not([data-theme="light"]) .symptoms button,
   :root:not([data-theme="light"]) .severity-row button {
     background: #1a2128;
+    border-color: var(--p-border);
+    color: var(--p-muted);
+  }
+  :root:not([data-theme="light"]) .mood-row button:hover,
+  :root:not([data-theme="light"]) .symptoms button:hover,
+  :root:not([data-theme="light"]) .severity-row button:hover {
+    background: #232b33;
+    border-color: #384554;
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .mood-row button.picked {
+    background: #1a8efd;
+    border-color: #38a6ff;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(26, 142, 253, 0.35);
+  }
+  :root:not([data-theme="light"]) .mood-row button.picked b {
+    color: #ffffff;
+  }
+  :root:not([data-theme="light"]) .symptoms button.picked {
+    background: #3b1c19;
+    border-color: #f2948a;
+    color: #ffc2bb;
+    box-shadow: 0 2px 10px rgba(242, 148, 138, 0.25);
+    font-weight: 700;
+  }
+  :root:not([data-theme="light"]) .severity-row button.picked {
+    background: #1a8efd;
+    border-color: #38a6ff;
+    color: #ffffff;
+    box-shadow: 0 2px 10px rgba(26, 142, 253, 0.3);
+    font-weight: 700;
+  }
+  :root:not([data-theme="light"]) .severity-row button.picked.severe {
+    background: #d0372b;
+    border-color: #f2948a;
+    color: #ffffff;
+    box-shadow: 0 2px 10px rgba(208, 55, 43, 0.35);
+    font-weight: 700;
+  }
+  :root:not([data-theme="light"]) .survey-other-input {
+    background: #1a2128;
+    border-color: var(--p-border);
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .survey-other-input:focus {
+    border-color: #38a6ff;
+    box-shadow: 0 0 0 2px rgba(56, 166, 255, 0.25);
+  }
+  :root:not([data-theme="light"]) .survey-submit {
+    background: #1a8efd;
+    border-color: #1a8efd;
+    color: #ffffff;
+  }
+  :root:not([data-theme="light"]) .survey-submit:hover:not(:disabled) {
+    background: #38a6ff;
+    border-color: #38a6ff;
   }
   :root:not([data-theme="light"]) .web-welcome button {
     background: #1a2128;
     border-color: #2e3846;
   }
+  :root:not([data-theme="light"]) .adherence-visual .progress-ring {
+    background: conic-gradient(var(--p-primary) var(--progress), #222b35 0);
+  }
   :root:not([data-theme="light"]) .adherence-visual .progress-ring:after {
     background: #12171d;
+  }
+  :root:not([data-theme="light"]) .adherence-legend {
+    border-top-color: var(--p-border);
+  }
+  :root:not([data-theme="light"]) .web-card-head,
+  :root:not([data-theme="light"]) .patient-dose {
+    border-bottom-color: var(--p-border);
+  }
+  :root:not([data-theme="light"]) .patient-web-shell .dose-status.locked,
+  :root:not([data-theme="light"]) .patient-web-shell .dose-done-mark.locked {
+    background: #1a2128;
+    border: 1px solid #28323e;
+    color: var(--p-muted);
+  }
+  :root:not([data-theme="light"]) .patient-web-shell .next-dose.locked {
+    background: linear-gradient(130deg, #10222e, #132b3c);
+  }
+  :root:not([data-theme="light"]) .dose-actions button:not(.take):not(.skip) {
+    background: #1a2128;
+    border-color: #2e3846;
+    color: var(--p-ink);
+  }
+  :root:not([data-theme="light"]) .dose-actions button:not(.take):not(.skip):hover {
+    background: #232b33;
+  }
+  :root:not([data-theme="light"]) .timeline-marker i {
+    border-color: #12171d;
+  }
+  :root:not([data-theme="light"]) .timeline-marker b {
+    background: var(--p-border);
   }
   :root:not([data-theme="light"]) .patient-safe-card {
     background: #11291e;

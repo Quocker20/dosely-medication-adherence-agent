@@ -59,7 +59,11 @@ _NEXT_DOSE_PHRASES = (
 )
 
 _SLEEP_SHIFT_MARKERS = (
-    "ngủ trễ", "ngủ muộn", "thức khuya", "đi ngủ trễ", "đi ngủ muộn",
+    "ngủ trễ",
+    "ngủ muộn",
+    "thức khuya",
+    "đi ngủ trễ",
+    "đi ngủ muộn",
 )
 
 _TODAY_SCHEDULE_PHRASES = (
@@ -73,22 +77,63 @@ _TODAY_SCHEDULE_PHRASES = (
 )
 
 _DRUG_INFO_MARKERS = (
-    "tác dụng", "công dụng", "chỉ định", "chống chỉ định", "tác dụng phụ",
-    "phản ứng bất lợi", "tương tác", "cách dùng", "đường dùng", "bảo quản",
-    "quên liều", "mang thai", "thai kỳ", "cho con bú", "used for",
-    "side effect", "contraindication", "interaction", "how to take", "storage",
+    "tác dụng",
+    "công dụng",
+    "chỉ định",
+    "chống chỉ định",
+    "tác dụng phụ",
+    "phản ứng bất lợi",
+    "tương tác",
+    "cách dùng",
+    "đường dùng",
+    "bảo quản",
+    "quên liều",
+    "mang thai",
+    "thai kỳ",
+    "cho con bú",
+    "used for",
+    "side effect",
+    "contraindication",
+    "interaction",
+    "how to take",
+    "storage",
 )
 
 _SCHEDULED_DRUG_CONTEXT_MARKERS = (
-    "lúc đói", "khi đói", "trước ăn", "sau ăn", "cùng bữa", "sau bữa",
-    "đau bụng", "buồn nôn", "chóng mặt", "dị ứng", "nổi mẩn", "tiêu chảy",
-    "có sai không", "có đúng không", "ảnh hưởng", "do thuốc",
+    "lúc đói",
+    "khi đói",
+    "trước ăn",
+    "sau ăn",
+    "cùng bữa",
+    "sau bữa",
+    "đau bụng",
+    "buồn nôn",
+    "chóng mặt",
+    "dị ứng",
+    "nổi mẩn",
+    "tiêu chảy",
+    "có sai không",
+    "có đúng không",
+    "ảnh hưởng",
+    "do thuốc",
 )
 
 _INDIRECT_DRUG_REFERENCE_MARKERS = (
-    "thuốc này", "thuốc đó", "viên này", "viên đó", "cữ vừa", "vừa uống",
-    "sắp uống", "buổi sáng", "buổi trưa", "buổi tối", "trước khi ngủ",
-    "trước ăn", "sau ăn", "thuốc thứ", "viên thứ",
+    "thuốc này",
+    "thuốc đó",
+    "viên này",
+    "viên đó",
+    "cữ vừa",
+    "vừa uống",
+    "sắp uống",
+    "buổi sáng",
+    "buổi trưa",
+    "buổi tối",
+    "trước khi ngủ",
+    "trước ăn",
+    "sau ăn",
+    "thuốc thứ",
+    "viên thứ",
 )
 
 _CLASSIFY_SYSTEM_PROMPT = """Bạn là bộ phân tích mục đích câu hỏi của bệnh nhân.
@@ -135,18 +180,36 @@ class IntentClassification(BaseModel):
         "ask_scheduled_drug_info",
         "ask_prescribed_drug_info",
         "general",
-    ] = Field(
-        description="Nhãn ý định của tin nhắn — xem hướng dẫn."
-    )
-    topics: list[Literal[
-        "schedule", "identity", "indication", "administration", "adverse_effect",
-        "interaction", "contraindication", "missed_dose", "storage",
-        "precaution", "regimen", "dose_status", "treatment_change", "other",
-    ]] = Field(default_factory=list)
+    ] = Field(description="Nhãn ý định của tin nhắn — xem hướng dẫn.")
+    topics: list[
+        Literal[
+            "schedule",
+            "identity",
+            "indication",
+            "administration",
+            "adverse_effect",
+            "interaction",
+            "contraindication",
+            "missed_dose",
+            "storage",
+            "precaution",
+            "regimen",
+            "dose_status",
+            "treatment_change",
+            "other",
+        ]
+    ] = Field(default_factory=list)
     reference_type: Literal[
-        "none", "drug_name", "schedule_time", "dose_period", "next_dose",
-        "recent_dose", "meal_relation", "prescription_ordinal", "recent_context",
-        "current_medications"
+        "none",
+        "drug_name",
+        "schedule_time",
+        "dose_period",
+        "next_dose",
+        "recent_dose",
+        "meal_relation",
+        "prescription_ordinal",
+        "recent_context",
+        "current_medications",
     ] = "none"
     drug_name: str | None = None
     schedule_time: str | None = None
@@ -156,8 +219,13 @@ class IntentClassification(BaseModel):
     date_reference: str | None = None
     symptoms: list[str] = Field(default_factory=list)
     requested_action: Literal[
-        "view_schedule", "identify_drug", "explain", "check_instructions",
-        "report_event", "change_treatment", "other",
+        "view_schedule",
+        "identify_drug",
+        "explain",
+        "check_instructions",
+        "report_event",
+        "change_treatment",
+        "other",
     ] = "other"
     needs_clarification: bool = False
     confidence: float = Field(default=0.5, ge=0, le=1)
@@ -180,12 +248,17 @@ Quy tắc cho câu hỏi thuốc gián tiếp:
 
 def _validated_intent(analysis: IntentClassification) -> str:
     """Reject a schedule route when time is only a reference to a drug."""
-    medication_topics = {
-        "indication", "administration", "adverse_effect", "interaction", "contraindication"
-    }
+    if analysis.intent == "ask_schedule":
+        return analysis.intent
+    medication_topics = {"indication", "administration", "adverse_effect", "interaction", "contraindication"}
     indirect_references = {
-        "schedule_time", "dose_period", "next_dose", "recent_dose",
-        "meal_relation", "prescription_ordinal", "recent_context",
+        "schedule_time",
+        "dose_period",
+        "next_dose",
+        "recent_dose",
+        "meal_relation",
+        "prescription_ordinal",
+        "recent_context",
     }
     if analysis.reference_type in indirect_references and (
         medication_topics.intersection(analysis.topics)
@@ -221,7 +294,12 @@ def _fallback_indirect_reference(normalized: str) -> dict | None:
         return {"reference_type": "recent_dose"}
     if any(marker in normalized for marker in ("sắp uống", "cữ tiếp", "liều tiếp")):
         return {"reference_type": "next_dose"}
-    for marker, period in (("buổi sáng", "morning"), ("buổi trưa", "noon"), ("buổi tối", "evening"), ("trước khi ngủ", "bedtime")):
+    for marker, period in (
+        ("buổi sáng", "morning"),
+        ("buổi trưa", "noon"),
+        ("buổi tối", "evening"),
+        ("trước khi ngủ", "bedtime"),
+    ):
         if marker in normalized:
             return {"reference_type": "dose_period", "dose_period": period}
     return None
@@ -247,11 +325,16 @@ def _deterministic_topics(normalized: str) -> list[str]:
 
 def _deterministic_indirect_analysis(normalized: str) -> dict | None:
     topics = _deterministic_topics(normalized)
-    symptoms = [marker for marker in ("đau bụng", "buồn nôn", "chóng mặt", "tiêu chảy", "nổi mẩn") if marker in normalized]
+    symptoms = [
+        marker for marker in ("đau bụng", "buồn nôn", "chóng mặt", "tiêu chảy", "nổi mẩn") if marker in normalized
+    ]
     time_match = re.search(r"\b([01]?\d|2[0-3])\s*(?::|h|giờ)\s*([0-5]\d)?\b", normalized)
     reference = _fallback_indirect_reference(normalized)
     if time_match and topics:
-        reference = {"reference_type": "schedule_time", "schedule_time": f"{int(time_match.group(1)):02d}:{int(time_match.group(2) or 0):02d}"}
+        reference = {
+            "reference_type": "schedule_time",
+            "schedule_time": f"{int(time_match.group(1)):02d}:{int(time_match.group(2) or 0):02d}",
+        }
     if ("sau ăn" in normalized or "sau bữa" in normalized) and "trước hay sau" not in normalized:
         reference = {"reference_type": "meal_relation", "meal_relation": "AFTER_MEAL"}
     elif "trước ăn" in normalized or "trước bữa" in normalized:
@@ -259,57 +342,108 @@ def _deterministic_indirect_analysis(normalized: str) -> dict | None:
     ordinal = re.search(r"(?:thuốc|viên)\s+thứ\s+(\d+|hai|ba)", normalized)
     if ordinal:
         raw = ordinal.group(1)
-        reference = {"reference_type": "prescription_ordinal", "prescription_ordinal": {"hai": 2, "ba": 3}.get(raw, int(raw) if raw.isdigit() else 1)}
+        reference = {
+            "reference_type": "prescription_ordinal",
+            "prescription_ordinal": {"hai": 2, "ba": 3}.get(raw, int(raw) if raw.isdigit() else 1),
+        }
     if reference and topics:
-        return {"intent": "ask_prescribed_drug_info", "topics": topics, **reference, "symptoms": symptoms, "confidence": 1.0, "parser": "deterministic"}
+        return {
+            "intent": "ask_prescribed_drug_info",
+            "topics": topics,
+            **reference,
+            "symptoms": symptoms,
+            "confidence": 1.0,
+            "parser": "deterministic",
+        }
     if topics and any(marker in normalized for marker in ("viên màu", "thuốc màu", "viên tròn", "viên dài")):
-        return {"intent": "ask_prescribed_drug_info", "topics": topics, "reference_type": "none", "needs_clarification": True, "confidence": 1.0, "parser": "deterministic"}
+        return {
+            "intent": "ask_prescribed_drug_info",
+            "topics": topics,
+            "reference_type": "none",
+            "needs_clarification": True,
+            "confidence": 1.0,
+            "parser": "deterministic",
+        }
     return None
 
 
 async def classify_intent_node(state: AgentState) -> dict:
     text = _last_human_text(state)
     normalized = " ".join(text.casefold().split())
-    requires_semantic_analysis = _fallback_scheduled_drug_intent(normalized) or any(
-        marker in normalized for marker in _INDIRECT_DRUG_REFERENCE_MARKERS
-    ) or any(marker in normalized for marker in ("thuốc của tôi", "đang uống", "đang dùng"))
+    requires_semantic_analysis = (
+        _fallback_scheduled_drug_intent(normalized)
+        or any(marker in normalized for marker in _INDIRECT_DRUG_REFERENCE_MARKERS)
+        or any(marker in normalized for marker in ("thuốc của tôi", "đang uống", "đang dùng"))
+    )
     has_drug_information_topic = any(marker in normalized for marker in _DRUG_INFO_MARKERS)
     deterministic_indirect = _deterministic_indirect_analysis(normalized)
     if deterministic_indirect:
         return {"intent": "ask_prescribed_drug_info", "intent_analysis": deterministic_indirect}
-    asks_to_explain_prescription = (
-        any(marker in normalized for marker in ("giải thích", "cách dùng", "dùng như thế nào"))
-        and any(marker in normalized for marker in ("thuốc của tôi", "các thuốc", "thuốc trong đơn", "đơn thuốc"))
-    )
+    asks_to_explain_prescription = any(
+        marker in normalized for marker in ("giải thích", "cách dùng", "dùng như thế nào")
+    ) and any(marker in normalized for marker in ("thuốc của tôi", "các thuốc", "thuốc trong đơn", "đơn thuốc"))
     if asks_to_explain_prescription:
-        return {"intent": "explain_my_medications", "intent_analysis": {
-            "intent": "explain_my_medications", "reference_type": "current_medications",
-            "topics": ["administration"], "confidence": 1.0, "parser": "deterministic",
-        }}
+        return {
+            "intent": "explain_my_medications",
+            "intent_analysis": {
+                "intent": "explain_my_medications",
+                "reference_type": "current_medications",
+                "topics": ["administration"],
+                "confidence": 1.0,
+                "parser": "deterministic",
+            },
+        }
     if any(phrase in normalized for phrase in _EXPLAIN_MY_MEDICATION_PHRASES) and not has_drug_information_topic:
-        return {"intent": "explain_my_medications", "intent_analysis": {"intent": "explain_my_medications", "reference_type": "current_medications", "topics": ["administration"]}}
+        return {
+            "intent": "explain_my_medications",
+            "intent_analysis": {
+                "intent": "explain_my_medications",
+                "reference_type": "current_medications",
+                "topics": ["administration"],
+            },
+        }
     if any(phrase in normalized for phrase in _NEXT_DOSE_PHRASES) and not has_drug_information_topic:
-        return {"intent": "ask_next_dose", "intent_analysis": {"intent": "ask_next_dose", "reference_type": "next_dose", "topics": ["schedule"]}}
+        return {
+            "intent": "ask_next_dose",
+            "intent_analysis": {"intent": "ask_next_dose", "reference_type": "next_dose", "topics": ["schedule"]},
+        }
     if any(phrase in normalized for phrase in _TODAY_SCHEDULE_PHRASES):
-        return {"intent": "ask_schedule", "intent_analysis": {"intent": "ask_schedule", "reference_type": "current_medications", "topics": ["schedule"]}}
+        return {
+            "intent": "ask_schedule",
+            "intent_analysis": {
+                "intent": "ask_schedule",
+                "reference_type": "current_medications",
+                "topics": ["schedule"],
+            },
+        }
     if "ăn" in normalized and any(marker in normalized for marker in ("muộn hơn", "sớm hơn", "trễ hơn")):
-        return {"intent": "report_meal_shift", "intent_analysis": {"intent": "report_meal_shift", "reference_type": "none", "topics": ["schedule"]}}
+        return {
+            "intent": "report_meal_shift",
+            "intent_analysis": {"intent": "report_meal_shift", "reference_type": "none", "topics": ["schedule"]},
+        }
     if any(marker in normalized for marker in _SLEEP_SHIFT_MARKERS):
-        return {"intent": "report_meal_shift", "intent_analysis": {"intent": "report_meal_shift", "reference_type": "none", "topics": ["schedule"]}}
+        return {
+            "intent": "report_meal_shift",
+            "intent_analysis": {"intent": "report_meal_shift", "reference_type": "none", "topics": ["schedule"]},
+        }
     asks_about_own_current_medicines = (
         "thuốc" in normalized
         and "tôi" in normalized
         and any(
             marker in normalized
             for marker in (
-                "đang uống", "đang dùng", "hiện tại", "danh sách", "bác sĩ",
+                "đang uống",
+                "đang dùng",
+                "hiện tại",
+                "danh sách",
+                "bác sĩ",
                 "thuốc của tôi",
             )
         )
     )
-    if (asks_about_own_current_medicines or any(
-        phrase in normalized for phrase in _MY_MEDICATION_PHRASES
-    )) and not has_drug_information_topic:
+    if (
+        asks_about_own_current_medicines or any(phrase in normalized for phrase in _MY_MEDICATION_PHRASES)
+    ) and not has_drug_information_topic:
         return {"intent": "ask_my_medications"}
     # Route formulary-shaped questions to SafeDrugRAG without depending on an
     # LLM classifier. Its input guard resolves the exact drug name or asks the
@@ -317,10 +451,15 @@ async def classify_intent_node(state: AgentState) -> dict:
     if not requires_semantic_analysis and any(marker in normalized for marker in _DRUG_INFO_MARKERS):
         topics = _deterministic_topics(normalized)
         drug_name = normalized.split(" có ", 1)[0].strip().title() if " có " in normalized else None
-        return {"intent": "ask_drug_info", "intent_analysis": {
-            "intent": "ask_drug_info", "reference_type": "drug_name",
-            "drug_name": drug_name, "topics": topics,
-        }}
+        return {
+            "intent": "ask_drug_info",
+            "intent_analysis": {
+                "intent": "ask_drug_info",
+                "reference_type": "drug_name",
+                "drug_name": drug_name,
+                "topics": topics,
+            },
+        }
     try:
         llm = get_llm(temperature=0).with_structured_output(IntentClassification)
         result = await llm.ainvoke(
@@ -347,8 +486,10 @@ async def classify_intent_node(state: AgentState) -> dict:
             return {
                 "intent": "ask_prescribed_drug_info",
                 "intent_analysis": {
-                    "intent": "ask_prescribed_drug_info", "topics": ["identity"],
-                    **fallback_reference, "confidence": 0.0,
+                    "intent": "ask_prescribed_drug_info",
+                    "topics": ["identity"],
+                    **fallback_reference,
+                    "confidence": 0.0,
                     "parser": "deterministic_fallback",
                 },
             }

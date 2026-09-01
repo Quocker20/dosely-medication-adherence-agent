@@ -31,13 +31,13 @@ COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Copy application code
-COPY . .
+COPY --chown=appuser:appuser . .
 
 # Copy built frontend into web/dist — src/main.py mounts this if it exists
 COPY --from=web-builder --chown=appuser:appuser /web/dist /app/web/dist
 
 # Create data directory with correct ownership
-RUN mkdir -p /app/data && chown -R appuser:appuser /app
+RUN mkdir -p /app/data
 
 USER appuser
 

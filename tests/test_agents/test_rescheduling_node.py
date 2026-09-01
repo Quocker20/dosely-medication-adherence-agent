@@ -302,7 +302,9 @@ async def test_busy_window_no_conflicting_doses():
                     }
                 ],
             }
-            result = await handle_reschedule_request("chiều nay bận họp từ 14h đến 17h", "patient-1", client_date="2026-08-29")
+            result = await handle_reschedule_request(
+                "chiều nay bận họp từ 14h đến 17h", "patient-1", client_date="2026-08-29"
+            )
     finally:
         patcher.stop()
 
@@ -335,7 +337,9 @@ async def test_busy_window_with_conflicting_dose_asks_replacement_time():
                     }
                 ],
             }
-            result = await handle_reschedule_request("chiều nay bận họp từ 14h đến 17h", "patient-1", client_date="2026-08-29")
+            result = await handle_reschedule_request(
+                "chiều nay bận họp từ 14h đến 17h", "patient-1", client_date="2026-08-29"
+            )
     finally:
         patcher.stop()
 
@@ -344,3 +348,91 @@ async def test_busy_window_with_conflicting_dose_asks_replacement_time():
     assert "14:00 - 17:00" in result.message
     assert "mấy giờ" in result.message
 
+
+@pytest.mark.asyncio
+async def test_busy_window_schedule_lookup_failure_does_not_claim_no_doses():
+    extraction = RoutineDeviationExtraction(
+        event="busy_window",
+        busy_start="14:00",
+        busy_end="17:00",
+        target_day="today",
+    )
+    patcher = _mock_extraction(extraction)
+    try:
+        with patch("src.agents.nodes.rescheduling_node.get", new=AsyncMock(side_effect=RuntimeError("timeout"))):
+            result = await handle_reschedule_request(
+                "chiều nay bận họp từ 14h đến 17h",
+                "patient-1",
+                client_date="2026-08-29",
+            )
+    finally:
+        patcher.stop()
+
+    assert result.status == "failed"
+    assert "chưa kiểm tra được lịch" in result.message
+    assert "không có cữ thuốc nào" not in result.message
+
+
+@pytest.mark.asyncio
+async def test_busy_window_requires_client_date_before_checking_schedule():
+    extraction = RoutineDeviationExtraction(
+        event="busy_window",
+        busy_start="14:00",
+        busy_end="17:00",
+        target_day="today",
+    )
+    patcher = _mock_extraction(extraction)
+    try:
+        with patch("src.agents.nodes.rescheduling_node.get") as mock_get:
+            result = await handle_reschedule_request("chiều nay bận họp từ 14h đến 17h", "patient-1")
+    finally:
+        patcher.stop()
+
+    assert result.status == "failed"
+    mock_get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_busy_window_crossing_midnight_checks_the_next_day_too():
+    extraction = RoutineDeviationExtraction(
+        event="busy_window",
+        busy_start="22:00",
+        busy_end="02:00",
+        target_day="today",
+    )
+    patcher = _mock_extraction(extraction)
+    try:
+        with patch("src.agents.nodes.rescheduling_node.get") as mock_get:
+            mock_get.side_effect = [
+                {
+                    "patient_id": "patient-1",
+                    "date": "2026-08-29",
+                    "timezone": "Asia/Ho_Chi_Minh",
+                    "doses": [],
+                },
+                {
+                    "patient_id": "patient-1",
+                    "date": "2026-08-30",
+                    "timezone": "Asia/Ho_Chi_Minh",
+                    "doses": [
+                        {
+                            "scheduled_dose_id": "d1",
+                            "medication_name": "Melatonin",
+                            "dose_slot": "Tối",
+                            "current_scheduled_at": "2026-08-29T18:30:00Z",
+                            "status": "PENDING",
+                        }
+                    ],
+                },
+            ]
+            result = await handle_reschedule_request(
+                "tối nay tôi bận từ 22h đến 2h sáng",
+                "patient-1",
+                client_date="2026-08-29",
+            )
+    finally:
+        patcher.stop()
+
+    assert mock_get.await_count == 2
+    assert result.status == "needs_clarification"
+    assert "Melatonin" in result.message

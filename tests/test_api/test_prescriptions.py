@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 
 from src.core.database import AsyncSessionLocal, engine
 from src.core.security import hash_password
@@ -18,7 +18,7 @@ from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
-from src.modules.patients.models import PatientProfile
+from src.modules.patients.models import CaregiverLink, PatientProfile
 from src.modules.patients.repository import PatientRepository
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
@@ -27,6 +27,8 @@ OTHER_DOCTOR_PHONE = "+84900800002"
 PATIENT_PHONE = "+84900800010"
 OTHER_PATIENT_PHONE = "+84900800012"
 NEW_PATIENT_PHONE = "+84900800011"
+CAREGIVER_PHONE = "+84900800013"
+INACTIVE_CAREGIVER_PHONE = "+84900800014"
 PIN = "123456"
 MED_SOURCE_KEY = "TEST-SLICE5-MED"
 
@@ -36,6 +38,8 @@ _TEST_PHONES = [
     PATIENT_PHONE,
     OTHER_PATIENT_PHONE,
     NEW_PATIENT_PHONE,
+    CAREGIVER_PHONE,
+    INACTIVE_CAREGIVER_PHONE,
 ]
 
 
@@ -135,6 +139,19 @@ async def _create_patient(phone: str, name: str) -> uuid.UUID:
             # Through the repository: timezone is NOT NULL with no server
             # default, and the repository is where its value is decided.
             await PatientRepository(db).create_patient_profile(user_id=user.id, name=name)
+        return user.id
+
+
+async def _create_caregiver(phone: str, patient_id: uuid.UUID, status: str = "ACTIVE") -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            user = await AuthRepository(db).create_user(
+                phone=phone, hashed_password=hash_password(PIN), role="CAREGIVER"
+            )
+            db.add(CaregiverLink(
+                patient_id=patient_id, caregiver_user_id=user.id,
+                status=status, channels=["APP_NOTIFICATION"],
+            ))
         return user.id
 
 
@@ -724,4 +741,211 @@ async def test_get_patient_by_phone_forbidden_for_patient(client):
         headers=headers,
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# GET /prescriptions/{id}/pdf
+#
+# Access mirrors GET /prescriptions/{id} exactly (self / doctor-prescribed /
+# active-caregiver, out-of-scope -> 404) — these tests pin that it stays that
+# way rather than drifting into a parallel rule. See
+# docs/prescription-pdf-export-plan.md for the full design.
+# ---------------------------------------------------------------------------
+
+
+async def _approved_with_item(client, headers, med_id) -> dict:
+    draft = await _draft_with_item(client, headers, med_id)
+    approved = await client.post(f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers)
+    assert approved.status_code == 200
+    return approved.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_requires_approved_draft_rejected(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    response = await client.get(f"/api/v1/prescriptions/{draft['id']}/pdf", headers=headers)
+    assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_rejects_cancelled(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    draft = await _draft_with_item(client, headers, med_id)
+
+    cancelled = await client.post(
+        f"/api/v1/prescriptions/{draft['id']}/cancel",
+        json={"cancel_reason": "Đổi phác đồ"},
+        headers=headers,
+    )
+    assert cancelled.status_code == 200
+
+    response = await client.get(f"/api/v1/prescriptions/{draft['id']}/pdf", headers=headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_returns_document_for_owning_doctor(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, headers, med_id)
+
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content[:5] == b"%PDF-"
+    assert response.headers["cache-control"] == "no-store"
+    disposition = response.headers["content-disposition"]
+    assert "attachment" in disposition
+    assert approved["id"][:8] in disposition
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_returns_document_for_patient_self(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, doctor_headers, med_id)
+
+    patient_headers = await _login(client, PATIENT_PHONE)
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=patient_headers)
+    assert response.status_code == 200
+    assert response.content[:5] == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_returns_document_for_active_caregiver(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    await _create_caregiver(CAREGIVER_PHONE, patient_id, status="ACTIVE")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, doctor_headers, med_id)
+
+    caregiver_headers = await _login(client, CAREGIVER_PHONE)
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=caregiver_headers)
+    assert response.status_code == 200
+    assert response.content[:5] == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_hides_from_inactive_caregiver(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    patient_id = await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    await _create_caregiver(INACTIVE_CAREGIVER_PHONE, patient_id, status="INACTIVE")
+    med_id = await _create_medication()
+    doctor_headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, doctor_headers, med_id)
+
+    caregiver_headers = await _login(client, INACTIVE_CAREGIVER_PHONE)
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=caregiver_headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_hides_from_other_doctor(client):
+    """404, not 403 — indistinguishable from a prescription that doesn't exist."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_doctor(OTHER_DOCTOR_PHONE, "Dr Rx B", "LIC-RX-B")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    owner_headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, owner_headers, med_id)
+
+    other_headers = await _login(client, OTHER_DOCTOR_PHONE)
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=other_headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_nonexistent_id_returns_404(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    headers = await _login(client, DOCTOR_PHONE)
+
+    response = await client.get(f"/api/v1/prescriptions/{uuid.uuid4()}/pdf", headers=headers)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_unauthenticated_returns_401(client):
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, headers, med_id)
+
+    response = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_repeat_download_is_not_blocked(client):
+    """No hard one-shot limit at the backend — GET stays idempotent. The
+    portal's 'shown once' button is a frontend affordance only; see
+    docs/prescription-pdf-export-plan.md §3."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+    approved = await _approved_with_item(client, headers, med_id)
+
+    first = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=headers)
+    second = await client.get(f"/api/v1/prescriptions/{approved['id']}/pdf", headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_query_count_is_constant_regardless_of_item_count(client):
+    """Guards against a regression back to per-item medication lookups
+    (MedicationRepository.list_by_ids exists specifically to avoid this)."""
+    await _create_doctor(DOCTOR_PHONE, "Dr Rx A", "LIC-RX-A")
+    await _create_patient(PATIENT_PHONE, "Bệnh nhân A")
+    med_id = await _create_medication()
+    headers = await _login(client, DOCTOR_PHONE)
+
+    async def _approved_with_n_items(n: int) -> str:
+        create = await client.post(
+            "/api/v1/prescriptions",
+            json=_rx_payload(PATIENT_PHONE, items=[_item_payload(med_id) for _ in range(n)]),
+            headers=headers,
+        )
+        assert create.status_code == 201
+        rx_id = create.json()["data"]["prescription"]["id"]
+        approve = await client.post(f"/api/v1/prescriptions/{rx_id}/approve", headers=headers)
+        assert approve.status_code == 200
+        return rx_id
+
+    async def _export_query_count(rx_id: str) -> int:
+        statements: list[str] = []
+
+        def _log(conn, cursor, statement, *args):
+            statements.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", _log)
+        try:
+            response = await client.get(f"/api/v1/prescriptions/{rx_id}/pdf", headers=headers)
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", _log)
+        assert response.status_code == 200
+        return len(statements)
+
+    rx_2 = await _approved_with_n_items(2)
+    rx_20 = await _approved_with_n_items(20)
+    count_2 = await _export_query_count(rx_2)
+    count_20 = await _export_query_count(rx_20)
+
+    assert count_2 == count_20, f"N+1 regression: {count_2} queries for 2 items vs {count_20} for 20"
 

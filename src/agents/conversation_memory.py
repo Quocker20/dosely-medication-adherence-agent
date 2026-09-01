@@ -1,4 +1,5 @@
 """Redis working memory; PostgreSQL remains the durable source."""
+
 from __future__ import annotations
 
 import json

@@ -6,11 +6,29 @@ import re
 import unicodedata
 
 DECISION_MARKERS = (
-    "duoc khong", "co nen", "co the", "an toan khong", "giup toi", "cho toi",
+    "duoc khong",
+    "co nen",
+    "co the",
+    "an toan khong",
+    "giup toi",
+    "cho toi",
 )
 PERSONAL_MARKERS = ("toi", "minh", "chau", "ban", "me toi", "bo toi", "con toi")
 MEDICATION_RULES = (
-    ("DOSE_CHANGE", ("tang lieu", "giam lieu", "doi lieu", "gap doi lieu", "bot lieu", "them lieu", "tang gap", "uong them", "uong gap doi")),
+    (
+        "DOSE_CHANGE",
+        (
+            "tang lieu",
+            "giam lieu",
+            "doi lieu",
+            "gap doi lieu",
+            "bot lieu",
+            "them lieu",
+            "tang gap",
+            "uong them",
+            "uong gap doi",
+        ),
+    ),
     ("STOP_MEDICATION", ("ngung thuoc", "bo thuoc", "nghi thuoc")),
     ("PRESCRIBE_MEDICATION", ("ke thuoc", "mua thuoc gi", "dung thuoc gi", "uong thuoc gi", "cho toi thuoc")),
     ("COADMINISTRATION_DECISION", ("uong cung", "dung cung", "phoi hop", "uong chung", "dung chung")),
@@ -46,8 +64,16 @@ def match_medication_decision(text: str) -> str | None:
     ):
         return None
     unsafe_change_markers = (
-        "tang lieu", "giam lieu", "gap doi", "uong them", "ngung thuoc",
-        "bo thuoc", "uong cung", "uong chung", "dung chung", "phoi hop",
+        "tang lieu",
+        "giam lieu",
+        "gap doi",
+        "uong them",
+        "ngung thuoc",
+        "bo thuoc",
+        "uong cung",
+        "uong chung",
+        "dung chung",
+        "phoi hop",
     )
     if (
         _READ_ONLY_TREATMENT_REQUEST.search(normalized)
@@ -78,8 +104,6 @@ def match_medication_decision(text: str) -> str | None:
             return code
     # Catch patient-specific take/use decisions after the more specific rules,
     # so phrases such as "uong chung" remain coadministration decisions.
-    if has_decision and has_personal and re.search(
-        r"\b(?:uong|dung|tiem|boi|dat)\b", normalized
-    ):
+    if has_decision and has_personal and re.search(r"\b(?:uong|dung|tiem|boi|dat)\b", normalized):
         return "TAKE_MEDICATION_DECISION"
     return None

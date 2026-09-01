@@ -1,4 +1,5 @@
 """Post-LLM guardrail: validate semantic plans before any tool or data access."""
+
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage
@@ -7,9 +8,12 @@ from src.agents.semantic_plan import SemanticPlan, SemanticStep
 from src.agents.state import AgentState
 
 _READ_TOOLS = {
-    "get_schedule", "get_next_dose", "get_current_medications",
-    "explain_current_medications", "resolve_prescribed_medication",
-    "search_drug_information", "clarify", "general_response",
+    "get_schedule",
+    "get_next_dose",
+    "get_current_medications",
+    "explain_current_medications",
+    "resolve_medication",
+    "search_drug_knowledge",
 }
 _BLOCKED_REPLY = (
     "Mình không thể tự quyết định thay đổi liều, ngừng thuốc hoặc thay đổi điều trị. "
@@ -27,9 +31,9 @@ def _validate_step(plan: SemanticStep) -> list[str]:
         errors.append("treatment_change_not_authorized")
     if plan.tool == "report_meal_shift" and plan.requested_action not in {"change_schedule", "read", "other"}:
         errors.append("invalid_schedule_action")
-    if plan.tool == "search_drug_information" and not plan.drug_name and not plan.needs_clarification:
+    if plan.tool == "search_drug_knowledge" and not plan.drug_name and not plan.needs_clarification:
         errors.append("missing_drug_name")
-    if plan.tool == "resolve_prescribed_medication" and plan.drug_reference_type == "none":
+    if plan.tool == "resolve_medication" and plan.drug_reference_type == "none":
         errors.append("missing_prescription_reference")
     if plan.tool == "record_adverse_event" and not plan.symptoms:
         errors.append("missing_symptoms")
@@ -47,8 +51,7 @@ def validate_plan(plan: SemanticPlan) -> list[str]:
     if len(plan.steps) > 1 and any(step.tool in {"clarify", "general_response"} for step in plan.steps):
         errors.append("non_composable_step")
     signatures = [
-        (step.tool, step.date_reference, step.schedule_time, step.drug_name, tuple(step.topics))
-        for step in plan.steps
+        (step.tool, step.date_reference, step.schedule_time, step.drug_name, tuple(step.topics)) for step in plan.steps
     ]
     if len(signatures) != len(set(signatures)):
         errors.append("duplicate_steps")

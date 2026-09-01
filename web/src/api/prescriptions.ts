@@ -1,5 +1,5 @@
 // Slice 5: Prescriptions
-import { request } from "./client";
+import { request, requestBlob } from "./client";
 import type {
   CreatePrescriptionRequest,
   CreatePrescriptionResponse,
@@ -30,6 +30,12 @@ export const prescriptionsApi = {
 
   approvePrescription: (prescriptionId: string) =>
     request<PrescriptionDetail>(`/prescriptions/${prescriptionId}/approve`, { method: "POST" }),
+
+  /** Endpoint duy nhất trả binary thay vì envelope JSON — chỉ dùng được khi
+   * đơn đã APPROVED (422 nếu chưa/đã huỷ). Không có giới hạn tải backend;
+   * nút "chỉ hiện một lần" là hành vi UI, xem PrescriptionView.tsx. */
+  downloadPrescriptionPdf: (prescriptionId: string) =>
+    requestBlob(`/prescriptions/${prescriptionId}/pdf`),
 
   cancelPrescription: (prescriptionId: string, cancelReason: string) =>
     request<PrescriptionDetail>(`/prescriptions/${prescriptionId}/cancel`, {

@@ -1,4 +1,5 @@
 """Non-LLM authorization boundary for agent tool execution."""
+
 from __future__ import annotations
 
 from src.core.security import decode_token, get_actor_token

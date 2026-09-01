@@ -15,9 +15,7 @@ async def current_medications_node(state: AgentState) -> dict:
     try:
         client_date = state.get("client_date")
         if client_date:
-            result = await get(
-                "/patients/me/medications/current", params={"as_of": client_date}
-            )
+            result = await get("/patients/me/medications/current", params={"as_of": client_date})
         else:
             result = await get("/patients/me/medications/current")
     except BackendAPIError:

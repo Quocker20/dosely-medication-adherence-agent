@@ -14,7 +14,7 @@ from src.agents.planning_graph import (
 from src.modules.agents.grouping import DoseGroupingProposal
 
 
-def _item(*, is_critical: bool = False) -> SimpleNamespace:
+def _item(*, is_critical: bool = False, interval_days: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
         medication_id=uuid.uuid4(),
@@ -28,7 +28,7 @@ def _item(*, is_critical: bool = False) -> SimpleNamespace:
         start_date=date(2026, 8, 21),
         end_date=date(2026, 8, 21),
         is_critical=is_critical,
-        interval_days=1,
+        interval_days=interval_days,
     )
 
 
@@ -223,3 +223,10 @@ async def test_commit_refreshes_clock_and_drops_already_due_rows() -> None:
 
     assert final["candidate_source"] == "deterministic_fallback_stale_snapshot"
     assert repo.inserted_rows == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_interval_days_reaches_planner_validation() -> None:
+    repo = FakeDoseRepository([[_item(interval_days=0)]])
+    with pytest.raises(Exception, match="non-positive interval_days"):
+        await _run_graphs(repo, _settings(grouping_enabled=False))
