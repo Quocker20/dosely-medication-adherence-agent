@@ -7,16 +7,14 @@ already holds real composition/uses/side_effects data. Search is name-only
 (Medication.name ILIKE), not full-text over composition/uses — a patient
 asking by symptom ("thuốc trị đau đầu") rather than drug name won't match.
 """
+
 from __future__ import annotations
 
 from langchain_core.tools import tool
 
 from src.modules.planning.core.backend_client import BackendAPIError, get
 
-_NO_MATCH_MESSAGE = (
-    "Tôi không tìm thấy thông tin đáng tin cậy về thuốc này. "
-    "Bạn vui lòng hỏi bác sĩ hoặc dược sĩ."
-)
+_NO_MATCH_MESSAGE = "Tôi không tìm thấy thông tin đáng tin cậy về thuốc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ."
 _MAX_RESULTS = 3
 _MIN_QUERY_LEN = 2  # mirrors GET /medications?search= min_length=2
 

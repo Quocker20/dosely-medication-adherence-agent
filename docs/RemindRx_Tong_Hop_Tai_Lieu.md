@@ -177,7 +177,7 @@ Modular monolith: một FastAPI deployment chứa các module nghiệp vụ biê
 | External providers | OTP, Web Push, SMS/Zalo/Call | Provider APIs; signed callbacks |
 
 ### 7.2. Kiến trúc AI Agent (LangGraph)
-LangGraph dùng như **state machine có kiểm soát**, KHÔNG phải chatbot tự do. Mỗi run: Input Gate → Normalize → Generate Candidate → Deterministic Validate → Persist → Explain/Audit.
+LangGraph dùng như **state machine có kiểm soát**, KHÔNG phải chatbot tự do. Mỗi run: Input Gate → Normalize → Generate Candidate → Deterministic Validate → Apply Notification Grouping → Persist → Audit.
 
 **Guardrails bắt buộc:**
 - Chỉ đọc prescription có `status=APPROVED`.

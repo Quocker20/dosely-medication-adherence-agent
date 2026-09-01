@@ -30,8 +30,25 @@ _SAFE_FALLBACK = (
     "Bạn vui lòng hỏi bác sĩ hoặc dược sĩ; mình sẽ không suy diễn thêm từ dữ liệu chưa đủ."
 )
 _STOP_WORDS = {
-    "va", "la", "cua", "cho", "trong", "theo", "nay", "do", "mot", "cac",
-    "voi", "khi", "neu", "duoc", "thuoc", "nguon", "trang", "ve", "co",
+    "va",
+    "la",
+    "cua",
+    "cho",
+    "trong",
+    "theo",
+    "nay",
+    "do",
+    "mot",
+    "cac",
+    "voi",
+    "khi",
+    "neu",
+    "duoc",
+    "thuoc",
+    "nguon",
+    "trang",
+    "ve",
+    "co",
 }
 
 # Generated output is expected to contain normalized Vietnamese. Safety checks
@@ -66,9 +83,7 @@ def _fold(value: str) -> str:
 
 def _terms(value: str) -> set[str]:
     return {
-        token
-        for token in _fold(value).split()
-        if len(token) > 1 and token not in _STOP_WORDS and not token.isdigit()
+        token for token in _fold(value).split() if len(token) > 1 and token not in _STOP_WORDS and not token.isdigit()
     }
 
 
@@ -87,8 +102,7 @@ def _unsafe_personal_decision(sentence: str) -> bool:
     if not _OUTPUT_PERSONAL.search(raw):
         return False
     return bool(
-        _OUTPUT_MEDICATION_ACTION.search(raw)
-        and (_OUTPUT_DECISION.search(raw) or _OUTPUT_PERSONAL.search(raw))
+        _OUTPUT_MEDICATION_ACTION.search(raw) and (_OUTPUT_DECISION.search(raw) or _OUTPUT_PERSONAL.search(raw))
     )
 
 
@@ -151,16 +165,10 @@ def validate_grounded_answer(answer: str, sources: dict[int, str]) -> GroundingR
         sentence_citations = [int(value) for value in _CITATION.findall(sentence)]
         valid_citations = [value for value in sentence_citations if value in sources]
         folded_sentence = _fold(sentence)
-        structural_lead = folded_sentence.endswith(
-            ("nhu sau", "gom", "bao gom")
-        ) or (
-            "tuong tac" in folded_sentence
-            and len(sentence_terms) <= 6
-            and not numeric_claims
+        structural_lead = folded_sentence.endswith(("nhu sau", "gom", "bao gom")) or (
+            "tuong tac" in folded_sentence and len(sentence_terms) <= 6 and not numeric_claims
         )
-        if not valid_citations and not structural_lead and (
-            len(sentence_terms) >= 3 or numeric_claims
-        ):
+        if not valid_citations and not structural_lead and (len(sentence_terms) >= 3 or numeric_claims):
             errors.append(f"sentence_{sentence_index}_missing_citation")
             continue
         if not valid_citations:

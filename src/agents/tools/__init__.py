@@ -14,11 +14,10 @@ Deliberately NOT implemented as LLM-callable tools (cong_viec.md §2.3):
 Note: `record_dose_action` is added per user request, despite original
 plan constraints regarding prompt injection risks.
 """
+
 from src.agents.tools.drug_info_tools import search_drug_info
 from src.agents.tools.drug_rag_tools import search_drug_formulary
-from src.agents.tools.patient_tools import (
-    get_scheduled_doses,
-)
+from src.agents.tools.patient_tools import get_scheduled_doses
 
 # Chỉ các capability tra cứu được phép dùng bởi chatbot.
 READ_ONLY_TOOLS = [search_drug_formulary, search_drug_info, get_scheduled_doses]

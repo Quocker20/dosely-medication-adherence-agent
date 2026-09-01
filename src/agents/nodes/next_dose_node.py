@@ -1,4 +1,5 @@
 """Deterministic next-dose answer from the schedule displayed by the app."""
+
 from __future__ import annotations
 
 import re
@@ -11,7 +12,6 @@ from langchain_core.messages import AIMessage
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval.service import fold
-
 
 _CLOCK_TIME = re.compile(r"\b(?P<hour>[01]?\d|2[0-3])\s*(?::|h|giờ)\s*(?P<minute>[0-5]\d)?\b", re.I)
 
@@ -93,16 +93,24 @@ async def next_dose_node(state: AgentState) -> dict:
             params={"date": client_date} if client_date else None,
         )
     except BackendAPIError:
-        return {"messages": [AIMessage(content=(
-            "Mình chưa thể kết nối tới dữ liệu lịch thuốc lúc này. "
-            "Vui lòng thử lại sau hoặc kiểm tra trực tiếp mục Lịch uống thuốc."
-        ))]}
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "Mình chưa thể kết nối tới dữ liệu lịch thuốc lúc này. "
+                        "Vui lòng thử lại sau hoặc kiểm tra trực tiếp mục Lịch uống thuốc."
+                    )
+                )
+            ]
+        }
 
     local_date = (schedule or {}).get("date", client_date or "hôm nay")
     timezone_name = (schedule or {}).get("timezone")
     doses = (schedule or {}).get("doses", [])
     if not doses:
-        return {"messages": [AIMessage(content=f"{addressed} chưa có lịch uống thuốc nào được tạo cho ngày {local_date}.")]}
+        return {
+            "messages": [AIMessage(content=f"{addressed} chưa có lịch uống thuốc nào được tạo cho ngày {local_date}.")]
+        }
 
     pending = [dose for dose in doses if str(dose.get("status", "")).upper() == "PENDING"]
     client_now_raw = state.get("client_datetime")
@@ -113,10 +121,7 @@ async def next_dose_node(state: AgentState) -> dict:
         except (TypeError, ValueError):
             pending = []
     if requested_time is not None:
-        pending = [
-            dose for dose in pending
-            if _dose_local_time(dose, timezone_name) == requested_time
-        ]
+        pending = [dose for dose in pending if _dose_local_time(dose, timezone_name) == requested_time]
     pending.sort(key=lambda dose: str(dose.get("current_scheduled_at", "")))
 
     if not pending and requested_time is not None:

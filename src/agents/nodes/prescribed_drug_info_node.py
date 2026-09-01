@@ -1,4 +1,5 @@
 """Answer multi-topic questions after resolving an exact prescribed drug."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,20 +36,44 @@ async def prescribed_drug_info_node(state: AgentState) -> dict:
         text = "Mình chưa thể kết nối dữ liệu đơn/lịch thuốc nên không thể xác định đúng thuốc. Vui lòng kiểm tra trên App hoặc thử lại sau."
         return {"messages": [AIMessage(content=text)]}
     if result.status == ResolutionStatus.INACTIVE_PRESCRIPTION:
-        return {"messages": [AIMessage(content="Bạn không có đơn thuốc đã duyệt còn hiệu lực; mình sẽ không đoán thuốc.")]}
+        return {
+            "messages": [AIMessage(content="Bạn không có đơn thuốc đã duyệt còn hiệu lực; mình sẽ không đoán thuốc.")]
+        }
     if result.status == ResolutionStatus.CONTEXT_EXPIRED:
-        return {"messages": [AIMessage(content="Mình chưa xác định được ‘thuốc này’ là thuốc nào. Bạn hãy cho biết tên, giờ hoặc cữ thuốc hiển thị trên App.")]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="Mình chưa xác định được ‘thuốc này’ là thuốc nào. Bạn hãy cho biết tên, giờ hoặc cữ thuốc hiển thị trên App."
+                )
+            ]
+        }
     if result.status == ResolutionStatus.INSUFFICIENT_REFERENCE:
-        return {"messages": [AIMessage(content="Mình chưa đủ dữ kiện để xác định thuốc. Bạn hãy cho biết tên, giờ/cữ, buổi uống hoặc vị trí thuốc trong đơn.")]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="Mình chưa đủ dữ kiện để xác định thuốc. Bạn hãy cho biết tên, giờ/cữ, buổi uống hoặc vị trí thuốc trong đơn."
+                )
+            ]
+        }
     if result.status == ResolutionStatus.NOT_FOUND:
-        return {"messages": [AIMessage(content="Không tìm thấy thuốc khớp với mô tả trong đơn/lịch của bạn. Mình sẽ không tra cứu rộng hoặc đoán tên thuốc.")]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="Không tìm thấy thuốc khớp với mô tả trong đơn/lịch của bạn. Mình sẽ không tra cứu rộng hoặc đoán tên thuốc."
+                )
+            ]
+        }
     if result.status == ResolutionStatus.RESOLVED_MULTIPLE:
         return {"messages": [AIMessage(content=_clarification(result.medications))]}
 
     medication = result.medications[0]
     name = _name(medication)
     if not name:
-        return {"messages": [AIMessage(content="Cữ thuốc đã tìm thấy chưa có tên rõ ràng nên mình không thể tra cứu an toàn.")]}
+        return {
+            "messages": [
+                AIMessage(content="Cữ thuốc đã tìm thấy chưa có tên rõ ràng nên mình không thể tra cứu an toàn.")
+            ]
+        }
 
     analysis = state.get("intent_analysis") or {}
     topics = list(analysis.get("topics") or ["identity"])
@@ -69,22 +94,30 @@ async def prescribed_drug_info_node(state: AgentState) -> dict:
     lines.extend(["", "**Thông tin thuốc theo nội dung bạn hỏi**", information])
 
     if "missed_dose" in topics:
-        lines.extend([
-            "", "**Nếu đã quên hoặc quá giờ**",
-            "Mình không thể kết luận bạn nên uống bù chỉ dựa vào thời gian đã trôi qua. Không uống gấp đôi, không tự bỏ hoặc đổi cữ; hãy làm theo hướng dẫn quên liều đã được xác minh cho đúng thuốc hoặc liên hệ bác sĩ/dược sĩ.",
-        ])
+        lines.extend(
+            [
+                "",
+                "**Nếu đã quên hoặc quá giờ**",
+                "Mình không thể kết luận bạn nên uống bù chỉ dựa vào thời gian đã trôi qua. Không uống gấp đôi, không tự bỏ hoặc đổi cữ; hãy làm theo hướng dẫn quên liều đã được xác minh cho đúng thuốc hoặc liên hệ bác sĩ/dược sĩ.",
+            ]
+        )
     if analysis.get("symptoms"):
-        lines.extend([
-            "", "**Về triệu chứng bạn mô tả**",
-            "Không thể khẳng định triệu chứng do thuốc chỉ qua chat. Nếu triệu chứng nặng, tăng nhanh, khó thở, choáng hoặc sưng môi/lưỡi, hãy liên hệ cấp cứu ngay.",
-        ])
+        lines.extend(
+            [
+                "",
+                "**Về triệu chứng bạn mô tả**",
+                "Không thể khẳng định triệu chứng do thuốc chỉ qua chat. Nếu triệu chứng nặng, tăng nhanh, khó thở, choáng hoặc sưng môi/lưỡi, hãy liên hệ cấp cứu ngay.",
+            ]
+        )
 
-    metadata = {"resolved_medication": {
-        "display_name": name,
-        "medication_id": str(medication.get("medication_id") or ""),
-        "resolved_from": result.reference_type,
-        "resolved_value": result.reference_value,
-    }}
+    metadata = {
+        "resolved_medication": {
+            "display_name": name,
+            "medication_id": str(medication.get("medication_id") or ""),
+            "resolved_from": result.reference_type,
+            "resolved_value": result.reference_value,
+        }
+    }
     return {
         "messages": [AIMessage(content="\n".join(lines))],
         "grounding_valid": grounded,

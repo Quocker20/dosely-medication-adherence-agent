@@ -55,9 +55,7 @@ Nguyên tắc bắt buộc:
 """
 
 
-def _build_system_message(
-    patient_id: str, patient_address: str = "bạn"
-) -> SystemMessage:
+def _build_system_message(patient_id: str, patient_address: str = "bạn") -> SystemMessage:
     return SystemMessage(
         content=SYSTEM_PROMPT.format(
             patient_id=patient_id or "(chưa xác định)",
@@ -70,14 +68,25 @@ def _build_system_message(
 async def agent_node(state: AgentState) -> dict:
     """Gọi LLM với tool-calling bật lên. LLM tự quyết định gọi tool nào,
     hay đã đủ thông tin để trả lời trực tiếp."""
-    if state.get("intent") in {"ask_drug_info", "ask_drug_catalog", "ask_prescribed_drug_info", "ask_scheduled_drug_info", "ask_schedule", "ask_next_dose"}:
-        return {"messages": [SystemMessage(content="Mình chưa có đủ dữ liệu đã xác minh để trả lời câu hỏi này. Bạn vui lòng hỏi lại rõ tên thuốc hoặc ngày cần tra cứu.")]}
+    if state.get("intent") in {
+        "ask_drug_info",
+        "ask_drug_catalog",
+        "ask_prescribed_drug_info",
+        "ask_scheduled_drug_info",
+        "ask_schedule",
+        "ask_next_dose",
+    }:
+        return {
+            "messages": [
+                SystemMessage(
+                    content="Mình chưa có đủ dữ liệu đã xác minh để trả lời câu hỏi này. Bạn vui lòng hỏi lại rõ tên thuốc hoặc ngày cần tra cứu."
+                )
+            ]
+        }
     llm = get_llm()
     llm_with_tools = llm.bind_tools(CHAT_TOOLS) if CHAT_TOOLS else llm
 
-    system_message = _build_system_message(
-        state.get("patient_id", ""), state.get("patient_address", "bạn")
-    )
+    system_message = _build_system_message(state.get("patient_id", ""), state.get("patient_address", "bạn"))
     messages = [system_message] + list(state.get("messages", []))
     response = await llm_with_tools.ainvoke(messages)
 

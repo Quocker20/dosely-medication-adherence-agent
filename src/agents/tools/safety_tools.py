@@ -16,6 +16,7 @@ that HTTP path runs under a patient's own bearer token (see backend_client's
 get_actor_token), which a scheduled background job scanning every patient
 does not have.
 """
+
 from __future__ import annotations
 
 import logging
@@ -94,6 +95,7 @@ SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "uống nhầm thuốc quá liều",
     "uống quá liều thuốc",
 )
+
 
 def match_severe_symptom_keyword(text: str) -> str | None:
     """Lớp 1 (rule-based, LUÔN chạy trước LLM) — khớp câu mô tả triệu chứng
@@ -201,8 +203,7 @@ async def trigger_red_alert(patient_id: str, reason: str, severity: str, evidenc
         result = await _send_alert(patient_id, reason, severity, evidence)
     except Exception as e:  # noqa: BLE001 — fail-open: must never propagate
         logger.critical(
-            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s reason=%s severity=%s "
-            "evidence=%s error=%s",
+            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s reason=%s severity=%s evidence=%s error=%s",
             patient_id,
             reason,
             severity,

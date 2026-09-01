@@ -21,9 +21,7 @@ from src.modules.planning.core.backend_client import BackendAPIError
     ],
 )
 def test_resolve_patient_address(dob, sex, expected):
-    assert resolve_patient_address(
-        {"dob": dob, "sex": sex}, date(2026, 8, 29)
-    ) == expected
+    assert resolve_patient_address({"dob": dob, "sex": sex}, date(2026, 8, 29)) == expected
 
 
 @pytest.mark.asyncio
@@ -35,9 +33,7 @@ async def test_get_patient_address_uses_authenticated_profile_once():
             "sex": "FEMALE",
         }
     }
-    with patch(
-        "src.agents.patient_addressing.get", new=AsyncMock(return_value=payload)
-    ) as mock_get:
+    with patch("src.agents.patient_addressing.get", new=AsyncMock(return_value=payload)) as mock_get:
         result = await get_patient_address("patient-123", date(2026, 8, 29))
     assert result == "chị"
     mock_get.assert_awaited_once_with("/patients/me/profile")
@@ -78,9 +74,7 @@ async def test_chat_loads_address_once_and_puts_only_vocative_in_agent_state():
         patch("src.modules.agents.service.get_patient_address", new=address_get),
         patch("src.modules.agents.service.agent.ainvoke", new=invoke),
     ):
-        response, _ = await ChatService()._run_agent(
-            "Xin chào", "patient-123", date(2026, 8, 29)
-        )
+        response, _ = await ChatService()._run_agent("Xin chào", "patient-123", date(2026, 8, 29))
 
     assert response == "Xin chào chị"
     address_get.assert_awaited_once_with("patient-123", date(2026, 8, 29))

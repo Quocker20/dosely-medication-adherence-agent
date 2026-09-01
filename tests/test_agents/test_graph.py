@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.graph import agent
+from src.agents.graph import _route_after_plan_guard, _route_after_semantic_planner, agent
 from src.agents.nodes.classify_intent_node import IntentClassification
-from src.agents.nodes.rescheduling_node import MealShiftExtraction
+from src.agents.nodes.rescheduling_node import RoutineDeviationExtraction
 from src.agents.nodes.scope_guard_node import ScopeClassification
+from src.agents.semantic_plan import SemanticPlan, SemanticStep
 
 
 def _not_severe():
@@ -38,9 +39,7 @@ def _in_scope():
         "src.agents.nodes.scope_guard_node.get_llm",
         **{
             "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
-                return_value=ScopeClassification(
-                    category="medication", reason="test", confidence=1.0
-                )
+                return_value=ScopeClassification(category="medication", reason="test", confidence=1.0)
             )
         },
     )
@@ -51,6 +50,16 @@ def _reaches_agent(intent: str = "general"):
     stack = ExitStack()
     stack.enter_context(_not_severe())
     stack.enter_context(_in_scope())
+    stack.enter_context(
+        patch(
+            "src.agents.nodes.semantic_planner_node.get_llm",
+            **{
+                "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                    side_effect=RuntimeError("force legacy classifier in graph tests")
+                )
+            },
+        )
+    )
     stack.enter_context(_classified_as(intent))
     return stack
 
@@ -95,6 +104,7 @@ async def test_agent_calls_formulary_rag_only_after_safety_passes():
         patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm,
         patch("src.agents.nodes.drug_rag_node._get_rag_service") as mock_rag,
     ):
+        mock_rag.return_value.rag.infer_drug.return_value = ("acid ascorbic", "Acid ascorbic")
         mock_rag.return_value.query.return_value = rag_result
         result = await agent.ainvoke(
             {
@@ -104,7 +114,9 @@ async def test_agent_calls_formulary_rag_only_after_safety_passes():
         )
 
     mock_get_llm.assert_not_called()
-    mock_rag.return_value.query.assert_called_once_with("Acid ascorbic có chỉ định gì?")
+    mock_rag.return_value.query.assert_called_once_with(
+        "Acid ascorbic có chỉ định gì?", context_drug=("acid ascorbic", "Acid ascorbic")
+    )
     answer = result["messages"][-1].content
     assert "Tác dụng hoặc chỉ định chính" in answer
     assert "- Acid ascorbic điều trị thiếu vitamin C." in answer
@@ -130,6 +142,7 @@ async def test_graph_replaces_uncited_formulary_answer_with_safe_fallback():
         _reaches_agent(intent="ask_drug_info"),
         patch("src.agents.nodes.drug_rag_node._get_rag_service") as mock_rag,
     ):
+        mock_rag.return_value.rag.infer_drug.return_value = ("acid ascorbic", "Acid ascorbic")
         mock_rag.return_value.query.return_value = rag_result
         result = await agent.ainvoke(
             {
@@ -140,7 +153,7 @@ async def test_graph_replaces_uncited_formulary_answer_with_safe_fallback():
 
     assert result["grounding_valid"] is False
     assert "missing_citation" in result["grounding_errors"]
-    assert "chưa thể xác minh" in result["messages"][-1].content
+    assert "cung cấp câu trả lời này một cách an toàn" in result["messages"][-1].content
 
 
 @pytest.mark.asyncio
@@ -214,19 +227,19 @@ async def test_out_of_scope_question_stops_before_intent_and_chat_llm():
             "src.agents.nodes.scope_guard_node.get_llm",
             **{
                 "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
-                    return_value=ScopeClassification(
-                        category="out_of_scope", reason="thể thao", confidence=1.0
-                    )
+                    return_value=ScopeClassification(category="out_of_scope", reason="thể thao", confidence=1.0)
                 )
             },
         ),
         patch("src.agents.nodes.classify_intent_node.get_llm") as classifier_llm,
         patch("src.agents.nodes.chat_node.get_llm") as chat_llm,
     ):
-        result = await agent.ainvoke({
-            "messages": [HumanMessage(content="World Cup 2026 kết thúc ngày bao nhiêu?")],
-            "patient_id": "patient-123",
-        })
+        result = await agent.ainvoke(
+            {
+                "messages": [HumanMessage(content="World Cup 2026 kết thúc ngày bao nhiêu?")],
+                "patient_id": "patient-123",
+            }
+        )
     classifier_llm.assert_not_called()
     chat_llm.assert_not_called()
     assert result["scope_blocked"] is True
@@ -235,20 +248,36 @@ async def test_out_of_scope_question_stops_before_intent_and_chat_llm():
 
 @pytest.mark.asyncio
 async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
-    """classify_intent -> report_meal_shift -> rescheduling_node, agent_node
-    (chat LLM tự do) không bao giờ được gọi."""
+    """Semantic plan routes a routine deviation straight to rescheduling."""
+    semantic_plan = SemanticPlan(
+        purpose="Báo giờ ăn trưa hôm nay thay đổi",
+        steps=[
+            SemanticStep(
+                id="step_1",
+                tool="report_meal_shift",
+                purpose="Dời mốc bữa trưa hôm nay",
+                requested_action="change_schedule",
+                confidence=0.99,
+            )
+        ],
+        confidence=0.99,
+    )
     with (
         _not_severe(),
-        _classified_as("report_meal_shift"),
+        _in_scope(),
+        patch(
+            "src.agents.nodes.semantic_planner_node.get_llm",
+            **{"return_value.with_structured_output.return_value.ainvoke": AsyncMock(return_value=semantic_plan)},
+        ),
         patch(
             "src.agents.nodes.rescheduling_node.get_llm",
             **{
                 "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
-                    return_value=MealShiftExtraction(event="meal_shift", meal="lunch", new_time="14:00")
+                    return_value=RoutineDeviationExtraction(event="routine_deviation", anchor="lunch", new_time="14:00")
                 )
             },
         ),
-        patch("src.agents.nodes.rescheduling_node.reschedule_remaining_doses") as mock_tool,
+        patch("src.agents.nodes.rescheduling_node.report_routine_deviation") as mock_tool,
         patch("src.agents.nodes.chat_node.get_llm") as mock_chat_llm,
     ):
         mock_tool.ainvoke = AsyncMock(return_value="Đã rải lại lịch.")
@@ -257,6 +286,7 @@ async def test_meal_shift_intent_routes_to_rescheduling_not_chat_llm():
             {
                 "messages": [HumanMessage(content="hôm nay tôi ăn trưa muộn, 2 giờ chiều")],
                 "patient_id": "patient-123",
+                "client_date": "2026-08-14",
             }
         )
 
@@ -288,6 +318,11 @@ def test_rag_node_is_only_reachable_after_safety_guard():
     assert "drug_rag" in classify_targets
     safety_targets = {edge.target for edge in graph.edges if edge.source == "safety_guard"}
     assert "scope_guard" in safety_targets
+
+
+def test_semantic_parser_degradation_routes_to_legacy_classifier():
+    assert _route_after_semantic_planner({"use_legacy_classifier": True}) == "classify_intent"
+    assert _route_after_plan_guard({"use_legacy_classifier": True, "semantic_plan_valid": False}) == "classify_intent"
 
 
 def test_chat_system_prompt_guides_profile_based_addressing():

@@ -28,28 +28,50 @@ def _state(reference_type, **analysis):
 async def test_schedule_references_resolve_from_authenticated_app_endpoint(
     monkeypatch, reference_type, analysis, expected
 ):
-    backend = AsyncMock(return_value={
-        "timezone": "Asia/Bangkok",
-        "doses": [
-            {"medication_id": "m1", "medication_name": "Morning Drug", "dose_slot": "MORNING", "current_scheduled_at": "2026-08-29T07:30:00+07:00", "status": "TAKEN", "meal_relation": "BEFORE_MEAL"},
-            {"medication_id": "m2", "medication_name": "Evening Drug", "dose_slot": "EVENING", "current_scheduled_at": "2026-08-29T19:30:00+07:00", "status": "PENDING", "meal_relation": "AFTER_MEAL"},
-        ],
-    })
+    backend = AsyncMock(
+        return_value={
+            "timezone": "Asia/Bangkok",
+            "doses": [
+                {
+                    "medication_id": "m1",
+                    "medication_name": "Morning Drug",
+                    "dose_slot": "MORNING",
+                    "current_scheduled_at": "2026-08-29T07:30:00+07:00",
+                    "status": "TAKEN",
+                    "meal_relation": "BEFORE_MEAL",
+                },
+                {
+                    "medication_id": "m2",
+                    "medication_name": "Evening Drug",
+                    "dose_slot": "EVENING",
+                    "current_scheduled_at": "2026-08-29T19:30:00+07:00",
+                    "status": "PENDING",
+                    "meal_relation": "AFTER_MEAL",
+                },
+            ],
+        }
+    )
     monkeypatch.setattr(resolver, "get", backend)
     result = await resolver.resolve_prescribed_drug(_state(reference_type, **analysis))
     assert result.status == resolver.ResolutionStatus.RESOLVED_ONE
     assert result.medications[0]["medication_name"] == expected
-    backend.assert_awaited_once_with(
-        "/patients/patient-from-jwt/schedules", params={"date": "2026-08-29"}
-    )
+    backend.assert_awaited_once_with("/patients/patient-from-jwt/schedules", params={"date": "2026-08-29"})
 
 
 @pytest.mark.asyncio
 async def test_ambiguous_period_never_guesses(monkeypatch):
-    monkeypatch.setattr(resolver, "get", AsyncMock(return_value={"doses": [
-        {"medication_id": "m1", "medication_name": "Drug A", "dose_slot": "MORNING"},
-        {"medication_id": "m2", "medication_name": "Drug B", "dose_slot": "MORNING"},
-    ]}))
+    monkeypatch.setattr(
+        resolver,
+        "get",
+        AsyncMock(
+            return_value={
+                "doses": [
+                    {"medication_id": "m1", "medication_name": "Drug A", "dose_slot": "MORNING"},
+                    {"medication_id": "m2", "medication_name": "Drug B", "dose_slot": "MORNING"},
+                ]
+            }
+        ),
+    )
     result = await resolver.resolve_prescribed_drug(_state("dose_period", dose_period="morning"))
     assert result.status == resolver.ResolutionStatus.RESOLVED_MULTIPLE
 
@@ -71,35 +93,44 @@ async def test_missing_context_requires_clarification():
 
 @pytest.mark.asyncio
 async def test_prescription_ordinal_uses_current_authenticated_prescription(monkeypatch):
-    backend = AsyncMock(return_value={"medications": [
-        {"medication_id": "m1", "display_name": "First"},
-        {"medication_id": "m2", "display_name": "Second"},
-    ]})
+    backend = AsyncMock(
+        return_value={
+            "medications": [
+                {"medication_id": "m1", "display_name": "First"},
+                {"medication_id": "m2", "display_name": "Second"},
+            ]
+        }
+    )
     monkeypatch.setattr(resolver, "get", backend)
     result = await resolver.resolve_prescribed_drug(_state("prescription_ordinal", prescription_ordinal=2))
     assert result.medications[0]["display_name"] == "Second"
-    backend.assert_awaited_once_with(
-        "/patients/me/medications/current", params={"as_of": "2026-08-29"}
-    )
+    backend.assert_awaited_once_with("/patients/me/medications/current", params={"as_of": "2026-08-29"})
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("question", [
-    "thuốc 7h sáng có tác dụng gì?",
-    "thuốc cữ 7h sáng có tác dụng gì?",
-    "thuốc ở cữ 7 giờ sáng có tác dụng gì?",
-    "thuốc lúc 07:00 có tác dụng gì?",
-])
+@pytest.mark.parametrize(
+    "question",
+    [
+        "thuốc 7h sáng có tác dụng gì?",
+        "thuốc cữ 7h sáng có tác dụng gì?",
+        "thuốc ở cữ 7 giờ sáng có tác dụng gì?",
+        "thuốc lúc 07:00 có tác dụng gì?",
+    ],
+)
 async def test_explicit_clock_time_overrides_phrase_sensitive_llm_reference(monkeypatch, question):
-    backend = AsyncMock(return_value={
-        "timezone": "Asia/Bangkok",
-        "doses": [{
-            "medication_id": "m1",
-            "medication_name": "Morning Drug",
-            "dose_slot": "",
-            "current_scheduled_at": "2026-08-29T07:00:00+07:00",
-        }],
-    })
+    backend = AsyncMock(
+        return_value={
+            "timezone": "Asia/Bangkok",
+            "doses": [
+                {
+                    "medication_id": "m1",
+                    "medication_name": "Morning Drug",
+                    "dose_slot": "",
+                    "current_scheduled_at": "2026-08-29T07:00:00+07:00",
+                }
+            ],
+        }
+    )
     monkeypatch.setattr(resolver, "get", backend)
     state = _state("dose_period", dose_period="morning")
     state["messages"] = [HumanMessage(content=question)]

@@ -1,7 +1,6 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -16,11 +15,11 @@ class MedicationDetailResponse(BaseModel):
 
     id: uuid.UUID
     name: str
-    composition: Optional[str] = None
-    manufacturer: Optional[str] = None
-    uses: Optional[str] = None
-    side_effects: Optional[str] = None
-    image_url: Optional[str] = None
+    composition: str | None = None
+    manufacturer: str | None = None
+    uses: str | None = None
+    side_effects: str | None = None
+    image_url: str | None = None
     source_name: str
     is_active: bool
 
@@ -36,16 +35,16 @@ class PrescriptionItemBase(BaseModel):
 
     medication_id: uuid.UUID
     dose_unit: str = Field(..., max_length=30)
-    morning_dose: Optional[Decimal] = None
-    noon_dose: Optional[Decimal] = None
-    evening_dose: Optional[Decimal] = None
-    bedtime_dose: Optional[Decimal] = None
+    morning_dose: Decimal | None = None
+    noon_dose: Decimal | None = None
+    evening_dose: Decimal | None = None
+    bedtime_dose: Decimal | None = None
     route: str = Field(default="ORAL", max_length=30)
-    meal_relation: Optional[str] = Field(None, max_length=30)
-    minimum_interval_minutes: Optional[int] = None
+    meal_relation: str | None = Field(None, max_length=30)
+    minimum_interval_minutes: int | None = None
     start_date: date
-    end_date: Optional[date] = None
-    instructions: Optional[str] = None
+    end_date: date | None = None
+    instructions: str | None = None
     # Doctor-set on high-risk medications: narrows the missed-dose-streak
     # fast-path alert to only this item instead of every medication. See
     # docs/graded-adherence-implementation.md Stage 2.
@@ -85,9 +84,9 @@ class CreatePrescriptionRequest(BaseModel):
     name: str = Field(..., max_length=255)
     dob: date = Field(...)
     sex: str = Field(..., pattern=r"^(MALE|FEMALE|OTHER)$")
-    emergency_note: Optional[str] = None
-    diagnosis_note: Optional[str] = None
-    items: List[CreatePrescriptionItemRequest] = Field(default_factory=list)
+    emergency_note: str | None = None
+    diagnosis_note: str | None = None
+    items: list[CreatePrescriptionItemRequest] = Field(default_factory=list)
 
     @field_validator("dob")
     @classmethod
@@ -105,7 +104,7 @@ class UpdatePrescriptionRequest(BaseModel):
     Payload for PUT /prescriptions/{prescription_id}.
     """
 
-    diagnosis_note: Optional[str] = None
+    diagnosis_note: str | None = None
 
 
 class CancelPrescriptionRequest(BaseModel):
@@ -125,19 +124,19 @@ class PrescriptionItemDetailResponse(BaseModel):
 
     id: uuid.UUID
     prescription_id: uuid.UUID
-    medication_id: Optional[uuid.UUID] = None
+    medication_id: uuid.UUID | None = None
     display_name: str
     dose_unit: str
-    morning_dose: Optional[Decimal] = None
-    noon_dose: Optional[Decimal] = None
-    evening_dose: Optional[Decimal] = None
-    bedtime_dose: Optional[Decimal] = None
+    morning_dose: Decimal | None = None
+    noon_dose: Decimal | None = None
+    evening_dose: Decimal | None = None
+    bedtime_dose: Decimal | None = None
     route: str
-    meal_relation: Optional[str] = None
-    minimum_interval_minutes: Optional[int] = None
+    meal_relation: str | None = None
+    minimum_interval_minutes: int | None = None
     start_date: date
-    end_date: Optional[date] = None
-    instructions: Optional[str] = None
+    end_date: date | None = None
+    instructions: str | None = None
     is_critical: bool = False
     created_at: datetime
 
@@ -146,7 +145,7 @@ class CurrentMedicationListResponse(BaseModel):
     """Currently active medicines from the authenticated patient's approved prescriptions."""
 
     as_of: date
-    medications: List[PrescriptionItemDetailResponse] = Field(default_factory=list)
+    medications: list[PrescriptionItemDetailResponse] = Field(default_factory=list)
 
 
 class PrescriptionDetailResponse(BaseModel):
@@ -161,12 +160,12 @@ class PrescriptionDetailResponse(BaseModel):
 
     id: uuid.UUID
     patient_id: uuid.UUID
-    doctor_id: Optional[uuid.UUID] = None
+    doctor_id: uuid.UUID | None = None
     status: str
-    diagnosis_note: Optional[str] = None
-    approved_at: Optional[datetime] = None
+    diagnosis_note: str | None = None
+    approved_at: datetime | None = None
     created_at: datetime
-    items: List[PrescriptionItemDetailResponse] = Field(default_factory=list)
+    items: list[PrescriptionItemDetailResponse] = Field(default_factory=list)
 
 
 class CreatePrescriptionResponse(BaseModel):
@@ -179,4 +178,4 @@ class CreatePrescriptionResponse(BaseModel):
     """
 
     prescription: PrescriptionDetailResponse
-    temp_password: Optional[str] = None
+    temp_password: str | None = None

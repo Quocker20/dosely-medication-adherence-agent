@@ -41,6 +41,9 @@ from src.modules.adherence.schemas import (
     TriggerSosRequest,
 )
 from src.modules.admin.repository import AuditLogRepository
+from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.schemas import ReportRoutineDeviationRequest
+from src.modules.agents.service import SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)
@@ -539,6 +542,44 @@ class HealthSurveyService:
                     message=f"Health survey for {request.survey_date} already submitted"
                 ) from exc
             raise
+
+        if request.routine_deviations:
+            # Own service instance, own transactions (report_routine_deviations
+            # opens its own async with self._db.begin() blocks — it cannot
+            # share the survey's already-committed transaction above). Same
+            # "one shared backend service for both channels" path as the
+            # dedicated POST .../routine-overrides endpoint.
+            scheduling_service = SchedulingService(
+                self._db, AgentRunRepository(self._db), ScheduledDoseRepository(self._db), self._patient_repo
+            )
+            try:
+                # One batched call, not one per deviation: only a single agent
+                # run may be in flight per patient, so looping here made every
+                # survey carrying two deviations fail on the second.
+                await scheduling_service.report_routine_deviations(
+                    patient_id,
+                    [
+                        ReportRoutineDeviationRequest(
+                            override_date=request.survey_date,
+                            anchor=deviation.anchor,
+                            overridden_time=deviation.overridden_time,
+                            source="SURVEY",
+                            reason=deviation.reason,
+                        )
+                        for deviation in request.routine_deviations
+                    ],
+                    actor_payload,
+                )
+            except (ValidationException, ConflictException):
+                # survey_date not in valid horizon (e.g. a late-submitted backdated
+                # survey), contradictory anchors, or a reschedule already in flight —
+                # fail-open on the overrides only. The survey itself already
+                # committed successfully above and must not be rolled back for this.
+                logger.warning(
+                    "Routine deviations for patient %s skipped for survey_date %s",
+                    patient_id,
+                    request.survey_date,
+                )
 
         return HealthSurveyDetailResponse.model_validate(survey)
 
