@@ -1,47 +1,155 @@
-# 💊 RemindRx (P-216) — AI Agent Hỗ Trợ Quản Lý & Nhắc Nhở Uống Thuốc
+# 💊 RemindRx (P-216 / VMEC-04) — Medication Adherence AI Platform
 
-Hệ thống **RemindRx** thuộc dự án **VinUni AI20K Build Phase (Cohort 3 - Team P-216)**. Đây là giải pháp AI Agent toàn diện tích hợp backend FastAPI (LangGraph agent, Postgres, Redis, Celery) và ứng dụng di động Android (Jetpack Compose).
+> **One-sentence Summary:** A multi-agent AI system that empowers chronic patients to adhere to medication schedules and enables real-time treatment safety monitoring under Human-in-the-loop (doctor) oversight.
 
----
-
-## 🎯 Bài Toán & Giải Pháp (Problem & Solution)
-
-- **Bài toán (Problem):** Người bệnh (đặc biệt là người lớn tuổi hoặc bệnh nhân mãn tính) thường gặp khó khăn trong việc nhớ lịch uống thuốc, uống sai liều, hoặc không nhận biết sớm các tác dụng phụ nguy hiểm. Đồng thời, bác sĩ và người thân thiếu công cụ giám sát tuân thủ điều trị theo thời gian thực.
-- **Giải pháp (Solution):** **RemindRx** cung cấp trợ lý AI Agent thông minh:
-  - 🗣 **Tương tác Đa phương thức:** Hỗ trợ trò chuyện bằng văn bản và giọng nói tiếng Việt tự nhiên (`/chat`, `/chat/voice`).
-  - ⏰ **Nhắc thuốc thông minh:** Tự động quy đổi lịch uống thuốc theo thời gian sinh hoạt cá nhân của bệnh nhân (thức dậy, ăn sáng/trưa/tối, đi ngủ).
-  - 📋 **Điểm danh & Theo dõi:** Ghi nhận nhật ký uống thuốc (`TAKEN`, `SNOOZE`, `SKIPPED`) với cơ chế Idempotency-Key chống trùng lặp.
-  - 🚨 **Cảnh báo an toàn & SOS:** Tự động phát hiện triệu chứng nghiêm trọng và gửi thông báo khẩn cấp SOS tới bác sĩ & người thân.
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/AI%20Agent-LangGraph-FF6F00?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![Android](https://img.shields.io/badge/Android-SDK%2034-3DDC84?logo=android&logoColor=white)](https://developer.android.com/)
+[![React](https://img.shields.io/badge/Web%20Portal-React%2018%20%2B%20Vite-61DAFB?logo=react&logoColor=black)](https://vitejs.dev/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 📑 Mục Lục
+## 📑 Table of Contents
 
-1. [🎯 Bài Toán & Giải Pháp (Problem & Solution)](#-bài-toán--giải-pháp-problem--solution)
-2. [⚡ Quick Start & Hướng Dẫn Setup](#-quick-start--hướng-dẫn-setup)
-   - [Backend Infrastructure (FastAPI + Postgres + Redis)](#1-backend-infrastructure-fastapi--postgres--redis)
-   - [Android Application Setup (Android Studio)](#2-android-application-setup-android-studio)
-3. [🔐 Cấu Hình Biến Môi Trường (.env)](#-cấu-hình-biến-môi-trường-env)
-4. [📡 Sample Queries & Gọi API Mẫu](#-sample-queries--gọi-api-mẫu)
-   - [API cURL & Python Snippets](#1-api-curl--python-snippets)
-   - [Database SQL Queries Mẫu](#2-database-sql-queries-mẫu)
-5. [📁 Cấu Trúc Dự Án & Tech Stack](#-cấu-trúc-dự-án--tech-stack)
-6. [📊 AI Usage Logging](#-ai-usage-logging)
-7. [📋 Deliverables & Tài Liệu Tham Khảo](#-deliverables--tài-liệu-tham-khảo)
+1. [🎯 Problem & Solution](#-problem--solution)
+2. [👥 Target Users](#-target-users)
+3. [🧠 AI Agent & System Architecture](#-ai-agent--system-architecture)
+4. [🛠 Tech Stack](#-tech-stack)
+5. [⚡ Quick Start & Development Setup](#-quick-start--development-setup)
+   - [A. Backend Infrastructure (FastAPI + PostgreSQL + Redis)](#a-backend-infrastructure-fastapi--postgresql--redis)
+   - [B. Web Doctor/Caregiver Portal (React + Vite)](#b-web-doctorcaregiver-portal-react--vite)
+   - [C. Android Mobile Application (Jetpack Compose)](#c-android-mobile-application-jetpack-compose)
+6. [🔐 Environment Variables (.env)](#-environment-variables-env)
+7. [🧪 Testing & AI Evaluation (Benchmark)](#-testing--ai-evaluation-benchmark)
+8. [📡 Sample Queries & API Usage](#-sample-queries--api-usage)
+9. [📁 Project Directory Structure](#-project-directory-structure)
+10. [📋 Deliverables Checklist](#-deliverables-checklist)
+11. [👥 Team Members](#-team-members)
+12. [🙏 Acknowledgements](#-acknowledgements)
+13. [📄 License](#-license)
 
 ---
 
-## ⚡ Quick Start & Hướng Dẫn Setup
+## 🎯 Problem & Solution
 
-### 1. Backend Infrastructure (FastAPI + Postgres + Redis)
+### Problem
+Outpatients with chronic conditions (hypertension, diabetes, cardiovascular diseases, elderly patients) face significant clinical challenges:
+- **Missed Doses & Irregular Timing:** Chronic disease treatment non-adherence rates reach up to 50% (WHO), leading to avoidable complications and emergency readmissions.
+- **Drug Interactions & Side Effects:** Patients often alter dosages on their own or take conflicting medications without timely clinical guidance when experiencing adverse reactions.
+- **Lack of Doctor-Caregiver Visibility:** Clinicians lack objective visibility into patient adherence between scheduled appointments, while family caregivers lack reliable remote monitoring tools.
 
-#### Bước 1: Clone Repository & Setup Virtual Environment
+### Solution
+**RemindRx** bridges this gap with an integrated dual-agent AI architecture spanning mobile and web portals:
+- 🗣 **Multi-modal Chat Agent:** Natural Vietnamese voice and text dialogue (`/chat`, `/chat/voice`), answering drug interaction questions and explaining prescriptions using a RAG knowledge base indexed from the Vietnam National Drug Formulary.
+- ⏰ **Personalized Schedule Planning Agent:** Intelligently translates medical prescriptions into personalized intake schedules aligned with the patient's biological daily routine (waking time, meals, bedtime).
+- 🛡 **Deterministic Safety & Guardrail Engine:** Strictly blocks unauthorized dose alterations or medication discontinuation requests via chat. Enforces Human-in-the-Loop (doctor approval) prior to persisting schedule changes.
+- 🚨 **Real-time Red Alerts & SOS:** Detects critical symptoms and triggers emergency notifications to the Doctor Portal and designated family caregivers.
 
+---
+
+## 👥 Target Users
+
+| Role | User Group | Key Responsibilities & Capabilities |
+| :--- | :--- | :--- |
+| **Primary** | **Patients** | Mobile App interaction: receive dose reminders, record intake (`TAKEN`/`SNOOZE`/`SKIPPED`), interact with voice/text AI assistant, trigger SOS alerts. |
+| **Secondary** | **Doctors / Healthcare Providers** | Web Portal: prescribe medications, review and approve AI-generated intake schedules, track adherence scores, and triage clinical SOS alerts. |
+| **Secondary** | **Caregivers / Family Members** | Web/App: monitor daily intake compliance reports and receive alerts when multiple consecutive doses are missed. |
+| **Admin** | **System Administrators** | Web Portal: user account provisioning, role management, audit log monitoring, and AI usage governance. |
+
+---
+
+## 🧠 AI Agent & System Architecture
+
+RemindRx follows a **Modular Monolith** architecture combined with **Dual LangGraph Agents** guarded by **Strict Deterministic Code Validators**:
+
+```mermaid
+graph TB
+    subgraph Clients["Clients Layer"]
+        Web["💻 Web Portal (React + Vite)\nDoctor / Caregiver / Admin SPA"]
+        And["📱 Android App (Kotlin + Compose)\nPatient App (Offline-cache Room + Sync)"]
+    end
+
+    subgraph Gateway["API Gateway & Security"]
+        API["FastAPI App (:8000 /api/v1)\nJWT Auth + RBAC + Idempotency"]
+        RateLimit["Rate Limiter (Redis)"]
+    end
+
+    subgraph Agents["AI Agent Layer (LangGraph)"]
+        ChatAgent["🗣 Chat Agent (agents/graph.py)\nDrug inquiry & Patient interaction"]
+        PlanAgent["📅 Planning Agent (agents/planning_graph.py)\nRoutine-aware Schedule Generation"]
+        Guardrail["🛡 Safety Guardrail\nBlocks dose changes / Hallucinations"]
+        RAG["📚 Drug Formulary RAG\nChromaDB (11.6k chunks Formulary)"]
+    end
+
+    subgraph Validation["Deterministic Code Gate (HITL)"]
+        Consistency["Prescription Consistency Checker\n(Python Deterministic Code, NOT LLM)"]
+        DoctorReview["👨‍⚕️ Doctor HITL Approval Node"]
+    end
+
+    subgraph Storage["Data & Infrastructure"]
+        Postgres[("🐘 PostgreSQL (Asyncpg)\n21 relational tables + Audit Logs")]
+        RedisDB[("⚡ Redis\nCache & Broker")]
+        CeleryWorker["⏰ Celery Worker & Beat\nSchedule Scanner & Push Dispatcher"]
+    end
+
+    Web -->|"HTTPS REST"| API
+    And -->|"HTTPS REST + WebSocket"| API
+    API --> RateLimit
+    API --> Guardrail
+    Guardrail --> ChatAgent
+    ChatAgent --> RAG
+    API --> PlanAgent
+    PlanAgent --> Consistency
+    Consistency --> DoctorReview
+    DoctorReview -->|"Doctor Approval Required"| Postgres
+    CeleryWorker --> RedisDB
+    CeleryWorker --> Postgres
+```
+
+### Invariant Safety Principles (Agent Guardrails)
+1. **Human-in-the-Loop (HITL):** Only licensed physicians can create, modify, or approve clinical prescriptions and dosage changes.
+2. **Deterministic Code Gate:** Schedules suggested by the Planning Agent must pass a pure Python validator (verifying intervals, maximum daily dosage, and drug conflicts) before persistence.
+3. **Medical Policy Enforcement:** The Chat Agent is programmatically restricted from recommending dosage modifications, discontinuation, or substitute drugs.
+
+---
+
+## 🛠 Tech Stack
+
+| Layer | Technology | Details |
+| :--- | :--- | :--- |
+| **AI Agents & RAG** | **LangGraph**, **LangChain**, **OpenAI GPT-4o-mini**, **ChromaDB** | Decoupled Chat & Planning state graphs; national drug formulary RAG vector store |
+| **Speech Processing** | **OpenAI Whisper** & **TTS Engine** | Vietnamese Speech-to-Text and Text-to-Speech pipeline for elderly users |
+| **Backend** | **FastAPI**, **Python 3.11/3.12**, **Pydantic v2** | Modular asynchronous architecture with vertical business slices |
+| **Database & ORM** | **PostgreSQL 15**, **SQLAlchemy 2.0 (Async)**, **Alembic** | Relational data persistence with service-level transaction boundaries |
+| **Task Queue & Cache** | **Redis 7**, **Celery Worker & Beat** | Scheduled reminder engine, notification dispatching, and rate limiting |
+| **Web Portal** | **React 18**, **TypeScript**, **Vite** | Multi-role portal for doctors and caregivers |
+| **Mobile Application** | **Android (Kotlin)**, **Jetpack Compose**, **Room**, **Retrofit** | Patient client with local offline database and outbox sync mechanism |
+| **DevOps & QA** | **Docker**, **Docker Compose**, **Pytest**, **GitHub Actions** | Container orchestration, automated testing, and CI pipeline |
+
+---
+
+## ⚡ Quick Start & Development Setup
+
+### Prerequisites
+- **Python 3.11+**
+- **Docker & Docker Compose**
+- **Node.js 18+** & `npm` (for Web Portal)
+- **Android Studio** (Iguana / Jellyfish) with JDK 17 & Android SDK 34 (for Mobile App)
+
+---
+
+### A. Backend Infrastructure (FastAPI + PostgreSQL + Redis)
+
+#### 1. Clone Repository & Setup Python Virtual Environment
 ```bash
 git clone https://github.com/AI20K-Build-Phase-Cohort-3/P-216.git
 cd P-216
 
-# Tạo virtual environment Python 3.11
+# Create virtual environment
 python -m venv .venv
 
 # Activate virtual environment
@@ -50,167 +158,117 @@ python -m venv .venv
 # Linux / macOS:
 # source .venv/bin/activate
 
-# Cài đặt dependencies
+# Install development dependencies
 pip install -e ".[dev]"
 ```
 
-#### Bước 2: Cấu hình File `.env`
-
+#### 2. Configure Environment Variables
 ```bash
 cp .env.example .env
-# Mở file .env để cấu hình OPENAI_API_KEY, JWT_SECRET_KEY, DB credentials,...
+# Edit .env to set OPENAI_API_KEY, JWT_SECRET_KEY, DATABASE_URL, etc.
 ```
 
-#### Bước 3: Chạy Hạ Tầng (Postgres + Redis)
-
+#### 3. Start Database & Broker Containers (Docker)
 ```bash
 docker compose up -d postgres redis
 ```
 
-Lần đầu khởi chạy, Postgres tự động nạp schema từ `docs/database_v1_init.sql` (21 bảng).
-
-Đồng bộ Alembic migration lên bản mới nhất:
-
+#### 4. Run Migrations & Seed Medication Catalog
 ```bash
-# Đánh dấu baseline nếu chưa có alembic_version (làm một lần đầu)
+# Stamp baseline migration (first time only)
 alembic stamp 0001_baseline
 
-# Migration
+# Apply migrations
 alembic upgrade head
-```
 
-Migration `0016_seed_medications` tự nạp 66 hoạt chất nền vào PostgreSQL (không
-ghi vào Chroma/RAG). Có thể chủ động nạp/cập nhật lại bằng:
-
-```bash
+# Seed initial formulary medications (66 core active substances)
 python scripts/seed_medications.py
 ```
 
-Script upsert theo `source_name + source_record_key`, nên có thể chạy lại an
-toàn mà không tạo thuốc trùng. Dùng `--dry-run` để chỉ kiểm tra file catalog.
-
-#### Bước 4: Chạy Server FastAPI
-
+#### 5. Launch FastAPI Backend Server
 ```bash
 uvicorn src.main:app --reload --port 8000
 ```
-- Swagger UI Documentation: `http://localhost:8000/docs`
-- Health check API: `http://localhost:8000/health`
+- 📖 **Interactive Swagger Docs:** `http://localhost:8000/docs`
+- 💓 **Health Check Endpoint:** `http://localhost:8000/health`
 
-#### Bước 5: Chạy Unit & Integration Test
+---
+
+### B. Web Doctor/Caregiver Portal (React + Vite)
+
+The management portal for clinicians and caregivers is located in `web/`:
 
 ```bash
+cd web
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+- Access the web interface at: `http://localhost:5173`
+- Pre-configured to communicate with the backend at `http://localhost:8000/api/v1`
+
+---
+
+### C. Android Mobile Application (Jetpack Compose)
+
+1. Launch **Android Studio**, select **Open**, and browse directly to **`P-216/android`** *(Important: Do not open the root directory)*.
+2. Allow Android Studio to complete **Gradle Sync**.
+3. Create and launch an Android Virtual Device (Recommended: **Pixel 6/7 with API 34+**).
+4. Click **Run (`Shift + F10`)** to compile and launch the application.
+
+> **Network Note:** The Android emulator reaches the host backend via `http://10.0.2.2:8000/api/v1/`.  
+> **Demo Account:** Phone: `0900000000` | PIN: `123456`.
+
+---
+
+## 🔐 Environment Variables (.env)
+
+| Variable Name | Sample Value | Description |
+| :--- | :--- | :--- |
+| `JWT_SECRET_KEY` | `remindrx_super_secret_dev_key_p216` | Secret key for signing access and refresh JWT tokens |
+| `PASSWORD_PEPPER` | `custom_pepper_string` | Pepper string for password and PIN hashing |
+| `DATABASE_URL` | `postgresql+asyncpg://remindrx:secret@localhost:5432/remindrx_db` | Asynchronous PostgreSQL connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for caching and Celery broker |
+| `OPENAI_API_KEY` | `sk-proj-...` | API key for LangGraph agents and embeddings |
+| `CHROMA_PERSIST_DIR` | `./data/chroma` | Persistence directory for RAG vector index |
+| `AI_LOG_SERVER` | `https://ai-logs.note.transformerlabs.ai/api/ingest` | Centralized AI usage telemetry server |
+| `AI_LOG_API_KEY` | *(Assigned by AI20K)* | Telemetry authentication key |
+
+---
+
+## 🧪 Testing & AI Evaluation (Benchmark)
+
+### 1. Automated Unit & Integration Tests
+```bash
+# Run complete test suite (400+ unit and integration tests)
 pytest -q
+
+# Run specific adherence & safety review tests
+pytest tests/test_api/test_adherence_reviews.py
 ```
 
----
+### 2. AI Agent Evaluation & Benchmarks
+The `eval/` directory contains curated golden datasets and benchmarking harnesses:
+```bash
+# Evaluate 50 clinical safety guardrail test cases
+python eval/run_guardrail_50_live.py
 
-### 2. Android Application Setup (Android Studio)
+# Evaluate personalized routine schedule extraction accuracy
+python eval/rescheduling_extract_eval.py
 
-Tài liệu này hướng dẫn chạy ứng dụng Android **RemindRx** trên máy cá nhân bằng Android Studio (hỗ trợ Windows, macOS, Linux).
-
-#### 🛠 Yêu Cầu Tiên Quyết
-- **Git**
-- **Android Studio** (bản ổn định gần nhất)
-- **JDK 17** (có thể dùng Embedded JDK 17 đi kèm Android Studio)
-- **Android SDK Platform 34** và **Android SDK Build-Tools**
-- **Android Emulator** (API 34+)
-
-> Dự án đã có Gradle Wrapper, không cần tự cài Gradle riêng.
-
-#### 🚀 Các Bước Thực Hiện
-
-##### 1. Mở Đúng Thư Mục Project
-1. Mở Android Studio và chọn **Open**.
-2. Trỏ đến thư mục **`P-216/android`** (chú ý: **không** mở thư mục gốc `P-216`).
-   ```text
-   P-216/
-   └── android/                <- Mở thư mục này bằng Android Studio
-       ├── settings.gradle.kts
-       ├── build.gradle.kts
-       ├── gradlew.bat
-       └── app/
-   ```
-3. Chờ Android Studio hoàn tất **Gradle Sync** (lần đầu có thể mất vài phút).
-
-##### 2. Cài Đặt Android SDK (nếu được yêu cầu)
-1. Vào **Tools → SDK Manager**.
-2. Trong tab **SDK Platforms**, tích chọn cài **Android API 34**.
-3. Trong tab **SDK Tools**, bảo đảm tích chọn:
-   - Android SDK Build-Tools
-   - Android SDK Platform-Tools
-   - Android Emulator
-4. Nhấn **Apply**, sau đó thực hiện **File → Sync Project with Gradle Files**.
-
-##### 3. Tạo và Khởi Động Emulator
-1. Vào **Tools → Device Manager**.
-2. Chọn **Create device**, chọn mẫu thiết bị (ví dụ Pixel) và nhấn **Next**.
-3. Chọn system image có **API 34 trở lên**.
-4. Khởi động emulator bằng cách nhấn nút Play (`▶`).
-
-##### 4. Chạy Ứng Dụng
-1. Trên thanh công cụ Android Studio, chọn Run Configuration: **`app`**.
-2. Chọn Android Emulator vừa khởi động.
-3. Nhấn nút **Run** (`▶`) hoặc dùng phím tắt `Shift + F10`.
-
-##### 🔗 Kết Nối Backend & Tài Khoản Demo
-- Debug build trên Android Emulator được cấu hình gọi backend qua địa chỉ:
-  ```text
-  http://10.0.2.2:8000/api/v1/
-  ```
-  *(10.0.2.2 là loopback IP đặc biệt để Emulator truy cập localhost của máy tính host).*
-- **Tài khoản Demo (Debug Mode):**
-  - **Số điện thoại:** `0900000000`
-  - **PIN ban đầu:** `123456`
-
-##### 🚨 Lỗi Thường Gặp (Troubleshooting)
-
-| Sự cố | Nguyên nhân & Cách khắc phục |
-| --- | --- |
-| **Không nhận project Gradle** | Mở nhầm thư mục gốc `P-216`. Đóng project và mở lại đúng thư mục **`P-216/android`** (nơi chứa `settings.gradle.kts`). |
-| **Lỗi Java / JDK Version** | Vào `Settings → Build, Execution, Deployment → Build Tools → Gradle`. Mục **Gradle JDK**, chọn **Embedded JDK 17**, sau đó Sync lại. |
-| **App không gọi được API** | Kiểm tra Backend FastAPI có đang chạy trên host port `8000` hay không. Lưu ý Emulator dùng `10.0.2.2`, không dùng `localhost`. |
-| **Gradle Sync Fails do mạng** | Tắt **Offline work** trong Gradle Settings và chạy `File → Sync Project with Gradle Files`. |
+# Evaluate RAG retrieval quality (Faithfulness, Relevance, Groundedness)
+python eval/hybrid_chat_eval.py
+```
+> Evaluation outputs and metrics are automatically saved under `eval/results/`.
 
 ---
 
-## 🔐 Cấu Hình Biến Môi Trường (.env)
+## 📡 Sample Queries & API Usage
 
-Chi tiết các biến cấu hình trong file `.env` (tham khảo mẫu tại `.env.example`):
-
-| Nhóm Cấu Hình | Biến Môi Trường | Mô Tả & Giá Trị Mẫu |
-| --- | --- | --- |
-| **Security & JWT** | `JWT_SECRET_KEY` | Chuỗi bí mật mã hóa JWT (VD: `remindrx_dev_secret_key_...`) |
-| | `JWT_ALGORITHM` | Thuật toán mã hóa JWT (`HS256`) |
-| | `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời gian hết hạn Access Token (phút, mặc định: `30`) |
-| | `REFRESH_TOKEN_EXPIRE_DAYS` | Thời gian hết hạn Refresh Token (ngày, mặc định: `7`) |
-| | `PASSWORD_PEPPER` | Chuỗi pepper gia tăng bảo mật PIN/mật khẩu |
-| **LLM Provider** | `OPENAI_API_KEY` | API Key OpenAI cho LangGraph Agent (VD: `sk-proj-...`) |
-| | `ANTHROPIC_API_KEY` | (Tùy chọn) API Key Anthropic Claude |
-| | `GOOGLE_API_KEY` | (Tùy chọn) API Key Google Gemini |
-| **Database** | `POSTGRES_USER` | Username PostgreSQL (`remindrx`) |
-| | `POSTGRES_PASSWORD` | Password PostgreSQL (`secret`) |
-| | `POSTGRES_DB` | Tên Database PostgreSQL (`remindrx_db`) |
-| | `DATABASE_URL` | Async Connection String (VD: `postgresql+asyncpg://remindrx:secret@localhost:5432/remindrx_db`) |
-| **Redis & Broker** | `REDIS_HOST` / `REDIS_PORT` | Host (`localhost` hoặc `redis`) và Port (`6379`) |
-| | `REDIS_URL` | Connection URL Redis (`redis://localhost:6379/0`) |
-| | `CELERY_BROKER_URL` | Connection string cho Celery Task Queue |
-| **Vector Store** | `CHROMA_PERSIST_DIR` | Thư mục lưu trữ vector database RAG (`./data/chroma`) |
-| **Backend API** | `APP_HOST` / `APP_PORT` | Host (`0.0.0.0`) & Port (`8000`) cho FastAPI server |
-| | `CORS_ORIGINS` | Danh sách domain được phép gọi API (VD: `http://localhost:3000,http://localhost:5173`) |
-| **Speech (STT/TTS)** | `STT_MODEL` / `TTS_MODEL` | Model Whisper STT & TTS cho endpoint `/chat/voice` |
-| **AI Logging** | `AI_LOG_SERVER` | Server nhận log AI Usage (`https://ai-logs.note.transformerlabs.ai/api/ingest`) |
-| | `AI_LOG_API_KEY` | API key cấp bởi BTC AI20K |
-
----
-
-## 📡 Sample Queries & Gọi API Mẫu
-
-### 1. API cURL & Python Snippets
-
-#### A. Đăng Nhập (`POST /api/v1/auth/login`)
-
-**cURL:**
+### 1. User Authentication (`POST /api/v1/auth/login`)
 ```bash
 curl -X POST "http://localhost:8000/api/v1/auth/login" \
      -H "Content-Type: application/json" \
@@ -220,48 +278,22 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
      }'
 ```
 
-**Python:**
-```python
-import requests
-
-url = "http://localhost:8000/api/v1/auth/login"
-payload = {"phone": "0900000000", "password": "123456"}
-response = requests.post(url, json=payload)
-print(response.json())
-```
-
-#### B. Trò Chuyện Với AI Agent (`POST /api/v1/chat`)
-
-**cURL:**
+### 2. Medication Inquiry via AI Agent (`POST /api/v1/chat`)
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat" \
+     -H "Authorization: Bearer <TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
-       "message": "Tôi vừa uống 1 viên Paracetamol lúc 7h sáng",
+       "message": "I experienced dizziness after taking Amlodipine, is this normal?",
        "patient_id": "b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
      }'
 ```
 
-**Python:**
-```python
-import requests
-
-url = "http://localhost:8000/api/v1/chat"
-payload = {
-    "message": "Tôi cảm thấy chóng mặt sau khi uống thuốc",
-    "patient_id": "b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
-}
-res = requests.post(url, json=payload)
-print("AI Response:", res.json()["response"])
-```
-
-#### C. Điểm Danh Nhắc Thuốc (`POST /api/v1/scheduled-doses/{id}/actions`)
-
-**cURL:**
+### 3. Record Dose Intake Action (`POST /api/v1/scheduled-doses/{id}/actions`)
 ```bash
 curl -X POST "http://localhost:8000/api/v1/scheduled-doses/9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d/actions" \
-     -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
-     -H "Idempotency-Key: dose-action-20260816-01" \
+     -H "Authorization: Bearer <TOKEN>" \
+     -H "Idempotency-Key: dose-action-20260902-01" \
      -H "Content-Type: application/json" \
      -d '{
        "action": "TAKEN",
@@ -269,131 +301,79 @@ curl -X POST "http://localhost:8000/api/v1/scheduled-doses/9a8b7c6d-5e4f-3a2b-1c
      }'
 ```
 
-#### D. Kích Hoạt Cảnh Báo SOS (`POST /api/v1/patients/{id}/sos`)
-
-**cURL:**
-```bash
-curl -X POST "http://localhost:8000/api/v1/patients/b3f1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c/sos" \
-     -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
-     -H "Idempotency-Key: sos-trigger-20260816-01" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "message": "Chóng mặt và tức ngực cấp tính",
-       "metadata": {"lat": 10.762622, "lng": 106.660172}
-     }'
-```
-
 ---
 
-### 2. Database SQL Queries Mẫu
-
-Dưới đây là một số truy vấn SQL hữu ích để kiểm tra dữ liệu trực tiếp trong PostgreSQL container:
-
-```bash
-# Đăng nhập vào Postgres Container
-docker exec -it remindrx_postgres psql -U remindrx -d remindrx_db
-```
-
-#### Truy vấn 1: Danh sách tài khoản người dùng & Vai trò
-```sql
-SELECT id, phone, role, status, created_at 
-FROM users 
-ORDER BY created_at DESC 
-LIMIT 10;
-```
-
-#### Truy vấn 2: Danh sách đơn thuốc đang có hiệu lực (ACTIVE)
-```sql
-SELECT p.id AS prescription_id, p.patient_id, u.phone AS patient_phone, p.status, p.created_at
-FROM prescriptions p
-JOIN users u ON p.patient_id = u.id
-WHERE p.status = 'ACTIVE';
-```
-
-#### Truy vấn 3: Lịch sử uống thuốc (Adherence Logs) mới nhất
-```sql
-SELECT al.id, al.patient_id, al.scheduled_dose_id, al.action, al.performed_at, al.action_source
-FROM adherence_logs al
-ORDER BY al.performed_at DESC
-LIMIT 10;
-```
-
-#### Truy vấn 4: Các cảnh báo an toàn & SOS đang mở (OPEN)
-```sql
-SELECT id, patient_id, alert_type, severity, status, message, created_at
-FROM alerts
-WHERE status = 'OPEN'
-ORDER BY created_at DESC;
-```
-
----
-
-## 📁 Cấu Trúc Dự Án & Tech Stack
+## 📁 Project Directory Structure
 
 ```text
 P-216/
-├── android/                    # 📱 Core Mobile App (Jetpack Compose, Kotlin)
-│   ├── app/                    #    Android app module
-│   ├── build.gradle.kts        #    Root Gradle config
-│   └── settings.gradle.kts     #    Gradle settings
-├── src/                        # 🧠 Backend & AI Agent (FastAPI + LangGraph)
-│   ├── agents/                 #    LangGraph State, Nodes, Edges & Tools
-│   ├── core/                   #    Config, Database, Security, Redis, Celery
-│   ├── modules/                #    Vertical Slice Modules:
-│   │   ├── auth/               #      - Auth (JWT, PIN login)
-│   │   ├── admin/               #      - Doctor profile & Audit logs
-│   │   ├── patients/            #      - Patient profile & Routine
-│   │   ├── prescriptions/       #      - Prescriptions & Items
-│   │   ├── adherence/           #      - Adherence logs & SOS Alerts
-│   │   ├── dashboard/           #      - Doctor dashboard realtime
-│   │   ├── agents/              #      - Schedule planner, agent runs & grouping
-│   │   └── planning/            #      - Planning Agent's backend-client core
-│   ├── api/                    #    Global Routers & Dependencies
-│   └── main.py                 #    FastAPI Entrypoint & WebSockets
-├── tests/                      # 🧪 Pytest Suite (API & Agent tests)
-├── docs/                       # 📖 Tài liệu PRD, Database Spec, API Contract & Reference
-│   ├── api-contract.md         #    Hợp đồng endpoint theo slice (design-time)
-│   └── api-reference.md        #    Chi tiết API as-built (sinh từ code thật)
-├── scripts/                    # 🔌 AI Logging Hooks (setup_hooks.sh, log_hook.py)
-├── docker-compose.yml          # 🐙 Orchestration (Backend, Postgres, Redis)
-└── Dockerfile                  # 🐳 Multi-stage container build
+├── android/                    # 📱 Client 1: Android Mobile App (Kotlin + Compose)
+│   ├── app/src/main/java/      #    UI Features, Room DB, Retrofit API Client
+│   └── build.gradle.kts        #    Gradle build configurations (SDK 34)
+├── web/                        # 💻 Client 2: Doctor & Caregiver Portal (React + Vite)
+│   ├── src/                    #    SPA Pages (Doctor Dashboard, Prescriptions, Caregivers)
+│   └── package.json            #    TypeScript + Vite scripts
+├── src/                        # 🧠 Core Backend & AI Agent (FastAPI Modular Architecture)
+│   ├── agents/                 #    LangGraph Chat Agent, Planning Agent & Policy Enforcers
+│   ├── core/                   #    Configs, Async Database Engine, Security & Envelopes
+│   ├── modules/                #    Vertical Business Domains:
+│   │   ├── auth/               #      - Authentication, JWT, PIN & RBAC
+│   │   ├── patients/           #      - Patient Profiles & Routine Management
+│   │   ├── doctor/             #      - Doctor Directory & Clinical Permissions
+│   │   ├── prescriptions/      #      - Prescription Management & PDF Export
+│   │   ├── adherence/          #      - Intake Logging, Check-ins & Idempotency
+│   │   ├── adherence_review/   #      - Clinical Adherence Auditing
+│   │   ├── dashboard/          #      - Realtime Dashboard & WebSocket Metrics
+│   │   └── agents/             #      - Schedule Planner API Integration
+│   ├── rag_retrieval/          #    ChromaDB Retriever for National Drug Formulary
+│   └── main.py                 #    FastAPI App Entrypoint & Router Registry
+├── eval/                       # 📊 AI Benchmark & Evaluation Suite (Golden datasets)
+│   ├── results/                #    Benchmarking logs and accuracy reports
+│   └── hybrid_chat_eval.py     #    Evaluation script for RAG & Chat Agent
+├── docs/                       # 📖 PRD, Database Specifications & API Contracts
+│   ├── api-contract.md         #    Standardized API Response Contract
+│   └── ARCHITECTURE.md         #    In-depth Architecture Blueprint
+├── tests/                      # 🧪 Test Suite (Pytest Unit, Integration & Mock tests)
+├── docker-compose.yml          # 🐳 PostgreSQL + Redis infrastructure
+└── pyproject.toml              # 📦 Dependency management & project metadata
 ```
-
-### 🛠 Tech Stack
-- **AI Agent:** LangGraph, LangChain, OpenAI GPT-4o-mini / ChromaDB (RAG)
-- **Backend:** FastAPI, Python 3.11, Async SQLAlchemy 2.0, Alembic, Celery, Redis
-- **Mobile App:** Kotlin, Android SDK 34, Jetpack Compose, Retrofit
-- **Database:** PostgreSQL 15, Redis 7
-- **DevOps & Tools:** Docker, Docker Compose, Pytest, GitHub Actions
 
 ---
 
-## 📊 AI Usage Logging
+## 📋 Deliverables Checklist
 
-Dự án tích hợp sẵn hệ thống **Auto AI Usage Logging** theo yêu cầu của BTC AI20K:
-
-```bash
-# Cài đặt hooks tự động (Linux / macOS / Git Bash)
-bash scripts/setup_hooks.sh
-
-# Windows PowerShell:
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
-```
-
-Hooks sẽ tự động quét và thu thập log prompt từ các công cụ AI (Claude Code, Cursor, Codex, Gemini CLI, Antigravity) lưu tại `.ai-log/session.jsonl` và đồng bộ lên server khi `git push`.
+- [x] **Source Code:** Complete codebase for FastAPI Backend, React Web Portal, and Android Client.
+- [x] **Documentation:** Thorough README and architectural reference documentation.
+- [x] **Architecture Diagram:** Detailed system and agent flow in [ARCHITECTURE.md](ARCHITECTURE.md).
+- [x] **API Specification:** Documented in [docs/api-contract.md](docs/api-contract.md) and [docs/api-reference.md](docs/api-reference.md).
+- [x] **AI Evaluation Suite:** Test cases and benchmark scripts in `eval/`.
+- [x] **AI Usage Telemetry:** Integrated telemetry hooks in `.ai-log/` syncing to AI20K server.
+- [x] **Demonstration Video:** Available via [Google Drive (RemindRx Demo Video)](https://drive.google.com/file/d/1TgBhlN7OH6psTQeFFrCcQ9398X4Dea4i/view?usp=sharing).
+- [x] **Pitch Deck & Presentation:** Available online via [Google Slides (RemindRx Pitch Deck)](https://docs.google.com/presentation/d/15ktC7J-78AhfC5JhMdvT11pFVXYros2Z3ioBOv5dU3E/edit?usp=sharing).
 
 ---
 
-## 📋 Deliverables & Tài Liệu Tham Khảo
+## 👥 Team Members
 
-- 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 📡 **Full API Specification:** [docs/api-reference.md](docs/api-reference.md)
-- 📑 **API Contract (design-time):** [docs/api-contract.md](docs/api-contract.md)
-- 🏗 **Architecture Documentation:** [ARCHITECTURE.md](ARCHITECTURE.md)
-- 📐 **Database Schema:** [docs/schema.md](docs/schema.md)
+**Group 07 – Team 216** (Project Mentor: **Mr. Văn Hữu Quốc** — *Project Direction & Healthcare Solution Architecture Advisor*):
+
+| # | Member Name | Role Title | Key Contributions |
+| :---: | :--- | :--- | :--- |
+| 1 | **Hà Xuân Sơn** | Lead Frontend & Mobile / DevOps | • UI/UX Web & Mobile<br>• Android APK & SQLite DB<br>• Adaptive Planning Agent<br>• Full Production Deploy |
+| 2 | **Vũ Quốc Anh** | Lead Backend / AI Engineer | • Core API & Database Arc<br>• Adherence Monitoring Agent<br>• Telegram Bot Subsystem<br>• UI/UX Optimization & Server Deployment Support |
+| 3 | **Đào Bình Minh** | AI Chatbot Engineer | • Vector Database Deployment<br>• AI Chatbot Development<br>• Tool Calling & Medical RAG |
+| 4 | **Nguyễn Đức Đạt** | Developer | • Push Notification System |
+
+---
+
+## 🙏 Acknowledgements
+
+Team 216 would like to express our deepest gratitude to:
+- **The Program Organizing Committee** and mentor **Mr. Văn Hữu Quốc** for creating a meaningful academic platform, providing dedicated mentorship, and giving attentive guidance and direction throughout the project lifecycle, and **The Panel of Judges** for taking the time to listen to the team's presentation.
+- In addition, the team would like to express our sincere thanks to **Viện Dưỡng lão Diên Hồng (Cơ sở 6)** and **Mr. Nguyễn Quốc Huy** for providing valuable information, surveys, and professional medical support for the project.
 
 ---
 
 ## 📄 License
 
-MIT — AI20K Build Phase Cohort 3 (P-216 Team).
+Distributed under the **MIT License** — Copyright © 2026 **Team P-216 (VinUni AI20K Build Phase Cohort 3)**.
