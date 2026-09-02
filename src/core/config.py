@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     # Android sideload release metadata. The API exposes only the current
     # release description and derives its download URL from the local static
     # /downloads mount; it never accepts a publisher-controlled external URL.
-    android_latest_version_code: int = Field(default=8, ge=1)
-    android_latest_version_name: str = "1.6.0"
-    android_latest_apk_filename: str = "remindrx-demo.apk"
+    android_latest_version_code: int = Field(default=9, ge=1)
+    android_latest_version_name: str = "1.7.0"
+    android_latest_apk_filename: str = "remindrx-1.7.0.apk"
 
     # PostgreSQL Database
     # Defaults are the host-side view (pytest/alembic/uvicorn run on the

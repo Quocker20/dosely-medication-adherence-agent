@@ -7,3 +7,5 @@ local.properties
 /captures
 .externalNativeBuild
 .cxx
+# Built/renamed APKs copied outside /build for upload — never commit binaries.
+*.apk
