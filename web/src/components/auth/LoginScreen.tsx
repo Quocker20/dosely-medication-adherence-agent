@@ -14,6 +14,18 @@ interface Props {
   onBack: () => void;
 }
 
+// Tài khoản demo để mọi người thử nhanh — tất cả dùng chung PIN dưới đây.
+// Bác sĩ có 2 số cố định; bệnh nhân chính là 51/52, còn 06–25 là số phụ chọn
+// ngẫu nhiên để phân tán tải qua nhiều account.
+const DEMO_PIN = "123456";
+const DEMO_DOCTORS = ["0830000001", "0830000005"];
+const DEMO_PATIENTS_MAIN = ["0830000051", "0830000052"];
+
+function randomSecondaryPatient(): string {
+  const xx = Math.floor(Math.random() * (25 - 6 + 1)) + 6; // 6..25
+  return `08300000${String(xx).padStart(2, "0")}`;
+}
+
 /**
  * Luồng đăng nhập 2 bước (số điện thoại -> mã PIN) + đổi PIN lần đầu.
  *
@@ -57,13 +69,13 @@ export default function LoginScreen({ onBack }: Props) {
     setStep("phone");
   }
 
-  async function submitPin(event: React.FormEvent) {
-    event.preventDefault();
+  // Lõi đăng nhập dùng chung cho form nhập PIN và các nút tài khoản demo.
+  async function authenticate(phoneNumber: string, pinCode: string) {
     setBusy(true);
     setError(null);
 
     try {
-      const [tokens] = await Promise.all([api.login(phone, pin), delay(MIN_STEP_DELAY_MS)]);
+      const [tokens] = await Promise.all([api.login(phoneNumber, pinCode), delay(MIN_STEP_DELAY_MS)]);
 
       if (tokens.user.role !== "DOCTOR" && tokens.user.role !== "ADMIN" && tokens.user.role !== "PATIENT") {
         setError("Tài khoản này chưa có quyền truy cập web RemindRx.");
@@ -72,7 +84,10 @@ export default function LoginScreen({ onBack }: Props) {
 
       if (tokens.must_change_password) {
         // Giữ token trong màn hình; commit session sau khi PIN mới thành công
-        // để App không unmount LoginScreen giữa chừng.
+        // để App không unmount LoginScreen giữa chừng. submitChangePin đọc `pin`
+        // làm PIN cũ nên phải đồng bộ cả phone/pin ở đây (quan trọng với nút demo).
+        setPhone(phoneNumber);
+        setPin(pinCode);
         setPendingTokens(tokens);
         setStep("changePin");
         return;
@@ -92,6 +107,19 @@ export default function LoginScreen({ onBack }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitPin(event: React.FormEvent) {
+    event.preventDefault();
+    await authenticate(phone, pin);
+  }
+
+  // Nút demo: điền sẵn số + PIN rồi đăng nhập luôn một chạm.
+  async function loginWithDemo(phoneNumber: string) {
+    if (busy) return;
+    setPhone(phoneNumber);
+    setPin(DEMO_PIN);
+    await authenticate(phoneNumber, DEMO_PIN);
   }
 
   async function submitChangePin(event: React.FormEvent) {
@@ -260,6 +288,53 @@ export default function LoginScreen({ onBack }: Props) {
           <button className="link-btn login-back" type="button" onClick={onBack}>
             ← Trang chủ
           </button>
+
+          <div className="login-demo">
+            <span className="login-demo-title">Tài khoản demo · PIN {DEMO_PIN}</span>
+            <p className="login-demo-hint">Bấm một tài khoản để đăng nhập nhanh.</p>
+
+            <div className="login-demo-group">
+              <span className="login-demo-label">Bác sĩ</span>
+              <div className="login-demo-row">
+                {DEMO_DOCTORS.map((phoneNumber) => (
+                  <button
+                    key={phoneNumber}
+                    type="button"
+                    className="btn sm"
+                    disabled={busy}
+                    onClick={() => loginWithDemo(phoneNumber)}
+                  >
+                    {phoneNumber}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="login-demo-group">
+              <span className="login-demo-label">Bệnh nhân</span>
+              <div className="login-demo-row">
+                {DEMO_PATIENTS_MAIN.map((phoneNumber) => (
+                  <button
+                    key={phoneNumber}
+                    type="button"
+                    className="btn sm"
+                    disabled={busy}
+                    onClick={() => loginWithDemo(phoneNumber)}
+                  >
+                    {phoneNumber}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  disabled={busy}
+                  onClick={() => loginWithDemo(randomSecondaryPatient())}
+                >
+                  Ngẫu nhiên 06–25
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
     </div>
