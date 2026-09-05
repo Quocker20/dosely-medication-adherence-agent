@@ -110,7 +110,7 @@ CHỌN ĐÚNG MỘT NHÓM NGUYÊN NHÂN:
 
 ĐẦU RA:
 - reasoning_doctor: tối đa vài câu ngắn dành cho bác sĩ, PHẢI nêu số liệu cụ thể làm căn cứ cho lựa chọn.
-- message_patient: một câu nhắc nhở ngắn, nhẹ nhàng, không dùng thuật ngữ y khoa, không đề cập liều lượng hay tên thuốc cụ thể — chỉ gợi ý hành động đơn giản (đặt báo thức, trao đổi với bác sĩ ở lần tái khám). Để trống nếu không có gợi ý phù hợp.
+- message_patient: một câu nhắc nhở ngắn, nhẹ nhàng, không dùng thuật ngữ y khoa, không đề cập liều lượng hay tên thuốc cụ thể, không đề nghị các việc ứng dụng đã tự làm sẵn (ứng dụng đã tự nhắc giờ uống thuốc) — chỉ gợi ý hành động đơn giản mà bệnh nhân cần tự làm (ví dụ: để thuốc ở nơi dễ thấy, nhờ người thân nhắc, trao đổi với bác sĩ ở lần tái khám). Để trống nếu không có gợi ý phù hợp.
 """
 
 
