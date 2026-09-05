@@ -104,6 +104,9 @@ celerybeat-schedule.dir
 manage_schedule.py
 test_fcm_now.py
 
+# Local scratch notes — known issues to fix later, never meant to be committed
+docs/notes-local/
+
 # Firebase service account credentials — never commit
 firebase-adminsdk.json
 

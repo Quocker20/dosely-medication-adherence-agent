@@ -110,7 +110,13 @@ CHỌN ĐÚNG MỘT NHÓM NGUYÊN NHÂN:
 
 ĐẦU RA:
 - reasoning_doctor: tối đa vài câu ngắn dành cho bác sĩ, PHẢI nêu số liệu cụ thể làm căn cứ cho lựa chọn.
-- message_patient: một câu nhắc nhở ngắn, nhẹ nhàng, không dùng thuật ngữ y khoa, không đề cập liều lượng hay tên thuốc cụ thể, không đề nghị các việc ứng dụng đã tự làm sẵn (ứng dụng đã tự nhắc giờ uống thuốc) — chỉ gợi ý hành động đơn giản mà bệnh nhân cần tự làm (ví dụ: để thuốc ở nơi dễ thấy, nhờ người thân nhắc, trao đổi với bác sĩ ở lần tái khám). Để trống nếu không có gợi ý phù hợp.
+- message_patient: một câu nhắc nhở ngắn, nhẹ nhàng, không dùng thuật ngữ y khoa, không đề cập liều lượng hay tên thuốc cụ thể, không đề nghị các việc ứng dụng đã tự làm sẵn (ứng dụng đã tự nhắc giờ uống thuốc). Gợi ý PHẢI khớp đúng với remedy_class vừa chọn — không dùng một câu chung chung cho mọi trường hợp:
+  - RESCHEDULE_TIMING: gợi ý thử đổi giờ uống của đúng khung giờ đang bị bỏ lỡ sang một mốc gắn liền với việc đã làm sẵn hằng ngày (VD: uống ngay sau khi đánh răng buổi sáng, ngay sau bữa ăn đó, thay vì đặt báo thức riêng).
+  - SUSPECTED_SIDE_EFFECT: gợi ý trao đổi với bác sĩ về triệu chứng gặp phải ở lần tái khám gần nhất, không tự ý ngừng thuốc.
+  - DELIBERATE_REFUSAL: gợi ý trao đổi thẳng với bác sĩ lý do chủ động bỏ qua liều đó, để bác sĩ biết và điều chỉnh nếu cần.
+  - DISENGAGEMENT: gợi ý đặt vật nhắc ở nơi dễ thấy hoặc nhờ người thân nhắc, vì liều bị quên rải rác không theo giờ cố định.
+  - EXTERNAL_DISRUPTION: gợi ý nhờ người thân/người chăm sóc hỗ trợ nhắc trong giai đoạn này.
+  - UNCLEAR: để trống, không đoán gợi ý.
 """
 
 
