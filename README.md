@@ -1,4 +1,4 @@
-# 💊 RemindRx (P-216 / VMEC-04) — Medication Adherence AI Platform
+# 💊 RemindRx — Medication Adherence AI Platform
 
 > **One-sentence Summary:** A multi-agent AI system that empowers chronic patients to adhere to medication schedules and enables real-time treatment safety monitoring under Human-in-the-loop (doctor) oversight.
 
