@@ -1,0 +1,29 @@
+# Install git pre-push hook for AI log submission (Windows PowerShell).
+# Run once after cloning: powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+
+$ErrorActionPreference = 'Stop'
+
+$RepoRoot = (& git rev-parse --show-toplevel).Trim()
+if (-not $RepoRoot) { throw 'Not inside a Git repository.' }
+$HookFile = Join-Path $RepoRoot '.git/hooks/pre-push'
+
+# Git on Windows runs hooks via Git Bash, so the hook body must be bash.
+$HookBody = @'
+#!/usr/bin/env bash
+# Pre-push: sweep recent Codex and Antigravity / Gemini prompts, then submit AI logs.
+bash scripts/_pyrun.sh scripts/log_codex.py --auto || true
+bash scripts/_pyrun.sh scripts/log_antigravity.py --auto || true
+bash scripts/_pyrun.sh scripts/submit_log.py || true
+exit 0
+'@
+
+$HookBodyLf = $HookBody -replace "`r`n", "`n"
+[System.IO.File]::WriteAllText($HookFile, $HookBodyLf)
+Write-Host "[ai-log] Git pre-push hook installed."
+
+$LogDir = Join-Path $RepoRoot '.ai-log'
+$GitKeep = Join-Path $LogDir '.gitkeep'
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+if (-not (Test-Path $GitKeep)) { New-Item -ItemType File -Path $GitKeep | Out-Null }
+
+Write-Host "[ai-log] Setup complete. Configure AI_LOG_SERVER in your .env file."
