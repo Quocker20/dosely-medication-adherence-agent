@@ -234,8 +234,6 @@ npm run dev
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for caching and Celery broker |
 | `OPENAI_API_KEY` | `sk-proj-...` | API key for LangGraph agents and embeddings |
 | `CHROMA_PERSIST_DIR` | `./data/chroma` | Persistence directory for RAG vector index |
-| `AI_LOG_SERVER` | `https://ai-logs.note.transformerlabs.ai/api/ingest` | Centralized AI usage telemetry server |
-| `AI_LOG_API_KEY` | *(Assigned by AI20K)* | Telemetry authentication key |
 
 ---
 
@@ -347,7 +345,6 @@ P-216/
 - [x] **Architecture Diagram:** Detailed system and agent flow in [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] **API Specification:** Documented in [docs/api-contract.md](docs/api-contract.md) and [docs/api-reference.md](docs/api-reference.md).
 - [x] **AI Evaluation Suite:** Test cases and benchmark scripts in `eval/`.
-- [x] **AI Usage Telemetry:** Integrated telemetry hooks in `.ai-log/` syncing to AI20K server.
 - [x] **Demonstration Video:** Available via [Google Drive (RemindRx Demo Video)](https://drive.google.com/file/d/1TgBhlN7OH6psTQeFFrCcQ9398X4Dea4i/view?usp=sharing).
 - [x] **Pitch Deck & Presentation:** Available online via [Google Slides (RemindRx Pitch Deck)](https://docs.google.com/presentation/d/15ktC7J-78AhfC5JhMdvT11pFVXYros2Z3ioBOv5dU3E/edit?usp=sharing).
 

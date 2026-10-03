@@ -69,9 +69,6 @@ out/
 *.pyc
 *.pyo
 
-# AI logs — tracked structure, ignored content
-.ai-log/*.jsonl
-.ai-log/archive/
 
 # AI Configuration
 # .agents/ and .codegraph/ are ignored outright — unlike .ai-log/ above, they
