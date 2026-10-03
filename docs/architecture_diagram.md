@@ -66,8 +66,7 @@ graph TB
 
 `safety_guard_node` runs first on **every** turn (not just an `out_of_scope` branch): a
 rule-based keyword layer that always wins, plus an LLM classifier (temperature 0, 3s
-timeout, fail-open) that can only add escalations, never override a rule-based block. See
-`docs/CHATBOT_GUARDRAIL_PLAN.md` for the full 5-layer guardrail design.
+timeout, fail-open) that can only add escalations, never override a rule-based block.
 
 ## Planning Graph Flow (`src/agents/planning_graph.py`)
 

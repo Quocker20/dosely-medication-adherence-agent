@@ -1,8 +1,7 @@
 # Architecture Document — Dosely (VMEC-04)
 
 > Tài liệu này mô tả kiến trúc **thật** của code hiện có trong repo, đối chiếu
-> với kiến trúc **mục tiêu** đã chốt ở giai đoạn thiết kế (nguồn:
-> [docs/Dosely_Tong_Hop_Tai_Lieu.md](docs/Dosely_Tong_Hop_Tai_Lieu.md) mục 6–7).
+> với kiến trúc **mục tiêu** đã chốt ở giai đoạn thiết kế (nguồn: tài liệu thiết kế ban đầu của dự án).
 > Phần nào chưa code được đánh dấu **[Thiết kế — chưa code]** để không nhầm là
 > đã triển khai. Ràng buộc bắt buộc khi sửa phần nào ở đây → đọc
 > [CLAUDE.md](CLAUDE.md) trước.
@@ -147,7 +146,7 @@ graph TB
   sau đó `classify_intent_node` rẽ vào node chuyên biệt (`rescheduling`,
   `drug_rag`, `current_medications`, `next_dose`, `today_schedule`,
   `explain_my_medications`) hoặc vòng lặp ReAct tool-calling.
-- **Guardrail nhiều lớp** (chi tiết: `docs/CHATBOT_GUARDRAIL_PLAN.md`):
+- **Guardrail nhiều lớp**:
   - Lớp 1+3: `safety_guard_node` — rule keyword (luôn thắng) + LLM classifier
     bổ sung (không được phủ quyết rule).
   - Lớp 2: `agents/medication_policy.py` — chặn xác định (không LLM) các yêu
@@ -217,9 +216,8 @@ với Chat Agent)
 
 ### 9. Drug Formulary RAG (`src/rag_ingestion/`, `src/rag_retrieval/`)
 - **Không có trong bản thiết kế/kiến trúc rất sớm — đã build thật.** Pipeline
-  offline OCR + chunk + embed Dược thư Quốc gia (`docs/rag_ingestion_pipeline.md`,
-  `docs/rag_ocr.md`) ra index thật tại `data/rag_dense_index_q1_q2/` (~11.6k
-  đoạn, `text-embedding-3-large`, có commit vào git).
+  offline OCR + chunk + embed Dược thư Quốc gia (`docs/rag_ingestion_pipeline.md`) ra index thật tại `data/rag_dense_index_q1_q2/` (~11.6k
+  đoạn, `text-embedding-3-large`, giữ local, không commit vào git).
 - Retrieval thật: hybrid dense + BM25 (RRF-fused), qua tool
   `search_drug_formulary` + `src/agents/nodes/drug_rag_node.py`, được
   Chat Agent gọi khi bệnh nhân hỏi về thuốc — luôn qua Lớp 4/5 guardrail ở
@@ -299,7 +297,7 @@ deploy, agent prompt/graph có version + golden test cases.
 
 ## Security & Guardrails
 
-Xem đầy đủ threat model ở `docs/Dosely_Tong_Hop_Tai_Lieu.md` mục 7.6. Các
+Các
 điểm đã áp dụng trong code hiện tại:
 
 | Rủi ro | Kiểm soát hiện có |

@@ -77,7 +77,7 @@ src/
 │   │
 │   ├── caregivers/         # 📵 Slice 4: Caregiver contacts & outbound Telegram notifications
 │   │   │                   # (redesigned — a caregiver is a phone-only business record,
-│   │   │                   # never an account; see docs/caregiver-telegram-implementation-plan.md.
+│   │   │                   # never an account.
 │   │   │                   # As of Stage 3: models.py + repository.py only — CRUD/router/send
 │   │   │                   # pipeline land in later stages.)
 │   │   ├── models.py       # (CaregiverLink)
@@ -151,7 +151,7 @@ Single place for low-level technical infrastructure:
 - `redis.py`: Async Redis connection pool, plus the dashboard event channel (publish/subscribe and its frame envelope).
 - `response.py`: The standard API response envelope.
 - `celery_app.py`: Main Celery application setup.
-- `models_registry.py`: Imports every `src/modules/*/models.py` once, so a mapped class always registers on `Base.metadata` before `configure_mappers()` runs. `alembic/env.py` and every `src/modules/*/tasks.py` that touches the ORM import this module instead of hand-listing model modules — the same list duplicated across those files is what let `NoReferencedTableError` reach production undetected (`docs/adherence-review-fix-plan.md`).
+- `models_registry.py`: Imports every `src/modules/*/models.py` once, so a mapped class always registers on `Base.metadata` before `configure_mappers()` runs. `alembic/env.py` and every `src/modules/*/tasks.py` that touches the ORM import this module instead of hand-listing model modules — the same list duplicated across those files is what let `NoReferencedTableError` reach production undetected).
 
 ### 3. API Router Aggregation (`src/api/`)
 - `deps.py`: Shared dependencies (`get_db`, `get_current_user`, `require_roles`).

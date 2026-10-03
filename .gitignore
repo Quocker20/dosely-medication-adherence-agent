@@ -31,13 +31,8 @@ Thumbs.db
 
 # Data (never commit large data at repo root — do NOT use bare "data/", it
 # silently matches nested source dirs too, e.g. the Android data/ package)
-# Runtime/generated data stays ignored, except the production Dược Thư index
-# required by fresh clones and deployment hosts. Its large payloads use Git LFS.
+# Runtime/generated data and the RAG dense index stay local (not committed).
 /data/*
-!/data/rag_dense_index_q1_q2/
-!/data/rag_dense_index_q1_q2/manifest.json
-!/data/rag_dense_index_q1_q2/records.jsonl
-!/data/rag_dense_index_q1_q2/vectors.npy
 *.db
 *.sqlite3
 # Scoped to the dataset dir on purpose — a bare "*.pdf" would silently swallow

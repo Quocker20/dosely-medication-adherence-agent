@@ -1,7 +1,7 @@
 # Dosely — Android app (MVP kết nối FastAPI)
 
 Native Android (Kotlin + Jetpack Compose, Material3) client, generated from the
-[design mockup](../docs/Dosely_Tong_Hop_Tai_Lieu.md). Covers all 8 core
+design mockup. Covers all 8 core
 screens. Dashboard, lịch sinh hoạt, đơn thuốc, thao tác cữ thuốc, khảo sát và
 SOS đã gọi FastAPI backend trong `src/` qua Retrofit.
 
