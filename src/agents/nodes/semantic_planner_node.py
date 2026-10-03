@@ -1,4 +1,4 @@
-"""LLM-first semantic understanding for RemindRx."""
+"""LLM-first semantic understanding for Dosely."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from src.agents.state import AgentState
 from src.modules.planning.core.llm import get_llm
 from src.rag_retrieval.service import fold
 
-_PROMPT = """Bạn là bộ phân tích ngữ nghĩa của RemindRx, không trả lời người dùng.
+_PROMPT = """Bạn là bộ phân tích ngữ nghĩa của Dosely, không trả lời người dùng.
 Chuyển tin nhắn cuối và ngữ cảnh gần nhất thành 1-3 bước, mỗi bước đúng một tool trong schema.
 Phân loại theo ý nghĩa, không dựa vào cụm từ cố định:
 - get_schedule/get_next_dose: lịch và cữ thuốc của bệnh nhân.
@@ -25,7 +25,7 @@ Phân loại theo ý nghĩa, không dựa vào cụm từ cố định:
 - report_meal_shift: báo một mốc sinh hoạt hôm nay bị lệch giờ, gồm bữa sáng,
   bữa trưa, bữa tối hoặc giờ ngủ, để điều chỉnh lịch thuốc tạm thời.
 - clarify: thiếu dữ kiện quan trọng hoặc độ chắc chắn dưới 0.85.
-- general_response: chào hỏi, hướng dẫn RemindRx hoặc ngoài phạm vi.
+- general_response: chào hỏi, hướng dẫn Dosely hoặc ngoài phạm vi.
 Không tạo patient_id, endpoint, dữ liệu thuốc, liều hoặc chẩn đoán. Không đề xuất đổi/ngừng thuốc.
 Các cách diễn đạt khác nhau nhưng cùng mục đích phải ánh xạ về cùng tool."""
 

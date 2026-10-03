@@ -1,4 +1,4 @@
-# RemindRx — Portal Bác sĩ (frontend)
+# Dosely — Portal Bác sĩ (frontend)
 
 React + Vite + TypeScript. Hai màn chính theo FR-1.1 (kê đơn điện tử) và FR-1.2
 (dashboard tuân thủ & cảnh báo), cộng màn Red Alert của FR-4.2.
@@ -89,7 +89,7 @@ curl -sI https://p-216.vercel.app/doctor/     # phải 200 (SPA fallback, không
 }
 ```
 
-- 2 rule đầu: proxy API/downloads sang backend FastAPI (VPS `remindrx.duckdns.org`,
+- 2 rule đầu: proxy API/downloads sang backend FastAPI (VPS `dosely.duckdns.org`,
   hiện đi qua Cloudflare Tunnel — xem mục dưới).
 - Rule cuối: SPA fallback — app không dùng router thật (xem `src/app/App.tsx`),
   path như `/doctor/`, `/admin/`, `/patient/` không phải file thật, cần fallback
@@ -98,7 +98,7 @@ curl -sI https://p-216.vercel.app/doctor/     # phải 200 (SPA fallback, không
 ### ⚠️ Backend hiện chưa có IPv4 public ổn định
 
 VPS (`192.168.0.101` nội bộ) không có IPv4 public riêng, domain
-`remindrx.duckdns.org` chỉ resolve ra IPv6 — **Vercel Rewrites không hỗ trợ
+`dosely.duckdns.org` chỉ resolve ra IPv6 — **Vercel Rewrites không hỗ trợ
 destination IPv6-only** (`DNS_HOSTNAME_EMPTY`). Đường vòng qua NPM/FossVPS
 (`202.us2.0em.org`) đang bị lỗi platform (self-redirect 308) chưa sửa được.
 

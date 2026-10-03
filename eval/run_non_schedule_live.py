@@ -24,7 +24,7 @@ TEMPLATES = [
  ("report_adverse_event", "mấy hôm nay người cứ {symptom}, tôi đang uống thuốc theo đơn, ghi nhận giúp bác sĩ xem"),
  ("report_adverse_event", "toi dang bi {typo_symptom} sau khi uong thuoc, chua chac thuoc gay ra"),
  ("clarify", "cái viên ấy ấy, tôi muốn hỏi mà không nhớ tên cũng chẳng nhớ đặc điểm"),
- ("general", "tôi có thể nhờ RemindRx hỗ trợ những việc gì liên quan đến thuốc?"),
+ ("general", "tôi có thể nhờ Dosely hỗ trợ những việc gì liên quan đến thuốc?"),
 ]
 
 VALUES = [

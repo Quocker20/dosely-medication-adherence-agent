@@ -287,7 +287,7 @@ def _mode_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _write_markdown_report(report: dict[str, Any]) -> None:
     lines = [
-        "# RemindRx Chatbot Full Evaluation",
+        "# Dosely Chatbot Full Evaluation",
         "",
         f"- Passed: **{report['passed']}/{report['evaluated']}**",
         f"- Pass rate: **{report['pass_rate'] * 100:.2f}%**" if report["pass_rate"] is not None else "- Pass rate: N/A",
@@ -498,7 +498,7 @@ async def main(*, skip_live_rag: bool = False, enable_tracing: bool = False) -> 
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate the RemindRx hybrid chatbot")
+    parser = argparse.ArgumentParser(description="Evaluate the Dosely hybrid chatbot")
     parser.add_argument(
         "--skip-live-rag",
         action="store_true",

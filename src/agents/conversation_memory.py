@@ -13,7 +13,7 @@ TTL_SECONDS = 3600
 
 
 def _key(patient_id: str, conversation_id: str) -> str:
-    return f"remindrx:chat:memory:{patient_id}:{conversation_id}"
+    return f"dosely:chat:memory:{patient_id}:{conversation_id}"
 
 
 async def load_working_memory(patient_id: str, conversation_id: str) -> dict[str, Any]:

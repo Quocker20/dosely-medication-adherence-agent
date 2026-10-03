@@ -1,4 +1,4 @@
-# RemindRx - API CONTRACT DOCUMENTATION (API-CONTRACT.MD)
+# Dosely - API CONTRACT DOCUMENTATION (API-CONTRACT.MD)
 ## Core Communication Interface Between Frontend & Backend
 
 ---

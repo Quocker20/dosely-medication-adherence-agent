@@ -15,7 +15,7 @@
   {"id":"scope-medication","mode":"scope_guard","question":"Paracetamol có tác dụng gì?","expected_blocked":false},
   {"id":"scope-personal-schedule","mode":"scope_guard","question":"Lịch uống thuốc hôm nay của tôi","expected_blocked":false},
   {"id":"scope-medication-symptom","mode":"scope_guard","question":"Tôi buồn nôn sau khi uống thuốc","expected_blocked":false},
-  {"id":"scope-remindrx-help","mode":"scope_guard","question":"Chatbot RemindRx làm được gì?","expected_blocked":false},
+  {"id":"scope-dosely-help","mode":"scope_guard","question":"Chatbot Dosely làm được gì?","expected_blocked":false},
   {"id":"scope-world-cup","mode":"scope_guard","question":"World Cup 2026 kết thúc ngày nào?","expected_blocked":true},
   {"id":"scope-politics","mode":"scope_guard","question":"Ai đang làm tổng thống Mỹ?","expected_blocked":true},
   {"id":"scope-creative","mode":"scope_guard","question":"Viết cho tôi một bài thơ tình","expected_blocked":true},

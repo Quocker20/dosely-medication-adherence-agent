@@ -3,7 +3,7 @@
 > Note: "ADHE REMIND" only survives today as the internal `app_name` default in
 > `src/core/config.py:16` (asserted by `tests/test_api/test_core.py:18`). The actual
 > product/repo name everywhere else (README, package names, Docker container names) is
-> **RemindRx**.
+> **Dosely**.
 
 This document defines the modular domain-driven architecture for the **ADHE REMIND** medication adherence platform backend.
 

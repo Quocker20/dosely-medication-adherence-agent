@@ -49,7 +49,7 @@ describe("ChatView", () => {
   it("renders welcome message and loads conversations list", async () => {
     render(<ChatView patientId="p-01" />);
 
-    expect(screen.getByText(/Chào bạn! Tôi là trợ lý RemindRx/i)).toBeInTheDocument();
+    expect(screen.getByText(/Chào bạn! Tôi là trợ lý Dosely/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(api.chatConversations).toHaveBeenCalledWith(1, 30);
@@ -120,7 +120,7 @@ describe("ChatView", () => {
       fireEvent.click(newChatBtn);
     });
 
-    expect(screen.getByText(/Chào bạn! Tôi là trợ lý RemindRx/i)).toBeInTheDocument();
+    expect(screen.getByText(/Chào bạn! Tôi là trợ lý Dosely/i)).toBeInTheDocument();
   });
 
   it("sends a message and reloads conversation list", async () => {

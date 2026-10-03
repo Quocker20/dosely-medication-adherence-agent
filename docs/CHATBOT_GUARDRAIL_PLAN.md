@@ -1,4 +1,4 @@
-# Kế hoạch xây dựng Guardrail cho chatbot RemindRx
+# Kế hoạch xây dựng Guardrail cho chatbot Dosely
 
 ## 1. Mục tiêu
 

@@ -135,7 +135,7 @@ export default function CaregiverView({ patientId, onNotice }: Props) {
             }}
           >
             <Icon name="send" size={16} />
-            <span>Kênh: Telegram Bot (@RemindRx_bot)</span>
+            <span>Kênh: Telegram Bot (@Dosely_bot)</span>
           </div>
         </div>
       </section>

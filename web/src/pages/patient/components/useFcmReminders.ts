@@ -12,8 +12,8 @@ export interface DoseReminder {
   read?: boolean;
 }
 
-const STORAGE_KEY_PREFIX = "remindrx_notif_history_";
-const TOKEN_CACHE_KEY_PREFIX = "remindrx_fcm_token_";
+const STORAGE_KEY_PREFIX = "dosely_notif_history_";
+const TOKEN_CACHE_KEY_PREFIX = "dosely_fcm_token_";
 
 function loadStoredHistory(patientId: string): DoseReminder[] {
   try {

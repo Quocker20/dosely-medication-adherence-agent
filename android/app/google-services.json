@@ -1,15 +1,15 @@
 {
   "project_info": {
     "project_number": "943248823390",
-    "project_id": "remindrx-13aad",
-    "storage_bucket": "remindrx-13aad.firebasestorage.app"
+    "project_id": "dosely-13aad",
+    "storage_bucket": "dosely-13aad.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
         "mobilesdk_app_id": "1:943248823390:android:2e49123e16e1ac574110cf",
         "android_client_info": {
-          "package_name": "com.remindrx.app"
+          "package_name": "com.dosely.app"
         }
       },
       "oauth_client": [],

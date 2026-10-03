@@ -31,7 +31,7 @@ export default function Sidebar({
       <div className="brand">
         <div className="brand-mark">Rx</div>
         <div>
-          <div className="brand-name">RemindRx</div>
+          <div className="brand-name">Dosely</div>
           <div className="brand-sub">Trang bác sĩ</div>
         </div>
       </div>

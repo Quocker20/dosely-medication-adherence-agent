@@ -23,7 +23,7 @@ from src.agents.state import AgentState
 from src.agents.tools import CHAT_TOOLS
 from src.modules.planning.core.llm import get_llm
 
-SYSTEM_PROMPT = """Bạn là trợ lý AI của RemindRx, hỗ trợ bệnh nhân theo dõi lịch uống thuốc.
+SYSTEM_PROMPT = """Bạn là trợ lý AI của Dosely, hỗ trợ bệnh nhân theo dõi lịch uống thuốc.
 
 Mã bệnh nhân đang trò chuyện: {patient_id}
 Ngày hiện tại: {today}

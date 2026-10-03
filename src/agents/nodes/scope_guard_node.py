@@ -15,7 +15,7 @@ from src.rag_retrieval.service import DrugRAG, fold
 
 _TIMEOUT_SECONDS = 3.0
 _OUT_OF_SCOPE_REPLY = (
-    "Mình chỉ hỗ trợ về thuốc, đơn thuốc, lịch uống và các tính năng của RemindRx. "
+    "Mình chỉ hỗ trợ về thuốc, đơn thuốc, lịch uống và các tính năng của Dosely. "
     "Câu hỏi này nằm ngoài phạm vi hỗ trợ của mình."
 )
 
@@ -26,7 +26,7 @@ _ALLOWED_MARKERS = (
     "tac dung", "cong dung", "chi dinh", "chong chi dinh", "tuong tac",
     "phan ung", "di ung", "bao quan", "ham luong", "vien", "vien nang",
     "bua an", "an trua muon", "an sang muon", "an toi muon", "doi gio an",
-    "remindrx", "ung dung", "app", "thong bao nhac", "dong bo",
+    "dosely", "ung dung", "app", "thong bao nhac", "dong bo",
 )
 _SYMPTOM_MARKERS = (
     "dau", "buon non", "non", "chong mat", "kho tho", "tuc nguc", "choang",
@@ -48,26 +48,26 @@ _ABUSIVE_OR_NOISE = (
 class ScopeClassification(BaseModel):
     category: Literal[
         "medication", "prescription_schedule", "adherence",
-        "medication_related_symptom", "remindrx_help", "greeting",
+        "medication_related_symptom", "dosely_help", "greeting",
         "date_time", "out_of_scope", "abusive_noise", "discrimination",
     ]
     reason: str = Field(description="Lý do ngắn, không trả lời câu hỏi của người dùng")
     confidence: float = Field(default=0.5, ge=0, le=1)
 
 
-_SCOPE_PROMPT = """Phân loại phạm vi cho chatbot RemindRx. Không trả lời câu hỏi.
+_SCOPE_PROMPT = """Phân loại phạm vi cho chatbot Dosely. Không trả lời câu hỏi.
 
 Được phép:
 - thông tin thuốc/hoạt chất và thuốc trong đơn;
 - đơn thuốc, lịch/cữ uống, liều tiếp theo, trạng thái uống và tuân thủ;
 - triệu chứng hoặc lo ngại được hỏi trong bối cảnh dùng thuốc;
 - báo lệch bữa ăn để xử lý lịch thuốc;
-- cách sử dụng ứng dụng RemindRx;
+- cách sử dụng ứng dụng Dosely;
 - chào hỏi, hỏi năng lực chatbot, ngày/giờ hiện tại.
 
 Ngoài phạm vi:
 - thể thao, World Cup, chính trị, địa lý, giải trí, bài tập, sáng tác;
-- kiến thức chung không phục vụ thuốc, lịch uống hoặc RemindRx.
+- kiến thức chung không phục vụ thuốc, lịch uống hoặc Dosely.
 
 Chỉ chọn category. Không coi một câu ngoài phạm vi là date_time chỉ vì nó hỏi
 "ngày bao nhiêu"; ví dụ ngày kết thúc World Cup vẫn là out_of_scope.
@@ -75,7 +75,7 @@ Nếu câu có triệu chứng nhưng không rõ liên quan thuốc, chọn medi
 để tầng an toàn xử lý thận trọng, không chẩn đoán."""
 
 
-_SCOPE_PROMPT += "\nNếu tin nhắn chủ yếu là chửi tục, xúc phạm, khiêu khích hoặc nhiễu không có yêu cầu RemindRx, chọn category=abusive_noise."
+_SCOPE_PROMPT += "\nNếu tin nhắn chủ yếu là chửi tục, xúc phạm, khiêu khích hoặc nhiễu không có yêu cầu Dosely, chọn category=abusive_noise."
 _SCOPE_PROMPT += "\nNếu tin nhắn chứa định kiến/phân biệt đối xử với một nhóm người, chọn category=discrimination."
 
 
@@ -99,7 +99,7 @@ def _obviously_allowed(normalized: str) -> str | None:
     if normalized in _GREETING:
         return "greeting"
     if any(has(marker) for marker in _CAPABILITY_MARKERS):
-        return "remindrx_help"
+        return "dosely_help"
     if normalized in _DATE_TIME_MARKERS:
         return "date_time"
     if any(has(marker) for marker in _ALLOWED_MARKERS):
@@ -168,7 +168,7 @@ async def scope_guard_node(state: AgentState) -> dict:
             "scope_blocked": True,
             "scope_category": "out_of_scope",
             "response_type": "out_of_scope_capability",
-            "refusal_reason": "outside_remindrx_scope",
+            "refusal_reason": "outside_dosely_scope",
         }
     deterministic_out_of_scope = (
         "bai tho", "tho tinh", "world cup", "gia vang", "tong thong",
@@ -179,7 +179,7 @@ async def scope_guard_node(state: AgentState) -> dict:
             "scope_blocked": True,
             "scope_category": "out_of_scope",
             "response_type": "out_of_scope_capability",
-            "refusal_reason": "outside_remindrx_scope",
+            "refusal_reason": "outside_dosely_scope",
         }
     privacy_terms = ("bệnh nhân khác", "benh nhan khac", "patient_id của người khác", "patient_id cua nguoi khac", "số điện thoại của bệnh nhân", "so dien thoai cua benh nhan", "liệt kê toàn bộ bệnh nhân", "liet ke toan bo benh nhan", "endpoint nội bộ")
     if any(term in lowered for term in privacy_terms):

@@ -9,18 +9,18 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".RemindRxApplication"
+        android:name=".DoselyApplication"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="RemindRx"
-        android:theme="@style/Theme.RemindRx"
+        android:label="Dosely"
+        android:theme="@style/Theme.Dosely"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.RemindRx">
+            android:theme="@style/Theme.Dosely">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -35,7 +35,7 @@
             </intent-filter>
         </service>
 
-        <!-- RemindRxApplication provides its own WorkManager Configuration (HiltWorkerFactory,
+        <!-- DoselyApplication provides its own WorkManager Configuration (HiltWorkerFactory,
              see workManagerConfiguration) — the default on-startup initializer must be removed
              so WorkManager doesn't try to initialize itself twice with two different configs. -->
         <provider

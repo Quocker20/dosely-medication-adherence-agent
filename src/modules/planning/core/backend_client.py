@@ -1,4 +1,4 @@
-"""Async HTTP client for calling the RemindRx FastAPI backend from agent tools.
+"""Async HTTP client for calling the Dosely FastAPI backend from agent tools.
 
 Endpoints and DTOs here follow api-contract.md / schema.md at the repo root.
 """

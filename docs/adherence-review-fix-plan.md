@@ -229,11 +229,11 @@ down, not just the nightly review.
 radius:
 
 ```bash
-docker logs remindrx_worker --since 3h 2>&1 | grep -c NoReferencedTableError
+docker logs dosely_worker --since 3h 2>&1 | grep -c NoReferencedTableError
 ```
 
 ```bash
-docker logs remindrx_worker --since 3h 2>&1 | grep "raised unexpected" | sed 's/\[.*\]//' | sort | uniq -c
+docker logs dosely_worker --since 3h 2>&1 | grep "raised unexpected" | sed 's/\[.*\]//' | sort | uniq -c
 ```
 
 `agents.scan_due_doses` runs every minute. If it is also broken, the first count
@@ -417,7 +417,7 @@ It enqueues the same task Beat fires and returns `202 Accepted`. Then read the
 outcome:
 
 ```bash
-docker logs remindrx_worker --since 5m 2>&1 | grep -i "adherence review scan"
+docker logs dosely_worker --since 5m 2>&1 | grep -i "adherence review scan"
 ```
 
 The expected line is

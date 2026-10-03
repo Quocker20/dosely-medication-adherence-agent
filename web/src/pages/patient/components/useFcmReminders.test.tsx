@@ -82,7 +82,7 @@ describe("useFcmReminders", () => {
         read: false,
       },
     ];
-    window.localStorage.setItem("remindrx_notif_history_patient-1", JSON.stringify(saved));
+    window.localStorage.setItem("dosely_notif_history_patient-1", JSON.stringify(saved));
 
     const { result } = renderHook(() => useFcmReminders("patient-1", "token-abc"));
 

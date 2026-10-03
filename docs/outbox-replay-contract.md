@@ -1,4 +1,4 @@
-# RemindRx Android Outbox Replay Contract
+# Dosely Android Outbox Replay Contract
 
 **Status: Phase 1 & Phase 2 both fully implemented** — `sync/OutboxReplayer.kt`,
 `sync/OutboxSyncWorker.kt`, and a passing unit test (`sync/OutboxReplayerTest.kt`). The

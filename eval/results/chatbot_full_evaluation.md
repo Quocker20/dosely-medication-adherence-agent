@@ -1,4 +1,4 @@
-# RemindRx Chatbot Full Evaluation
+# Dosely Chatbot Full Evaluation
 
 - Passed: **106/106**
 - Pass rate: **100.00%**

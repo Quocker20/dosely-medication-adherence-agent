@@ -421,7 +421,7 @@ async def _execute_send_caregiver_adherence_reports() -> None:
                     f"• Đã uống: {taken}\n"
                     f"• Quên/Bỏ lỡ: {missed}\n"
                     f"• Tỷ lệ tuân thủ: {rate:.1f}%\n\n"
-                    f"Cảm ơn bạn đã đồng hành chăm sóc sức khỏe cùng RemindRx."
+                    f"Cảm ơn bạn đã đồng hành chăm sóc sức khỏe cùng Dosely."
                 )
 
                 if session.in_transaction():

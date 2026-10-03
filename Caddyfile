@@ -1,3 +1,3 @@
-remindrx.duckdns.org {
+dosely.duckdns.org {
 	reverse_proxy backend:8000
 }

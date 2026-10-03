@@ -1,4 +1,4 @@
-# Worklog — Team P-216 (RemindRx / VMEC-04)
+# Worklog — Dosely (VMEC-04)
 
 > Ghi lại toàn bộ công việc của dự án từ ngày bắt đầu. Tổ chức theo tuần (326 commits, 25/07 → 01/09/2026).
 > Thành viên: Hà Xuân Sơn, Đào Bình Minh, Vũ Quốc Anh, Nguyễn Đức Đạt (merge/review).
@@ -11,7 +11,7 @@
 |--------|------|--------|--------|------|
 | Đạt    | First commit / sync bộ log AI interaction | ✅ Done | Scripts thu log AI qua git hooks | 1h |
 
-**Tổng kết:** Repo template được tạo, chưa có code RemindRx thật.
+**Tổng kết:** Repo template được tạo, chưa có code Dosely thật.
 
 ---
 
@@ -19,7 +19,7 @@
 
 | Member | Task | Status | Output | Time |
 |--------|------|--------|--------|------|
-| Sơn | Doctor portal đầu tiên: dashboard, e-prescription, alerts | ✅ Done | Commit `c5275a0` (07/08) — code RemindRx đầu tiên của dự án | 3h |
+| Sơn | Doctor portal đầu tiên: dashboard, e-prescription, alerts | ✅ Done | Commit `c5275a0` (07/08) — code Dosely đầu tiên của dự án | 3h |
 | Minh | Sửa AI-log hook trên Windows (BOM phá shebang), phân tích scope agent nhắc thuốc | ✅ Done | Hooks hoạt động trên Windows; tài liệu scope agent | 2h |
 | Quốc Anh | Setup hạ tầng: docker-compose, .env.example, pyproject, core infrastructure (security, DB, Redis, Celery) | ✅ Done | Commits 08–09/08, PR #1 | 6h |
 

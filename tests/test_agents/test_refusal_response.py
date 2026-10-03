@@ -90,5 +90,5 @@ async def test_computer_request_is_blocked_before_scope_llm():
             "messages": [HumanMessage(content="Hướng dẫn cài Windows và xóa sạch ổ cứng")]
         })
     assert result["scope_blocked"] is True
-    assert result["refusal_reason"] == "outside_remindrx_scope"
+    assert result["refusal_reason"] == "outside_dosely_scope"
     llm.assert_not_called()

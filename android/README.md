@@ -1,7 +1,7 @@
-# RemindRx — Android app (MVP kết nối FastAPI)
+# Dosely — Android app (MVP kết nối FastAPI)
 
 Native Android (Kotlin + Jetpack Compose, Material3) client, generated from the
-[design mockup](../docs/RemindRx_Tong_Hop_Tai_Lieu.md). Covers all 8 core
+[design mockup](../docs/Dosely_Tong_Hop_Tai_Lieu.md). Covers all 8 core
 screens. Dashboard, lịch sinh hoạt, đơn thuốc, thao tác cữ thuốc, khảo sát và
 SOS đã gọi FastAPI backend trong `src/` qua Retrofit.
 
@@ -29,7 +29,7 @@ Built, installed, and verified on an emulator. Luồng `TAKEN/LATE/SKIPPED` dùn
 Open `android/` in Android Studio and hit Run, or from the command line:
 
 ```bash
-cd D:/Android/P-216/android && ./gradlew.bat installDebug
+cd D:/Android/dosely-medication-adherence-agent/android && ./gradlew.bat installDebug
 ```
 
 Start the emulator first — launch it detached, otherwise it gets killed when
@@ -42,16 +42,16 @@ D:/setup/Android/SDK/emulator/emulator.exe -avd Pixel_8_Pro -gpu auto
 Then launch the app:
 
 ```bash
-D:/setup/Android/SDK/platform-tools/adb.exe shell am start -n com.remindrx.app/.MainActivity
+D:/setup/Android/SDK/platform-tools/adb.exe shell am start -n com.dosely.app/.MainActivity
 ```
 
 ## What's here
 
 ```
-app/src/main/java/com/remindrx/app/
-  RemindRxApplication.kt        # @HiltAndroidApp entry point
-  MainActivity.kt                # @AndroidEntryPoint, sets RemindRxTheme + RemindRxApp
-  navigation/RemindRxNavHost.kt  # 8 routes, bottom bar + SOS FAB visibility
+app/src/main/java/com/dosely/app/
+  DoselyApplication.kt        # @HiltAndroidApp entry point
+  MainActivity.kt                # @AndroidEntryPoint, sets DoselyTheme + DoselyApp
+  navigation/DoselyNavHost.kt  # 8 routes, bottom bar + SOS FAB visibility
   ui/theme/                      # Color/Type/Theme.kt — tokens match the mockup
   ui/components/Components.kt    # shared atoms: chips, buttons, bottom bar, SOS FAB
   ui/screens/                    # one file per screen
@@ -73,14 +73,14 @@ Hilt + Retrofit/OkHttp/Gson được dùng ở runtime qua `PatientRepository` v
 `PatientViewModel`. Khởi động backend trước khi đi qua onboarding:
 
 ```bash
-cd D:/Android/P-216
+cd D:/Android/dosely-medication-adherence-agent
 .venv/python.exe -m uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
 - `data/remote/ApiConfig.kt` — `BASE_URL = "http://10.0.2.2:8000/api/v1/"`
   (10.0.2.2 is how the emulator reaches the host's `make run`; a real device
   needs the host's LAN IP or the deployed URL instead).
-- `data/remote/RemindRxApiService.kt` — PIN login/change, routine, schedule,
+- `data/remote/DoselyApiService.kt` — PIN login/change, routine, schedule,
   prescription, adherence, dose action, health survey và SOS; path/method khớp
   backend FastAPI.
 - `ui/AuthViewModel.kt` — validates the six-digit PIN and routes first-login

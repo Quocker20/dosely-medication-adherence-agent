@@ -25,8 +25,8 @@ from src.rag_retrieval.conversation_store import (  # noqa: E402
 )
 from src.rag_retrieval.input_guardrail import contextual_drug_offset  # noqa: E402
 
-app = FastAPI(title="RemindRx RAG Test UI")
-logger = logging.getLogger("remindrx.rag_test")
+app = FastAPI(title="Dosely RAG Test UI")
+logger = logging.getLogger("dosely.rag_test")
 
 
 def _configure_logging() -> None:

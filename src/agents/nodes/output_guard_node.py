@@ -11,7 +11,7 @@ from src.agents.state import AgentState
 
 _SAFE_FALLBACK = (
     "Mình chưa thể cung cấp câu trả lời này một cách an toàn. Vui lòng kiểm tra "
-    "trực tiếp đơn/lịch trên RemindRx hoặc hỏi bác sĩ, dược sĩ."
+    "trực tiếp đơn/lịch trên Dosely hoặc hỏi bác sĩ, dược sĩ."
 )
 
 def _ux_fallback(errors: list[str], state: AgentState) -> str:
@@ -75,7 +75,7 @@ async def output_guard_node(state: AgentState) -> dict:
         errors.append("missing_medical_grounding")
     refusal_reason = str(state.get("refusal_reason") or state.get("safety_reason") or "").strip()
     if state.get("scope_blocked") and not refusal_reason:
-        refusal_reason = str(state.get("scope_category") or "outside_remindrx_scope")
+        refusal_reason = str(state.get("scope_category") or "outside_dosely_scope")
     if not refusal_reason and errors:
         # Pick one deterministic primary reason. Secondary validator findings
         # are intentionally not shown to the answer LLM.

@@ -1,6 +1,6 @@
 # Graded Adherence Response
 
-**RemindRx · Feature proposal · Awaiting approval**
+**Dosely · Feature proposal · Awaiting approval**
 
 Today the platform has one way to react when a patient stops taking their
 medication: page a doctor. This proposal adds the steps in between — and uses

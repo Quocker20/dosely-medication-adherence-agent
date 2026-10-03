@@ -26,7 +26,7 @@ async def semantic_output_reviewer_node(state: AgentState) -> dict:
         return {"messages": [AIMessage(content=_FALLBACK)], "output_reviewed": False}
     try:
         reviewer = get_llm(temperature=0).with_structured_output(Review)
-        result = await asyncio.wait_for(reviewer.ainvoke(f"Duyệt câu trả lời RemindRx. Chỉ approve nếu đúng phạm vi, không bịa, không kê đơn/đổi liều và có bằng chứng tool khi là câu hỏi thuốc. Intent: {intent}\nCâu trả lời: {answer}\nBằng chứng: {evidence}"), timeout=6)
+        result = await asyncio.wait_for(reviewer.ainvoke(f"Duyệt câu trả lời Dosely. Chỉ approve nếu đúng phạm vi, không bịa, không kê đơn/đổi liều và có bằng chứng tool khi là câu hỏi thuốc. Intent: {intent}\nCâu trả lời: {answer}\nBằng chứng: {evidence}"), timeout=6)
     except Exception:
         return {"output_reviewed": True}
     if result.decision != "approve":

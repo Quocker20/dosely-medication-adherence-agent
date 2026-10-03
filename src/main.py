@@ -33,7 +33,7 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="RemindRx Medication Adherence Core API",
+    description="Dosely Medication Adherence Core API",
     version="1.0.0",
     lifespan=lifespan,
 )

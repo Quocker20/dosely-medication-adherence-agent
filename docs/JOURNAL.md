@@ -1,7 +1,7 @@
-# Weekly Journal — Team P-216 (RemindRx / VMEC-04)
+# Weekly Journal — Dosely (VMEC-04)
 
 > Ghi lại mỗi tuần: học được gì, khó khăn gì, quyết định gì, kế hoạch tiếp.
-> Dự án bắt đầu 25/07/2026 (template), code RemindRx đầu tiên 07/08/2026.
+> Dự án bắt đầu 25/07/2026 (template), code Dosely đầu tiên 07/08/2026.
 
 ---
 

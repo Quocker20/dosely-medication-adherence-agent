@@ -9,7 +9,7 @@ import type { AuthTokenResponse, UserResponse } from "./types";
  * và đừng render HTML thô từ dữ liệu API.
  */
 
-const STORAGE_KEY = "remindrx.portal.session";
+const STORAGE_KEY = "dosely.portal.session";
 
 export interface Session {
   accessToken: string;

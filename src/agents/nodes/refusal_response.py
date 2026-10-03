@@ -9,7 +9,7 @@ from src.agents.state import AgentState
 from src.modules.planning.core.llm import get_llm
 
 _TIMEOUT_SECONDS = 8.0
-_PROMPT = """Bạn là trợ lý RemindRx. Hãy viết câu trả lời tiếng Việt trực tiếp cho người dùng.
+_PROMPT = """Bạn là trợ lý Dosely. Hãy viết câu trả lời tiếng Việt trực tiếp cho người dùng.
 
 Yêu cầu đã bị guardrail từ chối. Không xem xét lại quyết định và chỉ dùng DUY NHẤT lý do được
 cung cấp. Kết hợp lý do đó với câu hỏi cụ thể để câu trả lời tự nhiên, hữu ích, không giống mẫu.

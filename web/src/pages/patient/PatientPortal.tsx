@@ -129,7 +129,7 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
   return (
     <div className="patient-web-shell">
       <aside className="patient-sidebar">
-        <div className="patient-brand"><span className="patient-logo"><Icon name="pill" size={22}/></span><div><strong>RemindRx</strong><small>Trang bệnh nhân</small></div></div>
+        <div className="patient-brand"><span className="patient-logo"><Icon name="pill" size={22}/></span><div><strong>Dosely</strong><small>Trang bệnh nhân</small></div></div>
         <nav className="patient-side-nav" aria-label="Điều hướng bệnh nhân"><span className="patient-nav-label">MENU CHÍNH</span>{navItems.map((item) => <button key={item.id} className={`${tab === item.id ? "active" : ""} ${item.id === "sos" ? "sos-nav" : ""}`} onClick={() => onTabChange(item.id)}><span className="nav-icon"><Icon name={item.icon}/></span><span><b>{item.label}</b><small>{item.description}</small></span>{item.id === "schedule" && doses.length > 0 && <em>{doses.length}</em>}</button>)}</nav>
         <div className="patient-safe-card"><span><Icon name="shield" size={19}/></span><div><b>Dữ liệu được bảo vệ</b><small>Chỉ bạn và bác sĩ phụ trách có quyền truy cập.</small></div></div>
         <button className="theme-toggle patient-theme-toggle" onClick={cycleTheme}>

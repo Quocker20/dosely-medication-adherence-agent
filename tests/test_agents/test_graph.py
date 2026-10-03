@@ -79,7 +79,7 @@ async def test_agent_answers_directly_without_tool_calls():
 
 @pytest.mark.asyncio
 async def test_generic_agent_has_no_tools_under_least_privilege():
-    reply = AIMessage(content="Mình có thể hỗ trợ trong phạm vi RemindRx.")
+    reply = AIMessage(content="Mình có thể hỗ trợ trong phạm vi Dosely.")
     with _reaches_agent(intent="general"), patch("src.agents.nodes.chat_node.get_llm") as mock_get_llm:
         mock_get_llm.return_value.ainvoke = AsyncMock(return_value=reply)
         result = await agent.ainvoke({"messages": [HumanMessage(content="Xin chào")], "patient_id": "patient-123"})

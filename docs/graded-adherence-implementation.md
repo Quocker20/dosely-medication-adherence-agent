@@ -20,7 +20,7 @@ from the proposal alone.
 
 ### Verified locally
 
-All five Stage 1 migrations were run against the project's `remindrx_postgres`
+All five Stage 1 migrations were run against the project's `dosely_postgres`
 container: `upgrade head` → schema inspected column-by-column against this
 spec → `downgrade` back to `0020_merge_heads` → schema confirmed empty →
 `upgrade head` again. Full round-trip, no manual intervention needed at the

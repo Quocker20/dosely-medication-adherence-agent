@@ -3,9 +3,9 @@ import { getMessaging, isSupported, type Messaging } from "firebase/messaging";
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "remindrx-13aad.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "remindrx-13aad",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "remindrx-13aad.firebasestorage.app",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "dosely-13aad.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "dosely-13aad",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "dosely-13aad.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "943248823390",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
 };

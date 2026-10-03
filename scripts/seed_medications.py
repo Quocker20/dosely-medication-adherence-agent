@@ -60,7 +60,7 @@ async def seed(rows: list[dict[str, str]]) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Upsert the RemindRx medication catalog")
+    parser = argparse.ArgumentParser(description="Upsert the Dosely medication catalog")
     parser.add_argument("--file", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--dry-run", action="store_true", help="Validate only; do not connect to PostgreSQL")
     return parser.parse_args()

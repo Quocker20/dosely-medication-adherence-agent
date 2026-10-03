@@ -64,7 +64,7 @@ export default function HomePage({ onLogin }: Props) {
 
     <nav className="lp-nav">
       <div className="lp-wrap lp-nav-inner">
-        <a className="lp-brand" href="#top"><Logo />RemindRx</a>
+        <a className="lp-brand" href="#top"><Logo />Dosely</a>
         <div className="lp-links">
           <a href="#how">Cách hoạt động</a>
           <a href="#features">Tính năng</a>
@@ -83,9 +83,9 @@ export default function HomePage({ onLogin }: Props) {
         <div className="lp-wrap lp-hero-grid">
           <div>
             <h1 className="lp-rise" style={{ animationDelay: "180ms" }}>Rời phòng khám rồi,<br /><em>đơn thuốc</em> đừng rời bạn.</h1>
-            <p className="lp-lede lp-rise" style={{ animationDelay: "300ms" }}>RemindRx biến đơn thuốc đã bác sĩ duyệt thành lịch uống cá nhân hoá theo đúng giờ ăn, giờ ngủ của bạn — và báo ngay cho người thân khi có dấu hiệu bất ổn.</p>
+            <p className="lp-lede lp-rise" style={{ animationDelay: "300ms" }}>Dosely biến đơn thuốc đã bác sĩ duyệt thành lịch uống cá nhân hoá theo đúng giờ ăn, giờ ngủ của bạn — và báo ngay cho người thân khi có dấu hiệu bất ổn.</p>
             <div className="lp-hero-cta lp-rise" style={{ animationDelay: "400ms" }}>
-              <a className="lp-button primary" href="#download">Dùng thử RemindRx</a>
+              <a className="lp-button primary" href="#download">Dùng thử Dosely</a>
               <a className="lp-button ghost" href="#how">Xem cách hoạt động</a>
             </div>
             <p className="lp-meta lp-rise" style={{ animationDelay: "500ms" }}>Miễn phí trong giai đoạn thử nghiệm · Chạy trên trình duyệt, không cần chờ duyệt ứng dụng</p>
@@ -126,7 +126,7 @@ export default function HomePage({ onLogin }: Props) {
             <div>
               <h2>Nhắc đúng giờ đã là chuyện bình thường. Vòng lặp khép kín thì không.</h2>
             </div>
-            <p className="lp-lede">Nhắc nhở một mình không tạo ra vòng lặp giữa toa thuốc đã bác sĩ duyệt, lịch trình cá nhân hoá và cảnh báo tới người thân khi có sự cố — đó là phần RemindRx đặt cược vào.</p>
+            <p className="lp-lede">Nhắc nhở một mình không tạo ra vòng lặp giữa toa thuốc đã bác sĩ duyệt, lịch trình cá nhân hoá và cảnh báo tới người thân khi có sự cố — đó là phần Dosely đặt cược vào.</p>
           </div>
           <div className="lp-compare reveal">
             <div>
@@ -135,7 +135,7 @@ export default function HomePage({ onLogin }: Props) {
               <p>người dùng nói nhắc thuốc giúp họ uống đúng giờ hơn — khảo sát Medisafe trên nhóm bệnh nhân khó tiếp cận y tế.</p>
             </div>
             <div className="add">
-              <h3>Cái RemindRx thêm vào</h3>
+              <h3>Cái Dosely thêm vào</h3>
               <ul>
                 <li>Toa thuốc do bác sĩ duyệt — AI không tự kê đơn hay đổi liều</li>
                 <li>Lịch nhắc tính từ giờ ăn, giờ ngủ thật</li>
@@ -171,7 +171,7 @@ export default function HomePage({ onLogin }: Props) {
             <div>
               <h2>Mỗi người một màn hình, cùng một dữ liệu.</h2>
             </div>
-            <p className="lp-lede">RemindRx là cầu nối giữa ba vai trò quanh một bệnh nhân — không ai phải gọi điện hỏi lại ai.</p>
+            <p className="lp-lede">Dosely là cầu nối giữa ba vai trò quanh một bệnh nhân — không ai phải gọi điện hỏi lại ai.</p>
           </div>
           <div className="lp-roles">
             {roles.map(([title, detail, quote], index) => <article className="lp-role reveal" key={title} style={{ transitionDelay: `${index * 110}ms` }}>
@@ -203,7 +203,7 @@ export default function HomePage({ onLogin }: Props) {
           <div className="reveal">
             <span className="lp-eyebrow">An toàn y khoa</span>
             <h2>AI hỗ trợ.<br />Bác sĩ luôn là người quyết định.</h2>
-            <p className="lp-lede">RemindRx được thiết kế với giới hạn cứng cho AI Agent — không phải lời hứa, mà là ràng buộc trong từng bước xử lý.</p>
+            <p className="lp-lede">Dosely được thiết kế với giới hạn cứng cho AI Agent — không phải lời hứa, mà là ràng buộc trong từng bước xử lý.</p>
           </div>
           <div className="reveal" style={{ transitionDelay: "120ms" }}>
             {guards.map(([title, detail], index) => <div className="lp-guard" key={title}>
@@ -232,7 +232,7 @@ export default function HomePage({ onLogin }: Props) {
       <section id="download" className="lp-sec">
         <div className="lp-wrap lp-download">
           <div className="reveal">
-            <h2>RemindRx chạy ngay trên trình duyệt.</h2>
+            <h2>Dosely chạy ngay trên trình duyệt.</h2>
             <p className="lp-lede">Không có ứng dụng nào để chờ duyệt trên kho ứng dụng — mở một lần, thêm vào màn hình chính, dùng như một ứng dụng thật.</p>
             <div className="lp-stores">
               <button type="button" onClick={() => window.location.assign("/try/")}><small>TẢI ỨNG DỤNG</small>Android</button>
@@ -242,7 +242,7 @@ export default function HomePage({ onLogin }: Props) {
           <div className="lp-phone reveal" style={{ transitionDelay: "120ms" }}>
             <div>
               <article>
-                <header><i>+</i><b>RemindRx</b><small>18:00</small></header>
+                <header><i>+</i><b>Dosely</b><small>18:00</small></header>
                 <p>Đến giờ uống <strong>Metformin 500mg</strong> — sau bữa tối.</p>
                 <footer><button>Đã uống</button><button>Uống muộn</button><button>Bỏ qua</button></footer>
               </article>
@@ -256,7 +256,7 @@ export default function HomePage({ onLogin }: Props) {
       <div className="lp-wrap">
         <div className="lp-footer-grid">
           <div>
-            <div className="lp-brand"><Logo />RemindRx</div>
+            <div className="lp-brand"><Logo />Dosely</div>
             <p>Cầu nối kỹ thuật số liên tục giữa bác sĩ và bệnh nhân, sau khi rời phòng khám.</p>
           </div>
           <div>
@@ -271,14 +271,13 @@ export default function HomePage({ onLogin }: Props) {
             <h4>Dự án</h4>
             <ul>
               <li>Mã đề tài VMEC-04</li>
-              <li>Nhóm P-216</li>
               <li>AI20K Build Phase Cohort 3</li>
             </ul>
           </div>
         </div>
         <div className="lp-disclaimer">
-          <span>RemindRx cung cấp thông tin tham khảo, không thay thế tư vấn y tế trực tiếp. Trong tình huống khẩn cấp, hãy gọi <strong>115</strong>.</span>
-          <span>© 2026 RemindRx</span>
+          <span>Dosely cung cấp thông tin tham khảo, không thay thế tư vấn y tế trực tiếp. Trong tình huống khẩn cấp, hãy gọi <strong>115</strong>.</span>
+          <span>© 2026 Dosely</span>
         </div>
       </div>
     </footer>

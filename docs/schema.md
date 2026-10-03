@@ -1,6 +1,6 @@
-# ĐẶC TẢ CHI TIẾT CÁC PYDANTIC SCHEMAS (FASTAPI BLUEPRINT) - REMINDRX
+# ĐẶC TẢ CHI TIẾT CÁC PYDANTIC SCHEMAS (FASTAPI BLUEPRINT) - DOSELY
 
-Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic Schemas phục vụ việc trao đổi dữ liệu qua hệ thống REST API của dự án **RemindRx**. Các cấu trúc dữ liệu dưới đây phản ánh chính xác 21 bảng PostgreSQL Database Schema và hợp đồng giao tiếp trong `api-contract.md`, được thiết kế tối ưu theo chuẩn **FastAPI (Python)** naming convention.
+Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic Schemas phục vụ việc trao đổi dữ liệu qua hệ thống REST API của dự án **Dosely**. Các cấu trúc dữ liệu dưới đây phản ánh chính xác 21 bảng PostgreSQL Database Schema và hợp đồng giao tiếp trong `api-contract.md`, được thiết kế tối ưu theo chuẩn **FastAPI (Python)** naming convention.
 
 ---
 

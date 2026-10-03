@@ -78,7 +78,7 @@ export default function LoginScreen({ onBack }: Props) {
       const [tokens] = await Promise.all([api.login(phoneNumber, pinCode), delay(MIN_STEP_DELAY_MS)]);
 
       if (tokens.user.role !== "DOCTOR" && tokens.user.role !== "ADMIN" && tokens.user.role !== "PATIENT") {
-        setError("Tài khoản này chưa có quyền truy cập web RemindRx.");
+        setError("Tài khoản này chưa có quyền truy cập web Dosely.");
         return;
       }
 
@@ -255,7 +255,7 @@ export default function LoginScreen({ onBack }: Props) {
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submitPhone}>
         <div className="card-head">
-          <h2>RemindRx</h2>
+          <h2>Dosely</h2>
         </div>
         <div className="card-body">
           <p className="rail-note">Nhập số điện thoại đã đăng ký để tiếp tục.</p>

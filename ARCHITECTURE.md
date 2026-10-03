@@ -1,8 +1,8 @@
-# Architecture Document — RemindRx (P-216 / VMEC-04)
+# Architecture Document — Dosely (VMEC-04)
 
 > Tài liệu này mô tả kiến trúc **thật** của code hiện có trong repo, đối chiếu
 > với kiến trúc **mục tiêu** đã chốt ở giai đoạn thiết kế (nguồn:
-> [docs/RemindRx_Tong_Hop_Tai_Lieu.md](docs/RemindRx_Tong_Hop_Tai_Lieu.md) mục 6–7).
+> [docs/Dosely_Tong_Hop_Tai_Lieu.md](docs/Dosely_Tong_Hop_Tai_Lieu.md) mục 6–7).
 > Phần nào chưa code được đánh dấu **[Thiết kế — chưa code]** để không nhầm là
 > đã triển khai. Ràng buộc bắt buộc khi sửa phần nào ở đây → đọc
 > [CLAUDE.md](CLAUDE.md) trước.
@@ -13,7 +13,7 @@
 
 ## System Overview
 
-RemindRx là hệ thống nhắc thuốc & theo dõi tuân thủ điều trị cho bệnh nhân mạn
+Dosely là hệ thống nhắc thuốc & theo dõi tuân thủ điều trị cho bệnh nhân mạn
 tính, mô hình **modular monolith**: một FastAPI backend (`src/`, tổ chức theo
 vertical-slice module trong `src/modules/*`) phục vụ hai client — **Web Portal**
 (`web/`, React + Vite, 3 khu vực theo role: doctor/patient/admin trong cùng 1
@@ -109,9 +109,9 @@ graph TB
 
 ### 2. App bệnh nhân (`android/`, Kotlin + Jetpack Compose, Material3)
 - **Trạng thái:** đã gọi backend thật qua Retrofit (`data/repository/Remote*RepositoryImpl.kt`
-  gọi `RemindRxApiService`), có Hilt DI (`di/{DatabaseModule,NetworkModule,
+  gọi `DoselyApiService`), có Hilt DI (`di/{DatabaseModule,NetworkModule,
   RepositoryModule,ConnectivityModule,RealtimeModule}.kt`), có Room cache
-  offline (`data/local/RemindRxDatabase.kt` + `dao/`), có cơ chế **outbox**
+  offline (`data/local/DoselyDatabase.kt` + `dao/`), có cơ chế **outbox**
   ghi hàng đợi khi mất mạng rồi replay qua WorkManager
   (`sync/OutboxSyncWorker.kt`, `sync/OutboxReplayer.kt` — xem
   `docs/outbox-replay-contract.md`), build/chạy/verify được trên emulator.
@@ -299,7 +299,7 @@ deploy, agent prompt/graph có version + golden test cases.
 
 ## Security & Guardrails
 
-Xem đầy đủ threat model ở `docs/RemindRx_Tong_Hop_Tai_Lieu.md` mục 7.6. Các
+Xem đầy đủ threat model ở `docs/Dosely_Tong_Hop_Tai_Lieu.md` mục 7.6. Các
 điểm đã áp dụng trong code hiện tại:
 
 | Rủi ro | Kiểm soát hiện có |

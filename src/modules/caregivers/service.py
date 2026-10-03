@@ -186,12 +186,12 @@ class CaregiverService:
 
                     if bound_link:
                         msg = (
-                            "RemindRx: Đã liên kết tài khoản người thân thành công! "
+                            "Dosely: Đã liên kết tài khoản người thân thành công! "
                             "Bạn sẽ nhận được thông báo nhắc nhở và cảnh báo an toàn của người bệnh.\n\n"
                             "Để dừng nhận thông báo, gửi /stop."
                         )
                     else:
-                        msg = "RemindRx: Mã liên kết không hợp lệ hoặc đã được sử dụng."
+                        msg = "Dosely: Mã liên kết không hợp lệ hoặc đã được sử dụng."
 
                     try:
                         await self._telegram.send_message(chat_id, msg)
@@ -206,8 +206,8 @@ class CaregiverService:
                         await self._repo.touch_interaction(chat_id, now)
 
                     welcome_msg = (
-                        "Chào bạn! Đây là hệ thống thông báo người thân RemindRx.\n"
-                        "Để liên kết, vui lòng sử dụng liên kết mời hoặc mã QR từ ứng dụng RemindRx của người bệnh."
+                        "Chào bạn! Đây là hệ thống thông báo người thân Dosely.\n"
+                        "Để liên kết, vui lòng sử dụng liên kết mời hoặc mã QR từ ứng dụng Dosely của người bệnh."
                     )
                     try:
                         await self._telegram.send_message(chat_id, welcome_msg)
@@ -222,7 +222,7 @@ class CaregiverService:
                     await self._repo.set_inactive(chat_id)
 
                 stop_msg = (
-                    "Bạn đã hủy nhận thông báo từ RemindRx.\n"
+                    "Bạn đã hủy nhận thông báo từ Dosely.\n"
                     "Nếu muốn kích hoạt lại, vui lòng quét lại mã liên kết từ ứng dụng của người bệnh."
                 )
                 try:

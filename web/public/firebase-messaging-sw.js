@@ -4,11 +4,11 @@ importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-com
 
 firebase.initializeApp({
   apiKey: "AIzaSyDg2RFd1p1D9oNoV1g0hwyV34uICeYhO_k",
-  authDomain: "remindrx-13aad.firebaseapp.com",
-  projectId: "remindrx-13aad",
-  storageBucket: "remindrx-13aad.firebasestorage.app",
+  authDomain: "dosely-13aad.firebaseapp.com",
+  projectId: "dosely-13aad",
+  storageBucket: "dosely-13aad.firebasestorage.app",
   messagingSenderId: "943248823390",
-  appId: "1:943248823390:web:remindrx",
+  appId: "1:943248823390:web:dosely",
 });
 
 const messaging = firebase.messaging();

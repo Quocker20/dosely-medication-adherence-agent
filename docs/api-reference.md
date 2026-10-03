@@ -1,4 +1,4 @@
-# RemindRx API Documentation
+# Dosely API Documentation
 
 Generated from the current implementation in `src/modules/*/router.py` + `schemas.py` (not from the design-time contract — this reflects what is actually coded and running).
 

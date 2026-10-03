@@ -18,7 +18,7 @@ export default function AdminSidebar({
     <aside className="rail">
       <div className="brand">
         <div className="brand-mark">Rx</div>
-        <div><div className="brand-name">RemindRx</div><div className="brand-sub">Admin console · v1.0</div></div>
+        <div><div className="brand-name">Dosely</div><div className="brand-sub">Admin console · v1.0</div></div>
       </div>
       <div className="doctor">
         <div className="avatar">AD</div>

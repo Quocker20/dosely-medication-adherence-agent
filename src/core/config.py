@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # /downloads mount; it never accepts a publisher-controlled external URL.
     android_latest_version_code: int = Field(default=9, ge=1)
     android_latest_version_name: str = "1.7.0"
-    android_latest_apk_filename: str = "remindrx-1.7.0.apk"
+    android_latest_apk_filename: str = "dosely-1.7.0.apk"
 
     # PostgreSQL Database
     # Defaults are the host-side view (pytest/alembic/uvicorn run on the
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # cache_key_prefix so it never collides with DASHBOARD_EVENTS_CHANNEL or
     # any future Redis use on the same instance.
     cache_enabled: bool = True
-    cache_key_prefix: str = "remindrx:cache"
+    cache_key_prefix: str = "dosely:cache"
     # Medication catalog: no PHI, admin-seeded, changes rarely.
     cache_ttl_medications_seconds: int = Field(default=3600, ge=0, le=86400)
     # Doctor dashboard aggregates: WS /ws/dashboard pushes deltas, so a short
@@ -101,8 +101,8 @@ class Settings(BaseSettings):
     # Password Security
     password_pepper: str
 
-    # RemindRx — luật lâm sàng chạy bằng code xác định (không phải LLM).
-    # Xem docs/RemindRx_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".
+    # Dosely — luật lâm sàng chạy bằng code xác định (không phải LLM).
+    # Xem docs/Dosely_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".
     max_frequency_per_day: int = Field(default=4, ge=1, le=12)
     max_treatment_days: int = Field(default=180, ge=1, le=3650)
     # Chỉ là fallback khi PrescriptionItem.minimum_interval_minutes để NULL —

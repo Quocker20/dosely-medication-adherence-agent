@@ -122,7 +122,7 @@ guardian field "when necessary", so the row is omitted rather than half-rendered
 ## 5. Sheet layout
 
 ```
-+- PHÒNG KHÁM ĐA KHOA MÔ PHỎNG REMINDRX ---------- Mã CSKCB: SIM-00000
++- PHÒNG KHÁM ĐA KHOA MÔ PHỎNG DOSELY ---------- Mã CSKCB: SIM-00000
 |  Số 1, Đường Mô Phỏng, Phường Demo, Hà Nội           ĐT: 1900 0000
 +----------------------------------------------------------------------
 |                        ĐƠN THUỐC                     Số: a3f9c21b
@@ -206,7 +206,7 @@ Append to `Settings` in `src/core/config.py`:
 # Simulated prescription-form fields. The DB has no column for any of
 # these; values are deliberately obvious placeholders so an exported
 # sheet can never be mistaken for a real clinical document.
-clinic_name: str = "PHÒNG KHÁM ĐA KHOA MÔ PHỎNG REMINDRX"
+clinic_name: str = "PHÒNG KHÁM ĐA KHOA MÔ PHỎNG DOSELY"
 clinic_address: str = "Số 1, Đường Mô Phỏng, Phường Demo, Hà Nội"
 clinic_phone: str = "1900 0000"
 clinic_code: str = "SIM-00000"

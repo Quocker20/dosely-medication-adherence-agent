@@ -1,4 +1,4 @@
-# 💊 RemindRx — Medication Adherence AI Platform
+# 💊 Dosely — Medication Adherence AI Platform
 
 > **One-sentence Summary:** A multi-agent AI system that empowers chronic patients to adhere to medication schedules and enables real-time treatment safety monitoring under Human-in-the-loop (doctor) oversight.
 
@@ -28,9 +28,8 @@
 8. [📡 Sample Queries & API Usage](#-sample-queries--api-usage)
 9. [📁 Project Directory Structure](#-project-directory-structure)
 10. [📋 Deliverables Checklist](#-deliverables-checklist)
-11. [👥 Team Members](#-team-members)
-12. [🙏 Acknowledgements](#-acknowledgements)
-13. [📄 License](#-license)
+11. [🙏 Acknowledgements](#-acknowledgements)
+12. [📄 License](#-license)
 
 ---
 
@@ -43,7 +42,7 @@ Outpatients with chronic conditions (hypertension, diabetes, cardiovascular dise
 - **Lack of Doctor-Caregiver Visibility:** Clinicians lack objective visibility into patient adherence between scheduled appointments, while family caregivers lack reliable remote monitoring tools.
 
 ### Solution
-**RemindRx** bridges this gap with an integrated dual-agent AI architecture spanning mobile and web portals:
+**Dosely** bridges this gap with an integrated dual-agent AI architecture spanning mobile and web portals:
 - 🗣 **Multi-modal Chat Agent:** Natural Vietnamese voice and text dialogue (`/chat`, `/chat/voice`), answering drug interaction questions and explaining prescriptions using a RAG knowledge base indexed from the Vietnam National Drug Formulary.
 - ⏰ **Personalized Schedule Planning Agent:** Intelligently translates medical prescriptions into personalized intake schedules aligned with the patient's biological daily routine (waking time, meals, bedtime).
 - 🛡 **Deterministic Safety & Guardrail Engine:** Strictly blocks unauthorized dose alterations or medication discontinuation requests via chat. Enforces Human-in-the-Loop (doctor approval) prior to persisting schedule changes.
@@ -64,7 +63,7 @@ Outpatients with chronic conditions (hypertension, diabetes, cardiovascular dise
 
 ## 🧠 AI Agent & System Architecture
 
-RemindRx follows a **Modular Monolith** architecture combined with **Dual LangGraph Agents** guarded by **Strict Deterministic Code Validators**:
+Dosely follows a **Modular Monolith** architecture combined with **Dual LangGraph Agents** guarded by **Strict Deterministic Code Validators**:
 
 ```mermaid
 graph TB
@@ -146,8 +145,8 @@ graph TB
 
 #### 1. Clone Repository & Setup Python Virtual Environment
 ```bash
-git clone https://github.com/AI20K-Build-Phase-Cohort-3/P-216.git
-cd P-216
+git clone https://github.com/Quocker20/dosely-medication-adherence-agent.git
+cd dosely-medication-adherence-agent
 
 # Create virtual environment
 python -m venv .venv
@@ -214,7 +213,7 @@ npm run dev
 
 ### C. Android Mobile Application (Jetpack Compose)
 
-1. Launch **Android Studio**, select **Open**, and browse directly to **`P-216/android`** *(Important: Do not open the root directory)*.
+1. Launch **Android Studio**, select **Open**, and browse directly to **`dosely-medication-adherence-agent/android`** *(Important: Do not open the root directory)*.
 2. Allow Android Studio to complete **Gradle Sync**.
 3. Create and launch an Android Virtual Device (Recommended: **Pixel 6/7 with API 34+**).
 4. Click **Run (`Shift + F10`)** to compile and launch the application.
@@ -228,9 +227,9 @@ npm run dev
 
 | Variable Name | Sample Value | Description |
 | :--- | :--- | :--- |
-| `JWT_SECRET_KEY` | `remindrx_super_secret_dev_key_p216` | Secret key for signing access and refresh JWT tokens |
+| `JWT_SECRET_KEY` | `dosely_super_secret_dev_key_p216` | Secret key for signing access and refresh JWT tokens |
 | `PASSWORD_PEPPER` | `custom_pepper_string` | Pepper string for password and PIN hashing |
-| `DATABASE_URL` | `postgresql+asyncpg://remindrx:secret@localhost:5432/remindrx_db` | Asynchronous PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql+asyncpg://dosely:secret@localhost:5432/dosely_db` | Asynchronous PostgreSQL connection string |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for caching and Celery broker |
 | `OPENAI_API_KEY` | `sk-proj-...` | API key for LangGraph agents and embeddings |
 | `CHROMA_PERSIST_DIR` | `./data/chroma` | Persistence directory for RAG vector index |
@@ -304,7 +303,7 @@ curl -X POST "http://localhost:8000/api/v1/scheduled-doses/9a8b7c6d-5e4f-3a2b-1c
 ## 📁 Project Directory Structure
 
 ```text
-P-216/
+dosely-medication-adherence-agent/
 ├── android/                    # 📱 Client 1: Android Mobile App (Kotlin + Compose)
 │   ├── app/src/main/java/      #    UI Features, Room DB, Retrofit API Client
 │   └── build.gradle.kts        #    Gradle build configurations (SDK 34)
@@ -345,27 +344,14 @@ P-216/
 - [x] **Architecture Diagram:** Detailed system and agent flow in [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] **API Specification:** Documented in [docs/api-contract.md](docs/api-contract.md) and [docs/api-reference.md](docs/api-reference.md).
 - [x] **AI Evaluation Suite:** Test cases and benchmark scripts in `eval/`.
-- [x] **Demonstration Video:** Available via [Google Drive (RemindRx Demo Video)](https://drive.google.com/file/d/1TgBhlN7OH6psTQeFFrCcQ9398X4Dea4i/view?usp=sharing).
-- [x] **Pitch Deck & Presentation:** Available online via [Google Slides (RemindRx Pitch Deck)](https://docs.google.com/presentation/d/15ktC7J-78AhfC5JhMdvT11pFVXYros2Z3ioBOv5dU3E/edit?usp=sharing).
-
----
-
-## 👥 Team Members
-
-**Group 07 – Team 216** (Project Mentor: **Mr. Văn Hữu Quốc** — *Project Direction & Healthcare Solution Architecture Advisor*):
-
-| # | Member Name | Role Title | Key Contributions |
-| :---: | :--- | :--- | :--- |
-| 1 | **Hà Xuân Sơn** | Lead Frontend & Mobile / DevOps | • UI/UX Web & Mobile<br>• Android APK & SQLite DB<br>• Adaptive Planning Agent<br>• Full Production Deploy |
-| 2 | **Vũ Quốc Anh** | Lead Backend / AI Engineer | • Core API & Database Arc<br>• Adherence Monitoring Agent<br>• Telegram Bot Subsystem<br>• UI/UX Optimization & Server Deployment Support |
-| 3 | **Đào Bình Minh** | AI Chatbot Engineer | • Vector Database Deployment<br>• AI Chatbot Development<br>• Tool Calling & Medical RAG |
-| 4 | **Nguyễn Đức Đạt** | Developer | • Push Notification System |
+- [x] **Demonstration Video:** Available via [Google Drive (Dosely Demo Video)](https://drive.google.com/file/d/1TgBhlN7OH6psTQeFFrCcQ9398X4Dea4i/view?usp=sharing).
+- [x] **Pitch Deck & Presentation:** Available online via [Google Slides (Dosely Pitch Deck)](https://docs.google.com/presentation/d/15ktC7J-78AhfC5JhMdvT11pFVXYros2Z3ioBOv5dU3E/edit?usp=sharing).
 
 ---
 
 ## 🙏 Acknowledgements
 
-Team 216 would like to express our deepest gratitude to:
+I would like to express our deepest gratitude to:
 - **The Program Organizing Committee** and mentor **Mr. Văn Hữu Quốc** for creating a meaningful academic platform, providing dedicated mentorship, and giving attentive guidance and direction throughout the project lifecycle, and **The Panel of Judges** for taking the time to listen to the team's presentation.
 - In addition, the team would like to express our sincere thanks to **Viện Dưỡng lão Diên Hồng (Cơ sở 6)** and **Mr. Nguyễn Quốc Huy** for providing valuable information, surveys, and professional medical support for the project.
 
@@ -373,4 +359,4 @@ Team 216 would like to express our deepest gratitude to:
 
 ## 📄 License
 
-Distributed under the **MIT License** — Copyright © 2026 **Team P-216 (VinUni AI20K Build Phase Cohort 3)**.
+Distributed under the **MIT License** — Copyright © 2026 **Dosely Team**.

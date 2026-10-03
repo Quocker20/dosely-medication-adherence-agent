@@ -22,11 +22,11 @@ val keystoreProperties = Properties().apply {
 val hasReleaseKeystore = keystorePropertiesFile.exists()
 
 android {
-    namespace = "com.remindrx.app"
+    namespace = "com.dosely.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.remindrx.app"
+        applicationId = "com.dosely.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 9
@@ -47,7 +47,7 @@ android {
 
     buildTypes {
         // api.00000216.xyz is an AAAA record proxied through Cloudflare. The VPS
-        // has no public IPv4, so the older remindrx.duckdns.org resolved to AAAA
+        // has no public IPv4, so the older dosely.duckdns.org resolved to AAAA
         // only and was unreachable from anything IPv4-only — the emulator's QEMU
         // NAT, Vercel's rewrite proxy, plenty of home networks. Cloudflare's edge
         // answers on both families and forwards to the origin over IPv6, so every

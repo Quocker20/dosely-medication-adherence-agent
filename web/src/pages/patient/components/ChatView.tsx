@@ -16,7 +16,7 @@ const COMPOSER_MIN_HEIGHT = 42;
 const COMPOSER_MAX_HEIGHT = 110;
 /** Lịch sử chat lưu theo phiên trình duyệt, tách theo bệnh nhân để không lẫn. */
 export function chatStorageKey(patientId: string) {
-  return `remindrx.patient-chat.${patientId}`;
+  return `dosely.patient-chat.${patientId}`;
 }
 function welcomeChatMessages(): ChatMessage[] {
   return [
@@ -24,7 +24,7 @@ function welcomeChatMessages(): ChatMessage[] {
       id: "welcome",
       role: "assistant",
       content:
-        "Chào bạn! Tôi là trợ lý RemindRx. Tôi có thể giúp bạn tra cứu lịch uống thuốc, giải thích thông tin thuốc từ nguồn tham khảo và ghi nhận vấn đề cần bác sĩ xem xét.",
+        "Chào bạn! Tôi là trợ lý Dosely. Tôi có thể giúp bạn tra cứu lịch uống thuốc, giải thích thông tin thuốc từ nguồn tham khảo và ghi nhận vấn đề cần bác sĩ xem xét.",
       time: "Bây giờ",
     },
   ];
@@ -326,7 +326,7 @@ export default function ChatView({ patientId: _patientId }: { patientId?: string
           </div>
           <div>
             <h2>Trợ lý AI</h2>
-            <p>Thuốc & lịch uống · RemindRx</p>
+            <p>Thuốc & lịch uống · Dosely</p>
           </div>
         </header>
 
@@ -339,7 +339,7 @@ export default function ChatView({ patientId: _patientId }: { patientId?: string
           {messages.map((message) => (
             <div key={message.id} className={`chat-row ${message.role}`}>
               <div className="chat-bubble">
-                {message.role === "assistant" && <b>RemindRx AI</b>}
+                {message.role === "assistant" && <b>Dosely AI</b>}
                 <p>{message.content}</p>
                 <time>{message.time}</time>
               </div>

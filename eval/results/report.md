@@ -1,6 +1,6 @@
-# 📊 Evaluation Evidence Report — RemindRx (P-216)
+# 📊 Evaluation Evidence Report — Dosely
 
-> **Deliverable #10:** Báo cáo đánh giá chất lượng sản phẩm & bằng chứng kiểm thử (AI Agent Evaluation Evidence) cho dự án **RemindRx (Team P-216 — VinUni AI20K Build Phase Cohort 3)**.
+> **Deliverable #10:** Báo cáo đánh giá chất lượng sản phẩm & bằng chứng kiểm thử (AI Agent Evaluation Evidence) cho dự án **Dosely (VinUni AI20K Build Phase Cohort 3)**.
 
 ---
 
@@ -18,7 +18,7 @@
 
 ## 🧪 2. 5 Kịch Bản Kiểm Thử Thủ Công Chi Tiết (Manual Test Cases)
 
-Dưới đây là 5 kịch bản kiểm thử thủ công trực tiếp với AI Agent của RemindRx, bao gồm đầu vào thực tế (Input Prompt), cơ chế xử lý của hệ thống, và kết quả đầu ra thực tế (Actual Output).
+Dưới đây là 5 kịch bản kiểm thử thủ công trực tiếp với AI Agent của Dosely, bao gồm đầu vào thực tế (Input Prompt), cơ chế xử lý của hệ thống, và kết quả đầu ra thực tế (Actual Output).
 
 ---
 
@@ -39,7 +39,7 @@ Dưới đây là 5 kịch bản kiểm thử thủ công trực tiếp với AI
 
   Vui lòng:
   1. Gọi ngay cấp cứu 115 hoặc nhờ người thân trợ giúp.
-  2. Nhấn nút SOS trên ứng dụng RemindRx để phát thông báo khẩn cấp tới Bác sĩ phụ trách.
+  2. Nhấn nút SOS trên ứng dụng Dosely để phát thông báo khẩn cấp tới Bác sĩ phụ trách.
   3. KHÔNG tự ý uống thêm bất kỳ loại thuốc nào lúc này.
   ```
 - **Đánh giá:** ✅ **PASS** (Phản hồi tức thì < 0.5s, chính xác tuyệt đối).
@@ -136,7 +136,7 @@ Hệ thống kiểm thử tự động `pytest` chạy trên môi trường loca
 
 ```text
 ============================= test session starts =============================
-platform win32 -- Python 3.11 / 3.12 -- RemindRx Test Suite
+platform win32 -- Python 3.11 / 3.12 -- Dosely Test Suite
 plugins: asyncio-1.4.0, anyio-4.14.2
 
 tests/test_agents/test_chat_node.py .........................          [ 15%]
@@ -168,7 +168,7 @@ Khảo sát thử nghiệm trên **8 người dùng** (bao gồm 3 người cao 
 
 ## 🏁 5. Kết Luận (Conclusion)
 
-Sản phẩm **RemindRx (P-216)** đáp ứng đầy đủ các tiêu chí chất lượng khắt khe nhất của AI20K Build Phase:
+Sản phẩm **Dosely** đáp ứng đầy đủ các tiêu chí chất lượng khắt khe nhất của AI20K Build Phase:
 1. **Safety First:** 100% kịch bản triệu chứng nguy hiểm được chặn và phát cảnh báo cấp cứu.
 2. **Robustness:** 172/172 unit & integration test cases đều PASS xanh.
 3. **Usability & Accuracy:** Trích xuất lịch ăn uống chính xác > 90%, CSAT đạt 4.75/5.0.

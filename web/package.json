@@ -1,9 +1,9 @@
 {
-  "name": "remindrx-portal",
+  "name": "dosely-portal",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Portal bác sĩ RemindRx (P-216 / VMEC-04)",
+  "description": "Portal bác sĩ Dosely (VMEC-04)",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

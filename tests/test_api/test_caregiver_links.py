@@ -24,7 +24,7 @@ _TEST_PHONES = [PATIENT_PHONE, OTHER_PATIENT_PHONE, ADMIN_PHONE, CAREGIVER_PHONE
 @pytest_asyncio.fixture(autouse=True)
 async def _setup(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "telegram_bot_username", "RemindRx_bot")
+    monkeypatch.setattr(settings, "telegram_bot_username", "Dosely_bot")
     monkeypatch.setattr(settings, "telegram_enabled", False)
 
     async with AsyncSessionLocal() as db:
@@ -76,7 +76,7 @@ async def test_create_caregiver_link_success(client):
     assert data["relationship"] == "Con trai"
     assert data["status"] == "PENDING_BINDING"
     assert len(data["link_code"]) == 6
-    assert data["telegram_deep_link"] == f"https://t.me/RemindRx_bot?start={data['link_code']}"
+    assert data["telegram_deep_link"] == f"https://t.me/Dosely_bot?start={data['link_code']}"
 
 
 @pytest.mark.asyncio
