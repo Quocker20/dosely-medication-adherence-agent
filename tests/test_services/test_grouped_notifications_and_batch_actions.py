@@ -9,15 +9,14 @@ from decimal import Decimal
 
 import pytest
 
-from src.common.exceptions import ConflictException, NotFoundException, ValidationException
-from src.modules.adherence.models import AdherenceLog, NotificationDelivery, NotificationDoseItem
+from src.common.exceptions import ConflictException, ValidationException
+from src.modules.adherence.models import AdherenceLog
 from src.modules.adherence.notification_service import (
     DOSE_REMINDER_TEMPLATE_CODE,
     NotificationDispatchService,
 )
 from src.modules.adherence.schemas import (
     BatchRecordDoseActionRequest,
-    BatchRecordDoseActionResponse,
 )
 from src.modules.adherence.service import AdherenceLogService
 from src.modules.agents.models import ScheduledDose

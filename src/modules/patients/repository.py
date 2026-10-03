@@ -3,7 +3,7 @@ import uuid
 from datetime import date, time
 from typing import List, Optional, Tuple
 
-from sqlalchemy import Exists, delete, func, or_, select, update
+from sqlalchemy import Exists, func, or_, select, update
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession

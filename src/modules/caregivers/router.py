@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, List
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
@@ -10,7 +10,7 @@ from src.common.http import get_client_ip
 from src.core.response import success_response
 from src.core.telegram import TelegramClient, get_telegram_client
 from src.modules.auth.schemas import MessageResponse
-from src.modules.caregivers.schemas import CaregiverLinkDetailResponse, CreateCaregiverLinkRequest
+from src.modules.caregivers.schemas import CreateCaregiverLinkRequest
 from src.modules.caregivers.service import CaregiverService
 
 router = APIRouter(prefix="/patients", tags=["Caregivers"])

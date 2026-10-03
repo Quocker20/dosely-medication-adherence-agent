@@ -6,7 +6,6 @@ from src.agents.medication_policy import match_medication_decision
 from src.agents.nodes.grounding_validator_node import validate_grounded_answer
 from src.rag_retrieval.input_guardrail import (
     NEEDS_DRUG_NAME_REPLY,
-    is_contextual_drug_reference,
     route_input,
 )
 from src.rag_retrieval.language_guardrail import detect_supported_language

@@ -7,11 +7,6 @@ from httpx import ASGITransport, AsyncClient
 from src.core.config import get_settings
 from src.main import app
 
-try:
-    from src.services.store import store
-except ImportError:
-    store = None
-
 
 @pytest.fixture(autouse=True)
 def disable_rate_limit(monkeypatch):
@@ -31,16 +26,6 @@ def disable_response_cache():
     settings.cache_enabled = False
     yield
     settings.cache_enabled = original
-
-
-@pytest.fixture(autouse=True)
-def reset_store():
-    """Mỗi test chạy trên dữ liệu seed sạch — store là in-memory singleton."""
-    if store is not None:
-        store.reset()
-    yield
-    if store is not None:
-        store.reset()
 
 
 @pytest_asyncio.fixture

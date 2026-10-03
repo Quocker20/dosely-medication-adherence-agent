@@ -36,7 +36,6 @@ src/
 │   ├── service.py          # DrugRAG — retrieval + grounding
 │   ├── safe_service.py     # SafeDrugRAG — wraps service.py with the full guardrail chain
 │   ├── dense_index.py
-│   ├── conversation_store.py
 │   ├── input_guardrail.py  # Requires a drug name before retrieval — no broad semantic search
 │   └── language_guardrail.py
 │

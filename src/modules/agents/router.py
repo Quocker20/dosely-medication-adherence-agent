@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import Annotated, Optional
+from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status

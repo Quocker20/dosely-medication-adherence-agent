@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
@@ -12,8 +11,6 @@ from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
 from src.modules.caregivers.models import CaregiverLink
 from src.modules.caregivers.repository import CaregiverRepository
-from src.modules.caregivers.service import CaregiverService
-from src.modules.caregivers.webhook_router import get_caregiver_service
 from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
 

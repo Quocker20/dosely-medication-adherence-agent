@@ -1,5 +1,4 @@
-import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -7,15 +6,13 @@ from sqlalchemy import delete, select
 from src.core.config import get_settings
 from src.core.database import AsyncSessionLocal, engine
 from src.core.security import hash_password
-from src.core.telegram import FakeTelegramClient, TelegramBlockedError, TelegramRateLimitError
+from src.core.telegram import FakeTelegramClient, TelegramBlockedError
 from src.modules.adherence.models import Alert, NotificationDelivery
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
 from src.modules.adherence.schemas import TriggerSosRequest
 from src.modules.adherence.service import AlertService
 from src.modules.agents.models import ScheduledDose
-from src.modules.agents.repository import ScheduledDoseRepository
-from src.modules.agents.service import MissedDoseScanService
-from src.modules.agents.tasks import _execute_send_caregiver_adherence_reports, _execute_send_notification
+from src.modules.agents.tasks import _execute_send_notification
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
 from src.modules.caregivers.models import CaregiverLink

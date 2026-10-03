@@ -14,19 +14,6 @@ _SAFE_FALLBACK = (
     "trực tiếp đơn/lịch trên Dosely hoặc hỏi bác sĩ, dược sĩ."
 )
 
-def _ux_fallback(errors: list[str], state: AgentState) -> str:
-    """Give a reason-specific, patient-friendly response for each guard category."""
-    if "secret_or_prompt_leak" in errors:
-        return "Mình không thể cung cấp khóa truy cập, hướng dẫn hệ thống hoặc dữ liệu nội bộ. Bạn hãy hỏi về thuốc, đơn thuốc hoặc lịch uống của chính mình nhé."
-    if "unsafe_treatment_directive" in errors:
-        return "Mình không thể tự kê đơn, đổi liều hay yêu cầu bạn ngừng thuốc. Bạn hãy trao đổi trực tiếp với bác sĩ hoặc dược sĩ trước khi thay đổi điều trị."
-    if "out_of_scope_output" in errors:
-        return "Mình chỉ hỗ trợ thông tin về thuốc, đơn thuốc và lịch uống thuốc của bạn. Bạn hãy đặt lại câu hỏi trong phạm vi này nhé."
-    if "missing_medical_grounding" in errors:
-        return "Mình chưa tìm thấy nguồn thuốc đáng tin cậy để xác minh câu trả lời này, nên không muốn đoán. Bạn hãy kiểm tra lại tên thuốc hoặc hỏi bác sĩ/dược sĩ."
-    if "english_patient_facing_label" in errors:
-        return "Mình sẽ diễn đạt lại bằng tiếng Việt rõ ràng hơn. Bạn hãy gửi lại câu hỏi nếu cần nhé."
-    return _SAFE_FALLBACK
 _SECRET = re.compile(r"(?:api[_ -]?key|bearer\s+[a-z0-9._-]+|system prompt|jwt_secret)", re.I)
 _DANGEROUS_DIRECTIVE = re.compile(
     r"\b(?:bạn|anh|chị|bác)\s+(?:có thể|nên|hãy)\s+"

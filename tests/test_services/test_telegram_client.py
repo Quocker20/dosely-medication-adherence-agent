@@ -5,7 +5,6 @@ from src.core.telegram import (
     FakeTelegramClient,
     HttpTelegramClient,
     TelegramBlockedError,
-    TelegramPermanentError,
     TelegramRateLimitError,
     TelegramTransientError,
 )

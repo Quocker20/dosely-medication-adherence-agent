@@ -2,7 +2,6 @@ import uuid
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -11,7 +10,6 @@ from src.agents.planning_graph import (
     planning_draft_graph,
     planning_snapshot_graph,
 )
-from src.modules.agents.grouping import DoseGroupingProposal
 
 
 def _item(*, is_critical: bool = False, interval_days: int = 1) -> SimpleNamespace:

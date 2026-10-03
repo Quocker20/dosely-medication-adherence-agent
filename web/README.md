@@ -45,7 +45,6 @@ src/
     ├── Sidebar.tsx          # điều hướng + badge cảnh báo + chọn theme
     ├── KpiRow.tsx           # 4 thẻ KPI đối chiếu mục tiêu MVP
     ├── PatientTable.tsx     # bảng ưu tiên + sparkline 7 ngày
-    ├── PatientDrawer.tsx    # hồ sơ: lưới liều, lịch sinh hoạt, nhật ký
     ├── AlertsView.tsx       # OPEN → ACKNOWLEDGED → RESOLVED
     ├── PrescriptionView.tsx # form kê đơn, duyệt, lịch agent sinh ra
     ├── GuardBanner.tsx      # nhắc ranh giới HITL

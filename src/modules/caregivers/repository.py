@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import delete, func, select, update

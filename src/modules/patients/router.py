@@ -11,7 +11,6 @@ from src.core.response import success_response
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.admin.service import AdminService
 from src.modules.auth.repository import AuthRepository
-from src.modules.auth.schemas import MessageResponse
 from src.modules.patients.repository import PatientRepository
 from src.modules.patients.schemas import (
     CreatePatientByDoctorRequest,

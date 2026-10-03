@@ -1,9 +1,8 @@
 """Notification dispatch service for consolidated dose reminders."""
 import hashlib
 import logging
-import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

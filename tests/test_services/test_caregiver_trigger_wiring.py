@@ -1,5 +1,4 @@
-import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -8,7 +7,7 @@ from src.core.config import get_settings
 from src.core.database import AsyncSessionLocal, engine
 from src.core.security import hash_password
 from src.modules.adherence.models import Alert, NotificationDelivery
-from src.modules.adherence.repository import AlertRepository, NotificationRepository
+from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.agents.repository import ScheduledDoseRepository
 from src.modules.agents.service import MissedDoseScanService

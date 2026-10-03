@@ -181,12 +181,6 @@ def _parse_time_str(t_str: str | None) -> time | None:
         return None
 
 
-def _time_in_window(value: time, start: time, end: time) -> bool:
-    if start <= end:
-        return start <= value <= end
-    return value >= start or value <= end
-
-
 async def _handle_busy_window(
     patient_id: str,
     extraction: RoutineDeviationExtraction,
