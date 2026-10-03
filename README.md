@@ -354,6 +354,7 @@ dosely-medication-adherence-agent/
 I would like to express our deepest gratitude to:
 - **The Program Organizing Committee** and mentor **Mr. Văn Hữu Quốc** for creating a meaningful academic platform, providing dedicated mentorship, and giving attentive guidance and direction throughout the project lifecycle, and **The Panel of Judges** for taking the time to listen to the team's presentation.
 - In addition, the team would like to express our sincere thanks to **Viện Dưỡng lão Diên Hồng (Cơ sở 6)** and **Mr. Nguyễn Quốc Huy** for providing valuable information, surveys, and professional medical support for the project.
+- Special thanks to **[HaXuanSon](https://github.com/sonbipayacctu10namtrcc)** for building the foundation of this project together — the base that Dosely is now being refactored and improved on.
 
 ---
 
