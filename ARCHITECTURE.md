@@ -328,7 +328,7 @@ dịch, CLAUDE.md) áp dụng ngay cả với code hiện tại.
 | Database | PostgreSQL managed trên Supabase (không tự host) | Giảm gánh vận hành DB, có sẵn backup/scaling cơ bản cho giai đoạn demo |
 | Async jobs | Celery + Redis (worker + beat riêng biệt) | Tách xử lý nền (nhắc thuốc, tính lịch) khỏi request/response chính |
 | Drug RAG | Dense (embedding) + BM25 hybrid, RRF-fused, tự host trên ChromaDB | Không phụ thuộc vector DB SaaS; kiểm soát được nguồn/citation cho tra cứu y tế |
-| Android client | Native Kotlin + Compose (không React Native/Flutter) | Theo `docs/Android_Compose_System_Design_Skills.md` + skill `android-development` |
+| Android client | Native Kotlin + Compose (không React Native/Flutter) | Theo skill `android-development` |
 | Web client | React + Vite (không Next.js) | `web/` build tĩnh, FastAPI mount trực tiếp — không cần Node server riêng khi deploy |
 | Reverse proxy | Caddy | Tự động cấp/gia hạn HTTPS (Let's Encrypt) không cần cấu hình thủ công |
 

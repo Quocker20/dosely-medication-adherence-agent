@@ -1,11 +1,9 @@
-# ADHE REMIND — Backend Architecture & Project Structure Guide
+# Dosely — Backend Architecture & Project Structure Guide
 
-> Note: "ADHE REMIND" only survives today as the internal `app_name` default in
-> `src/core/config.py:16` (asserted by `tests/test_api/test_core.py:18`). The actual
-> product/repo name everywhere else (README, package names, Docker container names) is
-> **Dosely**.
+> Note: the internal `app_name` default in `src/core/config.py:16` is still the legacy
+> `"ADHE REMIND API"` (asserted by `tests/test_api/test_core.py:18`); the product name is **Dosely**.
 
-This document defines the modular domain-driven architecture for the **ADHE REMIND** medication adherence platform backend.
+This document defines the modular domain-driven architecture for the **Dosely** medication adherence platform backend.
 
 ---
 
