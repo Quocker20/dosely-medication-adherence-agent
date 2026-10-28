@@ -48,7 +48,6 @@ def _patient_service(patient_repository: MagicMock) -> PatientService:
         # AsyncMock, not MagicMock: update_routine awaits
         # auth_repository.clear_need_onboarding(...).
         auth_repository=AsyncMock(),
-        caregiver_repository=MagicMock(),
     )
 
 
