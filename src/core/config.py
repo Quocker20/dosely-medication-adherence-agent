@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     database_url: str
+    # SQLAlchemy statement logging. Off by default and independent of app_env:
+    # echoed SQL carries bound parameters (PHI) into the logs (SEC-06/SEC-17).
+    sql_echo: bool = False
 
     # Redis Cache & Message Broker
     redis_host: str = "localhost"
@@ -72,7 +75,7 @@ class Settings(BaseSettings):
     celery_result_backend: str
 
     # JWT Security
-    jwt_secret_key: str
+    jwt_secret_key: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
@@ -99,7 +102,7 @@ class Settings(BaseSettings):
     api_timeout_seconds: int = 10
 
     # Password Security
-    password_pepper: str
+    password_pepper: str = Field(min_length=32)
 
     # Dosely — luật lâm sàng chạy bằng code xác định (không phải LLM).
     # Xem docs/Dosely_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".

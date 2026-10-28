@@ -14,7 +14,7 @@ settings = get_settings()
 
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.app_env == "development",
+    echo=settings.sql_echo,
     future=True,
 )
 
