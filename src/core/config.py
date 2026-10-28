@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     android_latest_version_code: int = Field(default=9, ge=1)
     android_latest_version_name: str = "1.7.0"
     android_latest_apk_filename: str = "dosely-1.7.0.apk"
+    # Public HTTPS origin the APK is downloaded from (SEC-11). Configured, never
+    # derived from the request's Host header, so a spoofed Host cannot redirect
+    # clients to an attacker's APK. The default is the production domain served
+    # by the Caddyfile; override per deployment.
+    android_download_base_url: str = "https://dosely.duckdns.org"
 
     # PostgreSQL Database
     # Defaults are the host-side view (pytest/alembic/uvicorn run on the
@@ -249,6 +254,14 @@ class Settings(BaseSettings):
     telegram_api_base_url: str = "https://api.telegram.org"
     caregiver_report_interval_days: int = Field(default=7, ge=1, le=30)
 
+
+    @field_validator("android_download_base_url")
+    @classmethod
+    def _download_base_url_must_be_https(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value.startswith("https://") or len(value) <= len("https://"):
+            raise ValueError("ANDROID_DOWNLOAD_BASE_URL must be an https:// URL")
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:

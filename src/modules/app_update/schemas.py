@@ -9,3 +9,5 @@ class LatestAppVersionResponse(BaseModel):
     version_code: int = Field(alias="versionCode")
     version_name: str = Field(alias="versionName")
     download_url: str = Field(alias="downloadUrl")
+    # Hex SHA-256 of the APK file; null when the file is not on disk.
+    sha256: str | None = None

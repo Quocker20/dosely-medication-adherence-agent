@@ -15,11 +15,11 @@ from src.core.config import Settings, get_settings
 from src.core.firebase_app import init_firebase
 from src.core.logging_config import configure_logging
 from src.core.redis import close_redis_connection
+from src.modules.app_update.service import DOWNLOADS_DIR
 from src.modules.caregivers.webhook_router import webhook_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
-DOWNLOADS_DIR = Path(__file__).resolve().parent.parent / "downloads"
 
 logger = logging.getLogger(__name__)
 

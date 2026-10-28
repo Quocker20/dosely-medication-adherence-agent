@@ -28,9 +28,9 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### APP RELEASE METADATA
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`) |
+| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`, `sha256`) |
 
-`downloadUrl` is generated from the server's own `/downloads/{apk_filename}` static mount. Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
+`downloadUrl` is `ANDROID_DOWNLOAD_BASE_URL` (HTTPS, configured) + `/downloads/{apk_filename}`; it is never derived from the request Host. `sha256` is the hex SHA-256 of the APK on disk (cached by mtime; `null` if the file is missing). Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
 
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
