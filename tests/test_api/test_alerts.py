@@ -5,7 +5,7 @@ page a doctor twice, nor double-count a dose) and the alert lifecycle a doctor
 drives from the portal.
 """
 import uuid
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -866,10 +866,12 @@ async def _create_doses_at(
     a catalogue entry here would only collide with _create_dose on the
     (source_name, source_record_key) unique index.
     """
-    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    today = datetime.now(UTC).astimezone(vn_tz).date()
-    today_start = datetime.combine(today, time.min, tzinfo=vn_tz).astimezone(UTC)
-    today_end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=vn_tz).astimezone(UTC)
+    # Doses sit at now + offset with no clamping to "today": clamping made the
+    # fixture depend on the time of day (late in the VN day every future dose
+    # collapsed onto the same instant and hit uq_scheduled_doses_item_original).
+    # Offsets are all under a day, so _summary_around_now's yesterday..tomorrow
+    # range contains them whenever the test runs.
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -891,11 +893,7 @@ async def _create_doses_at(
 
             now = datetime.now(UTC)
             for status, offset in doses:
-                raw_at = now + offset
-                if offset < timedelta(0):
-                    at = max(today_start + timedelta(seconds=1), min(raw_at, now - timedelta(seconds=1)))
-                else:
-                    at = min(today_end - timedelta(seconds=1), max(raw_at, now + timedelta(seconds=1)))
+                at = now + offset
                 db.add(
                     ScheduledDose(
                         prescription_item_id=item.id,
@@ -908,11 +906,16 @@ async def _create_doses_at(
                 )
 
 
-async def _summary_today(client, patient_id: uuid.UUID, headers: dict) -> dict:
+async def _summary_around_now(client, patient_id: uuid.UUID, headers: dict) -> dict:
+    """Summary over yesterday..tomorrow (patient-local), wide enough to hold
+    every dose _create_doses_at places within a day of now."""
     today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence",
-        params={"from": today.isoformat(), "to": today.isoformat()},
+        params={
+            "from": (today - timedelta(days=1)).isoformat(),
+            "to": (today + timedelta(days=1)).isoformat(),
+        },
         headers=headers,
     )
     assert response.status_code == 200
@@ -937,7 +940,7 @@ async def test_summary_excludes_doses_not_yet_due_today(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["adherence_rate"] == 100.0
@@ -957,7 +960,7 @@ async def test_summary_counts_overdue_pending_as_missed(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 2
     assert summary["taken_doses"] == 1
     assert summary["missed_doses"] == 1
@@ -979,7 +982,7 @@ async def test_summary_ignores_pending_dose_still_within_grace(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["missed_doses"] == 0
