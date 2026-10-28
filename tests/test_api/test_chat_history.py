@@ -27,7 +27,6 @@ class FakeRedis:
         self.store: dict[str, str] = {}
         self.get_calls: list[str] = []
         self.set_calls: list[str] = []
-        self.unlink_calls: list[tuple[str, ...]] = []
 
     async def get(self, key: str) -> str | None:
         self.get_calls.append(key)
@@ -37,16 +36,8 @@ class FakeRedis:
         self.set_calls.append(key)
         self.store[key] = value
 
-    async def scan_iter(self, match: str, count: int = 200):
-        prefix = match[:-1] if match.endswith("*") else match
-        for key in list(self.store):
-            if key.startswith(prefix):
-                yield key
-
-    async def unlink(self, *keys: str) -> None:
-        self.unlink_calls.append(tuple(keys))
-        for key in keys:
-            self.store.pop(key, None)
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.store.get(k) for k in keys]
 
 
 async def _purge_test_data() -> None:
@@ -301,7 +292,7 @@ async def test_chat_cache_and_invalidation(client):
                 headers=headers,
             )
         assert post_res.status_code == 200
-        assert redis.unlink_calls
+        assert any(k.endswith(":ver:chat:conversations") for k in redis.store)
 
         res2 = await client.get("/api/v1/chat/conversations", headers=headers)
         assert res2.status_code == 200

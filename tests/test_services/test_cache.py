@@ -13,8 +13,6 @@ cache; these tests turn it back on explicitly since they're testing the cache
 itself.
 """
 
-import fnmatch
-
 import pytest
 from pydantic import BaseModel
 
@@ -47,14 +45,15 @@ class FakeRedis:
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
 
-    async def scan_iter(self, match: str | None = None, count: int | None = None):
-        for key in list(self.store.keys()):
-            if match is None or fnmatch.fnmatch(key, match):
-                yield key
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.store.get(k) for k in keys]
 
-    async def unlink(self, *keys: str) -> None:
-        for key in keys:
-            self.store.pop(key, None)
+    async def scan_iter(self, *args, **kwargs):
+        raise AssertionError("P-07: invalidation must not SCAN the keyspace")
+        yield  # pragma: no cover
+
+    async def unlink(self, *args, **kwargs):
+        raise AssertionError("P-07: invalidation must not UNLINK keys")
 
 
 class BrokenRedis:
@@ -66,9 +65,8 @@ class BrokenRedis:
     async def set(self, *args, **kwargs):
         raise ConnectionError("redis is down")
 
-    async def scan_iter(self, *args, **kwargs):
+    async def mget(self, *args, **kwargs):
         raise ConnectionError("redis is down")
-        yield  # pragma: no cover — makes this an async generator
 
     async def unlink(self, *args, **kwargs):
         raise ConnectionError("redis is down")
@@ -301,3 +299,43 @@ class TestInvalidatePrefix:
     @pytest.mark.asyncio
     async def test_fails_open_on_redis_outage(self, broken_redis):
         await invalidate_prefix("dash:patients")  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_invalidation_bumps_a_version_without_scan_or_delete(self, fake_redis):
+        key = build_cache_key("dash:patients:list", params={"page": 1})
+        await cache_set_json(key, {"v": 1}, 60)
+        entries_before = {k for k in fake_redis.store if ":ver:" not in k}
+
+        await invalidate_prefix("dash:patients")
+
+        # Old entry is untouched (expires by TTL) but unreachable.
+        assert entries_before <= set(fake_redis.store)
+        assert await cache_get_json(key) is None
+        assert any(k.endswith(":ver:dash:patients") for k in fake_redis.store)
+
+    @pytest.mark.asyncio
+    async def test_new_writes_after_invalidation_are_served(self, fake_redis):
+        key = build_cache_key("dash:patients:list", params={"page": 1})
+        await cache_set_json(key, {"v": 1}, 60)
+        await invalidate_prefix("dash:patients")
+        await cache_set_json(key, {"v": 2}, 60)
+        assert await cache_get_json(key) == {"v": 2}
+
+    @pytest.mark.asyncio
+    async def test_narrower_and_broader_prefix_invalidation(self, fake_redis):
+        lst = build_cache_key("dash:patients:list", params={})
+        det = build_cache_key("dash:patients:detail", params={})
+        await cache_set_json(lst, {"v": 1}, 60)
+        await cache_set_json(det, {"v": 2}, 60)
+        await invalidate_prefix("dash:patients:list")
+        assert await cache_get_json(lst) is None
+        assert await cache_get_json(det) == {"v": 2}
+        await invalidate_prefix("dash")
+        assert await cache_get_json(det) is None
+
+    @pytest.mark.asyncio
+    async def test_similar_prefix_does_not_collide(self, fake_redis):
+        key = build_cache_key("dash:patientsX", params={})
+        await cache_set_json(key, {"v": 1}, 60)
+        await invalidate_prefix("dash:patients")
+        assert await cache_get_json(key) == {"v": 1}
