@@ -2,10 +2,16 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import UnauthorizedException, ValidationException
+from src.common.exceptions import (
+    TooManyRequestsException,
+    UnauthorizedException,
+    ValidationException,
+)
+from src.core import login_lockout
 from src.core.config import get_settings
 from src.core.security import (
     create_access_token,
@@ -15,6 +21,7 @@ from src.core.security import (
     verify_password_async,
 )
 from src.core.utils import clean_phone_number
+from src.modules.admin.repository import AuditLogRepository
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import (
     AuthTokenResponse,
@@ -25,6 +32,11 @@ from src.modules.auth.schemas import (
 logger = logging.getLogger(__name__)
 settings = get_settings()
 PIN_PATTERN = re.compile(r"^\d{6}$")
+
+
+def _mask_phone(phone: str) -> str:
+    """Keep only the last 3 digits in audit rows."""
+    return "*" * max(len(phone) - 3, 0) + phone[-3:]
 
 
 _dummy_hash_value: str | None = None
@@ -50,23 +62,34 @@ class AuthService:
         """Validate if password string is a 6-digit PIN."""
         return bool(pin and PIN_PATTERN.match(pin))
 
-    async def login(self, phone: str, password: str) -> AuthTokenResponse:
+    async def login(
+        self, phone: str, password: str, ip_address: str | None = None
+    ) -> AuthTokenResponse:
         """Authenticate user with phone and 6-digit PIN password.
 
         1. Clean phone number to E.164 format.
         2. Retrieve user and verify status.
-        3. Verify password + pepper against stored bcrypt hash.
+        3. Verify password + pepper against stored bcrypt hash. Failures (wrong
+           PIN or unknown phone, indistinguishable to the caller) count towards
+           a per-phone Redis lockout (SEC-03) and are audit-logged without the PIN.
         4. Issue access and refresh tokens.
         5. Return AuthTokenResponse containing must_change_password and
            need_onboarding status.
         """
-        if not self._is_valid_pin(password):
-            raise UnauthorizedException(message="Invalid phone number or password")
-
         try:
             cleaned_phone = clean_phone_number(phone)
         except Exception:
             raise UnauthorizedException(message="Invalid phone number or password")
+
+        remaining = await login_lockout.get_lock_remaining(cleaned_phone)
+        if remaining > 0:
+            raise TooManyRequestsException(
+                message=login_lockout.lock_message(remaining),
+                retry_after_seconds=remaining,
+            )
+
+        if not self._is_valid_pin(password):
+            await self._login_failed(cleaned_phone, None, "malformed_pin", ip_address)
 
         # P-03: read, then close the transaction BEFORE the slow bcrypt check so
         # no connection/row state is held while the CPU work runs in a thread.
@@ -77,10 +100,13 @@ class AuthService:
             # Burn the same bcrypt time so response latency does not reveal
             # whether the phone number exists.
             await verify_password_async(password, await _dummy_hash())
-            raise UnauthorizedException(message="Invalid phone number or password")
+            reason = "unknown_phone" if user is None else "inactive_user"
+            await self._login_failed(cleaned_phone, user, reason, ip_address)
 
         if not await verify_password_async(password, user.hashed_password):
-            raise UnauthorizedException(message="Invalid phone number or password")
+            await self._login_failed(cleaned_phone, user, "wrong_pin", ip_address)
+
+        await login_lockout.reset_failures(cleaned_phone)
 
         async with self._db.begin():
             # Generate token pair
@@ -116,6 +142,42 @@ class AuthService:
                 status=user.status,
             ),
         )
+
+    async def _login_failed(
+        self,
+        cleaned_phone: str,
+        user,
+        reason: str,
+        ip_address: str | None,
+    ) -> NoReturn:
+        """Count the failure, audit-log it (never the PIN) and raise.
+
+        Always raises: 429 if this failure tripped the lockout, otherwise the
+        same generic 401 for unknown phone / inactive / wrong PIN.
+        """
+        locked_for = await login_lockout.register_failure(cleaned_phone)
+        try:
+            async with self._db.begin():
+                await AuditLogRepository(self._db).create_audit_log(
+                    action="LOGIN_FAILED",
+                    entity_type="auth",
+                    actor_user_id=user.id if user is not None else None,
+                    entity_id=user.id if user is not None else None,
+                    new_values={
+                        "phone": _mask_phone(cleaned_phone),
+                        "reason": reason,
+                        "locked_for_seconds": locked_for or None,
+                    },
+                    ip_address=ip_address,
+                )
+        except Exception:  # noqa: BLE001 - auditing must not change the response
+            logger.warning("Could not audit-log failed login", exc_info=True)
+        if locked_for:
+            raise TooManyRequestsException(
+                message=login_lockout.lock_message(locked_for),
+                retry_after_seconds=locked_for,
+            )
+        raise UnauthorizedException(message="Invalid phone number or password")
 
     async def change_password(
         self, user_id: str | uuid.UUID, current_password: str, new_password: str
