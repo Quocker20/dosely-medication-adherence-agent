@@ -129,18 +129,15 @@ async def _patched_send_environment(delivery, *, tokens=("token_123",), fcm_resu
     mock_session.begin.return_value.__aexit__ = AsyncMock()
     mock_session.commit = AsyncMock()
 
+    @asynccontextmanager
+    async def fake_task_session():
+        yield mock_session
+
     with (
-        patch("src.modules.agents.tasks.create_async_engine") as mock_engine_cls,
-        patch("src.modules.agents.tasks.async_sessionmaker") as mock_sm_cls,
+        patch("src.modules.agents.tasks.task_session", fake_task_session),
         patch("src.modules.agents.tasks.NotificationRepository") as mock_repo_cls,
         patch("src.modules.agents.tasks.FCMService.send_push_notification") as mock_fcm,
     ):
-        mock_engine_cls.return_value = AsyncMock()
-        mock_sm = MagicMock()
-        mock_sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_sm.return_value.__aexit__ = AsyncMock()
-        mock_sm_cls.return_value = mock_sm
-
         mock_repo = AsyncMock()
         mock_repo.get_delivery_by_id.return_value = delivery
         mock_repo.get_active_fcm_tokens.return_value = list(tokens)
