@@ -116,7 +116,7 @@ class AuthRepository:
     async def upsert_user_device(
         self, user_id: uuid.UUID, fcm_token: str, device_name: str | None = None
     ) -> None:
-        """Upsert an FCM token for the user. If token already exists (for any user), 
+        """Upsert an FCM token for the user. If token already exists (for any user),
         reassign it to the current user and update device_name/active status."""
         stmt = (
             pg_insert(UserDevice)

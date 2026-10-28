@@ -176,7 +176,8 @@ async def _execute_daily_adverse_event_summary() -> None:
                     ).order_by(SuspectedAdverseEvent.patient_id, SuspectedAdverseEvent.reported_at)
                 )).scalars().all())
                 grouped: dict[uuid.UUID, list[SuspectedAdverseEvent]] = {}
-                for row in rows: grouped.setdefault(row.patient_id, []).append(row)
+                for row in rows:
+                    grouped.setdefault(row.patient_id, []).append(row)
                 now = datetime.now(UTC)
                 for patient_id, events in grouped.items():
                     names = sorted({str(s.get("name")) for event in events for s in event.symptoms if s.get("name")})

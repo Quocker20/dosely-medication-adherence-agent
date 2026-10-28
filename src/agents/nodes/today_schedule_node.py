@@ -6,6 +6,12 @@ import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from langchain_core.messages import AIMessage
+
+from src.agents.nodes.next_dose_node import format_dose_value
+from src.agents.state import AgentState
+from src.modules.planning.core.backend_client import BackendAPIError, get
+
 
 def _resolve_weekday_reference(reference: str, base: date) -> date | None:
     """Resolve Vietnamese weekday references without trusting an LLM date."""
@@ -36,11 +42,7 @@ def _resolve_relative_date(reference: str, base: date) -> date | None:
     offset = offsets.get(value)
     return base + timedelta(days=offset) if offset is not None else None
 
-from langchain_core.messages import AIMessage
 
-from src.agents.nodes.next_dose_node import format_dose_value
-from src.agents.state import AgentState
-from src.modules.planning.core.backend_client import BackendAPIError, get
 
 _PATIENT_STATUS = {
     "TAKEN": "Đã uống",

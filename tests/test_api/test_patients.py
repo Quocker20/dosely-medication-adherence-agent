@@ -5,6 +5,12 @@ import pytest_asyncio
 from sqlalchemy import delete
 
 from src.core.database import AsyncSessionLocal, engine
+from src.core.security import hash_password
+from src.modules.admin.models import DoctorProfile
+from src.modules.admin.repository import DoctorRepository
+from src.modules.auth.models import User
+from src.modules.auth.repository import AuthRepository
+from src.modules.prescriptions.models import Prescription
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -18,12 +24,6 @@ async def _dispose_engine_pool():
     """
     yield
     await engine.dispose()
-from src.core.security import hash_password
-from src.modules.admin.models import DoctorProfile
-from src.modules.admin.repository import DoctorRepository
-from src.modules.auth.models import User
-from src.modules.auth.repository import AuthRepository
-from src.modules.prescriptions.models import Prescription
 
 
 async def _create_doctor(phone: str, pin: str, name: str, license_no: str) -> uuid.UUID:

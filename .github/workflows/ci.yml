@@ -128,6 +128,25 @@ jobs:
           -Dkotlin.compiler.execution.strategy=in-process
         working-directory: android
 
+  # Blocking: the whole of src/ and tests/ is ruff-clean (O-11); keep it that way.
+  lint:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install "ruff>=0.8.0"
+
+      - name: Ruff
+        run: ruff check src/ tests/
+
   # Full backend suite against throwaway Postgres + Redis service containers
   # (same images/ports as docker-compose.test.yml). Settings come from the
   # committed .env.test; tests/conftest.py aborts unless DATABASE_URL is the
@@ -174,9 +193,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Report legacy lint debt
-        run: ruff check src/ tests/
 
       - name: Provision test database schema
         run: python scripts/test_db_setup.py

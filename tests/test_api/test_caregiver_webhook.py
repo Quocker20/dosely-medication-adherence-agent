@@ -66,7 +66,6 @@ async def test_webhook_start_valid_code_binds_caregiver(client, monkeypatch):
                 relationship="Con gái",
                 link_code="ABC123",
             )
-            patient_id = user.id
             link_id = link.id
 
     from src.core.telegram import get_telegram_client

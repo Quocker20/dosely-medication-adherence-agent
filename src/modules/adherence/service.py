@@ -242,8 +242,8 @@ class AdherenceLogService:
 
         existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
         if existing_logs:
-            log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
-            dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+            log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in existing_logs]
+            dose_ids = [log.scheduled_dose_id for log in existing_logs if log.scheduled_dose_id]
             return BatchRecordDoseActionResponse(
                 patient_id=actor_id,
                 action=existing_logs[0].action,
@@ -309,8 +309,8 @@ class AdherenceLogService:
         except IntegrityError:
             existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
             if existing_logs:
-                log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
-                dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+                log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in existing_logs]
+                dose_ids = [log.scheduled_dose_id for log in existing_logs if log.scheduled_dose_id]
                 return BatchRecordDoseActionResponse(
                     patient_id=actor_id,
                     action=existing_logs[0].action,
@@ -320,7 +320,7 @@ class AdherenceLogService:
                 )
             raise
 
-        log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in logs]
+        log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in logs]
         response = BatchRecordDoseActionResponse(
             patient_id=actor_id,
             action=request.action,

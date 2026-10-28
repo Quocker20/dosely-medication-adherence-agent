@@ -92,12 +92,16 @@ class AdverseEventService:
                               alert_type="SUSPECTED_ADVERSE_EVENT", severity=request.risk_level, status="OPEN",
                               message="Triệu chứng nghi ngờ cần bác sĩ xem ngay: " + ", ".join(s.name for s in request.symptoms),
                               alert_metadata={"adverse_event_id": str(event.id), "symptoms": event.symptoms})
-                self.db.add(alert); await self.db.flush(); await self.repo.attach_alert(event.id, alert.id); event.alert_id = alert.id
+                self.db.add(alert)
+                await self.db.flush()
+                await self.repo.attach_alert(event.id, alert.id)
+                event.alert_id = alert.id
         return AdverseEventResponse.model_validate(event)
 
     async def get_for_patient(self, patient_id: uuid.UUID, event_id: uuid.UUID, actor: dict):
         if uuid.UUID(actor["sub"]) != patient_id:
             raise ForbiddenException(message="Cannot read another patient's event")
         event = await self.repo.get_for_patient(event_id, patient_id)
-        if event is None: raise NotFoundException(message="Suspected adverse event not found")
+        if event is None:
+            raise NotFoundException(message="Suspected adverse event not found")
         return AdverseEventResponse.model_validate(event)
