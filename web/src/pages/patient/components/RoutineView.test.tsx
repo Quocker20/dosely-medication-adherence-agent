@@ -23,7 +23,12 @@ vi.mock("../../../api", () => ({
 class StubWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  sent: string[] = [];
+  send(data: string) {
+    this.sent.push(data);
+  }
   close() {}
 }
 
@@ -131,6 +136,18 @@ describe("RoutineView", () => {
     // before load() resolves and clears the flag — the component only shows
     // it for the window between the event and the authoritative re-fetch.
     let resolveReload: ((routine: PatientRoutine) => void) | undefined;
+    patientRoutineMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReload = resolve;
+      }),
+    );
+
+    act(() => {
+      socket?.onopen?.();
+      socket?.onmessage?.({ data: JSON.stringify({ type: "auth_ok", expires_in: 900 }) });
+    });
+    expect(JSON.parse(socket?.sent[0] ?? "{}")).toEqual({ type: "auth", token: "token-abc" });
+    patientRoutineMock.mockClear();
     patientRoutineMock.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveReload = resolve;

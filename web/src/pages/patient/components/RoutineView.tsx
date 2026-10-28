@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, api } from "../../../api";
+import { connectSessionRealtime } from "../../../api/realtime";
 import type { PatientRoutine, UpdatePatientRoutineRequest } from "../../../types";
 
 const FIELDS: Array<{ key: keyof UpdatePatientRoutineRequest; label: string; help: string }> = [
@@ -51,35 +52,24 @@ export default function RoutineView({ patientId, accessToken, onScheduleChanged,
   }, [load]);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = import.meta.env.VITE_WS_HOST || window.location.host;
-    let retryId: number | undefined;
-    let closed = false;
-    let socket: WebSocket | null = null;
-    const connect = () => {
-      socket = new WebSocket(`${protocol}//${wsHost}/ws/patient?token=${encodeURIComponent(accessToken)}`);
-      socket.onopen = () => { load().catch(() => {}); };
-      socket.onmessage = (event) => {
-        try {
-          const frame = JSON.parse(event.data) as { event_type?: string };
+    // Token đi qua tin nhắn auth đầu tiên (không nằm trên URL); helper lo xác
+    // thực, refresh khi 4401 và nối lại có backoff.
+    return connectSessionRealtime(
+      "/ws/patient",
+      {
+        onReady: () => { load().catch(() => {}); },
+        onEvent: (frame) => {
           if (frame.event_type === "routine.updated") {
             setRemoteChanged(true);
             load().catch(() => setRemoteChanged(true));
           }
           if (frame.event_type === "schedule.updated") onScheduleChanged();
-        } catch { /* The REST read is authoritative; ignore malformed frames. */ }
-      };
-      socket.onclose = () => {
-        if (!closed) retryId = window.setTimeout(connect, 2_000);
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (retryId) window.clearTimeout(retryId);
-      socket?.close();
-    };
-  }, [accessToken, load, onScheduleChanged]);
+        },
+      },
+      accessToken,
+    );
+    // accessToken chỉ là dự phòng khi chưa có phiên; token đổi không được tái kết nối.
+  }, [load, onScheduleChanged]);
 
   const changes = useMemo<UpdatePatientRoutineRequest>(() => {
     if (!saved || !form) return {};
