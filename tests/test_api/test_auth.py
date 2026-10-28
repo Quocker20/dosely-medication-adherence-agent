@@ -260,3 +260,30 @@ async def test_routine_update_clears_need_onboarding_but_empty_put_does_not(clie
         assert user.need_onboarding is False
     finally:
         await _cleanup([doctor_id], [patient_phone])
+
+
+@pytest.mark.asyncio
+async def test_login_verifies_pin_without_open_transaction():
+    """P-03: bcrypt must not run while a DB transaction is open."""
+    from unittest.mock import patch
+
+    from src.core.security import verify_password_async
+    from src.modules.auth.service import AuthService
+
+    phone = "+84900600555"
+    user_id = await _create_doctor(phone, "123456", "Dr Txn", "LIC-AUTH-TXN")
+    states: list[bool] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            service = AuthService(db=db, repository=AuthRepository(db))
+
+            async def spy(*args, **kwargs):
+                states.append(db.in_transaction())
+                return await verify_password_async(*args, **kwargs)
+
+            with patch("src.modules.auth.service.verify_password_async", new=spy):
+                result = await service.login(phone, "123456")
+        assert result.user.id == user_id
+        assert states == [False]
+    finally:
+        await _cleanup([user_id], [])

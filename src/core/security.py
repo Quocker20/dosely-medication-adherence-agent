@@ -1,3 +1,4 @@
+import asyncio
 import re
 import uuid
 from collections.abc import Callable
@@ -65,6 +66,23 @@ def verify_password(
         return bcrypt.checkpw(peppered_bytes, hashed_password.encode("utf-8"))
     except Exception:
         return False
+
+
+async def hash_password_async(
+    plain_password: str, pepper: str | None = None
+) -> str:
+    """hash_password on a worker thread: bcrypt is ~100+ ms of CPU and would
+    otherwise stall every other request on the event loop (P-03)."""
+    return await asyncio.to_thread(hash_password, plain_password, pepper)
+
+
+async def verify_password_async(
+    plain_password: str, hashed_password: str, pepper: str | None = None
+) -> bool:
+    """verify_password on a worker thread (P-03)."""
+    return await asyncio.to_thread(
+        verify_password, plain_password, hashed_password, pepper
+    )
 
 
 def create_access_token(

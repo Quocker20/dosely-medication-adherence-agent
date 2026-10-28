@@ -14,7 +14,7 @@ from src.common.exceptions import (
 )
 from src.common.pagination import page_count
 from src.common.schemas import PageResponse
-from src.core.security import hash_password, validate_phone_number
+from src.core.security import hash_password_async, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.admin.schemas import (
     AuditLogListResponse,
@@ -66,7 +66,7 @@ class AdminService:
         cleaned_phone = validate_phone_number(request.phone)
 
         temp_pin = self._generate_temp_pin()
-        hashed_pin = hash_password(temp_pin)
+        hashed_pin = await hash_password_async(temp_pin)
         actor_user_id = (
             uuid.UUID(actor_payload["sub"]) if actor_payload.get("sub") else None
         )

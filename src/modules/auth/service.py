@@ -11,8 +11,8 @@ from src.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    hash_password,
-    verify_password,
+    hash_password_async,
+    verify_password_async,
 )
 from src.core.utils import clean_phone_number
 from src.modules.auth.repository import AuthRepository
@@ -25,6 +25,17 @@ from src.modules.auth.schemas import (
 logger = logging.getLogger(__name__)
 settings = get_settings()
 PIN_PATTERN = re.compile(r"^\d{6}$")
+
+
+_dummy_hash_value: str | None = None
+
+
+async def _dummy_hash() -> str:
+    """Valid bcrypt hash used to equalise timing for unknown phone numbers."""
+    global _dummy_hash_value
+    if _dummy_hash_value is None:
+        _dummy_hash_value = await hash_password_async("000000")
+    return _dummy_hash_value
 
 
 class AuthService:
@@ -57,15 +68,21 @@ class AuthService:
         except Exception:
             raise UnauthorizedException(message="Invalid phone number or password")
 
-        # All DB operations in one transaction
+        # P-03: read, then close the transaction BEFORE the slow bcrypt check so
+        # no connection/row state is held while the CPU work runs in a thread.
         async with self._db.begin():
             user = await self._repository.get_user_by_phone(cleaned_phone)
-            if user is None or user.status != "ACTIVE":
-                raise UnauthorizedException(message="Invalid phone number or password")
 
-            if not verify_password(password, user.hashed_password):
-                raise UnauthorizedException(message="Invalid phone number or password")
+        if user is None or user.status != "ACTIVE":
+            # Burn the same bcrypt time so response latency does not reveal
+            # whether the phone number exists.
+            await verify_password_async(password, await _dummy_hash())
+            raise UnauthorizedException(message="Invalid phone number or password")
 
+        if not await verify_password_async(password, user.hashed_password):
+            raise UnauthorizedException(message="Invalid phone number or password")
+
+        async with self._db.begin():
             # Generate token pair
             access_token = create_access_token(
                 user_id=str(user.id),
@@ -120,16 +137,17 @@ class AuthService:
 
         uid = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
 
-        # All DB operations in one transaction
+        # P-03: bcrypt runs in worker threads with no transaction open.
         async with self._db.begin():
             user = await self._repository.get_user_by_id(uid)
-            if user is None:
-                raise UnauthorizedException(message="User not found")
+        if user is None:
+            raise UnauthorizedException(message="User not found")
 
-            if not verify_password(current_password, user.hashed_password):
-                raise ValidationException(message="Current password is incorrect")
+        if not await verify_password_async(current_password, user.hashed_password):
+            raise ValidationException(message="Current password is incorrect")
 
-            new_hashed = hash_password(new_password)
+        new_hashed = await hash_password_async(new_password)
+        async with self._db.begin():
             await self._repository.change_password(
                 user.id, new_hashed, clear_need_onboarding=user.role != "PATIENT"
             )

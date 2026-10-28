@@ -17,7 +17,7 @@ from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
-from src.core.security import hash_password, validate_phone_number
+from src.core.security import hash_password_async, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.auth.repository import AuthRepository
 from src.modules.patients.constants import DEFAULT_ROUTINE
@@ -116,7 +116,7 @@ class PatientService:
         doctor_id = uuid.UUID(actor_payload["sub"])
 
         temp_pin = self._generate_temp_pin()
-        hashed_pin = hash_password(temp_pin)
+        hashed_pin = await hash_password_async(temp_pin)
 
         try:
             async with self._db.begin():
@@ -392,7 +392,7 @@ class PatientService:
             return user, None
 
         temp_pin = self._generate_temp_pin()
-        hashed_pin = hash_password(temp_pin)
+        hashed_pin = await hash_password_async(temp_pin)
         try:
             async with self._db.begin():
                 user = await self._auth_repo.create_user(
