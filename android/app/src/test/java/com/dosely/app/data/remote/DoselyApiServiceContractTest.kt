@@ -107,7 +107,8 @@ class DoselyApiServiceContractTest {
             {
               "versionCode": 7,
               "versionName": "1.5.0",
-              "downloadUrl": "https://api.example.test/downloads/dosely-demo.apk"
+              "downloadUrl": "https://api.example.test/downloads/dosely-demo.apk",
+              "sha256": "abc123"
             }
             """.trimIndent(),
         )
@@ -123,6 +124,7 @@ class DoselyApiServiceContractTest {
             "https://api.example.test/downloads/dosely-demo.apk",
             latest?.downloadUrl,
         )
+        assertEquals("abc123", latest?.sha256)
     }
 
     @Test

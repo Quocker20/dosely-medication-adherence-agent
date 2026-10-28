@@ -69,7 +69,14 @@ fun AppUpdateBanner(
     }
 }
 
-/** Opens the APK in a browser; Android installation remains a user action. */
+/**
+ * Opens the APK in a browser; Android installation remains a user action.
+ *
+ * TODO(SEC-11): [AppUpdateInfo.sha256] is carried through but cannot be checked here -
+ * the download happens in the external browser/DownloadManager, outside the app's
+ * control. Verifying the hash before install requires downloading in-app (e.g.
+ * DownloadManager + MessageDigest, then installing from our own FileProvider URI).
+ */
 fun createAppUpdateIntent(downloadUrl: String): Intent = Intent(
     Intent.ACTION_VIEW,
     Uri.parse(downloadUrl),

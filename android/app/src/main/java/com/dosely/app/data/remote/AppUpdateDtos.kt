@@ -10,4 +10,6 @@ data class LatestAppVersionDto(
     val versionName: String,
     @SerializedName("downloadUrl")
     val downloadUrl: String,
+    @SerializedName("sha256")
+    val sha256: String? = null,
 )
