@@ -181,7 +181,7 @@ alembic stamp 0001_baseline
 alembic upgrade head
 
 # Seed initial formulary medications (66 core active substances)
-python scripts/seed_medications.py
+python scripts/db/seed_medications.py
 ```
 
 #### 5. Launch FastAPI Backend Server
@@ -250,7 +250,7 @@ make test            # = make test-up test-db test-run
 
 # Without make (e.g. Windows):
 docker compose -f docker-compose.test.yml up -d --wait
-python scripts/test_db_setup.py
+python scripts/db/test_db_setup.py
 pytest -q
 
 # Tear down the test containers

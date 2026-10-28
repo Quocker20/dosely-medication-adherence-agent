@@ -12,7 +12,7 @@ test-up:
 
 # Resets the test DB's public schema, applies docs/database_v1_init.sql, runs alembic upgrade head.
 test-db:
-	$(PYTHON) scripts/test_db_setup.py
+	$(PYTHON) scripts/db/test_db_setup.py
 
 test-run:
 	$(PYTHON) -m pytest tests/ -v

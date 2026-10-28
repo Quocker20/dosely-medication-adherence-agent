@@ -10,7 +10,7 @@ from typing import Any
 
 SOURCE_NAME = "WHO_EML_2023_STARTER"
 SOURCE_REF = "https://www.who.int/publications/i/item/WHO-MHP-HPS-EML-2023.02"
-DEFAULT_CATALOG = Path(__file__).resolve().parent / "data" / "who_eml_2023_starter.json"
+DEFAULT_CATALOG = Path(__file__).resolve().parent.parent / "data" / "who_eml_2023_starter.json"
 
 
 def load_catalog(path: Path) -> list[dict[str, str]]:

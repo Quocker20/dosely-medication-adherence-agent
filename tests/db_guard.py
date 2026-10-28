@@ -1,6 +1,6 @@
 """Refuse to let the test suite near a database it does not own (O-12).
 
-Many tests DELETE rows, and scripts/test_db_setup.py drops the whole public
+Many tests DELETE rows, and scripts/db/test_db_setup.py drops the whole public
 schema. Both are only acceptable against the throwaway database started by
 docker-compose.test.yml, so every destructive entry point calls
 ``assert_test_database`` first.

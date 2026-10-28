@@ -14,7 +14,7 @@ import numpy as np
 from dotenv import load_dotenv
 from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = ROOT / "data" / "rag_corpus" / "chunks_ready.jsonl"
 DEFAULT_OUTPUT = ROOT / "data" / "rag_dense_index"
 

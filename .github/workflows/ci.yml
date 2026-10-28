@@ -195,7 +195,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Provision test database schema
-        run: python scripts/test_db_setup.py
+        run: python scripts/db/test_db_setup.py
 
       - name: Run full repository tests
         run: pytest tests/ -v --tb=short

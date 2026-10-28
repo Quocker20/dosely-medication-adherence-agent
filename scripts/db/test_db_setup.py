@@ -7,7 +7,7 @@ reset the public schema, apply the init SQL, run ``alembic upgrade head``.
 Refuses to touch anything that is not the local test database
 (tests/db_guard.py). Settings come from .env.test, never from .env.
 
-Usage: python scripts/test_db_setup.py   (after `make test-up`)
+Usage: python scripts/db/test_db_setup.py   (after `make test-up`)
 """
 
 import os
@@ -20,7 +20,7 @@ import psycopg2
 from dotenv import dotenv_values
 from sqlalchemy.engine import make_url
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tests.db_guard import assert_test_database  # noqa: E402
