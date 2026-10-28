@@ -77,7 +77,9 @@ class FCMService:
         dead_tokens: list[str] = []
         try:
             response = messaging.send_each_for_multicast(message)
-        except Exception as exc:
+        except (fb_exceptions.FirebaseError, ValueError, OSError) as exc:
+            # Anything else (a bug in this process) propagates instead of being
+            # reported as a delivery failure.
             if _is_transient(exc):
                 raise FCMTransientError(f"FCM call failed transiently: {type(exc).__name__}") from exc
             logger.error("FCM call failed permanently (%s)", type(exc).__name__, exc_info=True)

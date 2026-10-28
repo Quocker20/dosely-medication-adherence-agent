@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from kombu.exceptions import KombuError
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import get_settings
@@ -23,6 +25,10 @@ logger = logging.getLogger(__name__)
 DOSE_REMINDER_TEMPLATE_CODE = "DOSE_REMINDER_GROUPED"
 
 DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh"
+
+# What Celery's .delay() raises when the Redis broker is unreachable (kombu
+# wraps connection errors in OperationalError; raw redis/OS errors can leak).
+ENQUEUE_ERRORS = (KombuError, RedisError, OSError)
 
 
 class NotificationDispatchService:
@@ -164,14 +170,16 @@ class NotificationDispatchService:
             await self._db.commit()
 
         # 2. Enqueue Celery task gửi push notification cho các delivery mới tạo
+        # Only broker/connectivity failures are tolerated (the committed row is
+        # re-enqueued by requeue_stale_deliveries); a bug must not be masked.
         if new_deliveries:
-            try:
-                from src.modules.agents.tasks import send_notification_task
+            from src.modules.agents.tasks import send_notification_task
 
-                for delivery in new_deliveries:
+            for delivery in new_deliveries:
+                try:
                     send_notification_task.delay(str(delivery.id))
-            except Exception as exc:
-                logger.error("Failed to enqueue send_notification_task: %s", exc)
+                except ENQUEUE_ERRORS:
+                    logger.error("Failed to enqueue send_notification_task for delivery %s", delivery.id, exc_info=True)
 
         return final_deliveries
 
@@ -206,7 +214,7 @@ class NotificationDispatchService:
             try:
                 send_notification_task.delay(str(delivery_id))
                 enqueued.append(delivery_id)
-            except Exception:
+            except ENQUEUE_ERRORS:
                 logger.error("Failed to re-enqueue delivery %s", delivery_id, exc_info=True)
         logger.info("Re-enqueued %d stale notification deliveries", len(enqueued))
         return enqueued
