@@ -33,14 +33,14 @@ async def test_five_failures_lock_for_15_minutes(redis):
 
 
 @pytest.mark.asyncio
-async def test_lock_escalates_to_1h_then_24h(redis):
+async def test_lock_escalates_to_1h_and_is_capped_there(redis):
     durations = []
-    for _ in range(3):
+    for _ in range(4):
         for _ in range(4):
             await login_lockout.register_failure(PHONE)
         durations.append(await login_lockout.register_failure(PHONE))
         redis.advance(durations[-1] + 1)
-    assert durations == [900, 3600, 86400]
+    assert durations == [900, 3600, 3600, 3600]
 
 
 @pytest.mark.asyncio
@@ -81,5 +81,4 @@ def test_lock_message_formats_minutes_and_hours():
     assert "15 phút" in login_lockout.lock_message(900)
     assert "1 phút" in login_lockout.lock_message(30)
     assert "1 giờ" in login_lockout.lock_message(3600)
-    assert "24 giờ" in login_lockout.lock_message(86400)
     assert login_lockout.lock_message(900).startswith("Bạn đã nhập sai quá nhiều lần.")

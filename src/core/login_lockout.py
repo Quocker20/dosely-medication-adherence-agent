@@ -7,7 +7,7 @@ guessing is limiting attempts. State lives in Redis:
 * ``loginlock:{phone}``  present while locked, TTL = lock duration
 * ``loginlevel:{phone}`` how many lockouts in the last 24 h (escalation), TTL 24 h
 
-Lock duration escalates 15 min -> 1 h -> 24 h on repeats within 24 h. A
+Lock duration escalates 15 min -> 1 h on repeats within 24 h (1 h is the cap). A
 successful login clears the failure counter (not the escalation level).
 
 Keyed by phone, not by user id, and counts unknown phones too, so the response
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 MAX_FAILURES = 5
 FAIL_WINDOW_SECONDS = 15 * 60
 LEVEL_WINDOW_SECONDS = 24 * 60 * 60
-LOCK_DURATIONS = (15 * 60, 60 * 60, 24 * 60 * 60)
+LOCK_DURATIONS = (15 * 60, 60 * 60)
 
 
 def _fail_key(phone: str) -> str:
