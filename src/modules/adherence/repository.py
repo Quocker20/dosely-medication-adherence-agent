@@ -688,6 +688,20 @@ class AlertRepository:
         await self._db.flush()
         return alert
 
+    async def list_recent_for_patient(
+        self, patient_id: uuid.UUID, since: datetime, limit: int
+    ) -> list[Alert]:
+        """Newest-first alerts raised for a patient since `since` (SOS soft
+        limit, SEC-09)."""
+        stmt = (
+            select(Alert)
+            .where(Alert.patient_id == patient_id, Alert.created_at >= since)
+            .order_by(Alert.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_by_idempotency_key(self, idempotency_key: str) -> Alert | None:
         stmt = select(Alert).where(Alert.idempotency_key == idempotency_key)
         result = await self._db.execute(stmt)

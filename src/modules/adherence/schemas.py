@@ -1,8 +1,9 @@
+import json
 import uuid
 from datetime import date, datetime, time
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RecordDoseActionRequest(BaseModel):
@@ -145,6 +146,10 @@ class HealthSurveyFullDetailResponse(BaseModel):
     symptoms: list[SymptomReportDetailResponse]
 
 
+SOS_MESSAGE_MAX_CHARS = 500
+SOS_METADATA_MAX_BYTES = 4096
+
+
 class TriggerSosRequest(BaseModel):
     """Request schema for POST /patients/{patient_id}/sos.
 
@@ -161,11 +166,37 @@ class TriggerSosRequest(BaseModel):
     triggered_by_type: Literal["SOS_BUTTON", "SEVERE_SYMPTOM", "MISSED_DOSES"] = "SOS_BUTTON"
     severity: Literal["CRITICAL", "HIGH", "MEDIUM"] = "CRITICAL"
 
+    @field_validator("message")
+    @classmethod
+    def _bound_message(cls, value: str | None) -> str | None:
+        """SEC-09: cap at SOS_MESSAGE_MAX_CHARS by truncating, never rejecting.
+
+        The agent builds `message` from reason + the patient's own words, so it
+        can legitimately run long; a 422 here would drop a genuine safety
+        alert. Truncation bounds storage without ever blocking one.
+        """
+        if value is not None and len(value) > SOS_MESSAGE_MAX_CHARS:
+            return value[: SOS_MESSAGE_MAX_CHARS - 1] + "…"
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def _bound_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """SEC-09: serialized metadata must fit SOS_METADATA_MAX_BYTES. The
+        agent sends ~40 bytes ({"source": "agent_auto_detect"}); its evidence
+        text travels in `message`, so this cap leaves ample headroom."""
+        size = len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
+        if size > SOS_METADATA_MAX_BYTES:
+            raise ValueError(
+                f"metadata must be at most {SOS_METADATA_MAX_BYTES} bytes when serialized"
+            )
+        return value
+
 
 class ResolveAlertRequest(BaseModel):
     """Request schema for POST /alerts/{alert_id}/resolve."""
 
-    resolution_note: str = Field(min_length=1)
+    resolution_note: str = Field(min_length=1, max_length=1000)
 
 
 class AlertDetailResponse(BaseModel):

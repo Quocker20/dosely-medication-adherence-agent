@@ -671,6 +671,11 @@ class HealthSurveyService:
         )
 
 
+# SEC-09: soft per-patient SOS limit (see AlertService.trigger_sos).
+SOS_SOFT_LIMIT_PER_MINUTE = 5
+SOS_SOFT_LIMIT_WINDOW_SECONDS = 60
+
+
 class AlertService:
     """Service handling SOS triggers and doctor-side alert acknowledge/resolve/list."""
 
@@ -707,6 +712,34 @@ class AlertService:
             raise NotFoundException(message="Patient not found")
         if self._db.in_transaction():
             await self._db.commit()
+
+        # Idempotent replay first: a retried tap must return its own alert even
+        # when the patient is currently over the soft limit.
+        replay = await self._alert_repo.get_by_idempotency_key(idempotency_key)
+        if replay is not None:
+            if self._db.in_transaction():
+                await self._db.commit()
+            return await self._with_patient_name(replay)
+
+        # SEC-09 soft limit: past SOS_SOFT_LIMIT_PER_MINUTE alerts in the last
+        # minute, hand back the most recent live alert instead of creating
+        # another. Deliberately NOT an error and NOT rate_limit_by_user (which
+        # raises 429): a genuine SOS must never be refused, and the doctor is
+        # already looking at an open alert for this patient. Applies to
+        # agent-raised alerts too (same endpoint).
+        recent = await self._alert_repo.list_recent_for_patient(
+            patient_id,
+            since=datetime.now(UTC) - timedelta(seconds=SOS_SOFT_LIMIT_WINDOW_SECONDS),
+            limit=SOS_SOFT_LIMIT_PER_MINUTE,
+        )
+        if self._db.in_transaction():
+            await self._db.commit()
+        if len(recent) >= SOS_SOFT_LIMIT_PER_MINUTE:
+            live = [a for a in recent if a.status in ("OPEN", "ACKNOWLEDGED")]
+            logger.warning(
+                "SOS soft limit hit for patient %s; returning existing alert", patient_id
+            )
+            return await self._with_patient_name((live or recent)[0])
 
         try:
             async with self._db.begin():

@@ -738,6 +738,89 @@ async def test_sos_for_another_patient_is_rejected(client):
     assert response.status_code in (403, 404)
 
 
+# SEC-09: payload caps + soft per-patient limit -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sos_long_message_is_truncated_not_rejected(client):
+    """The agent puts reason + evidence in `message`; a genuine alert must never
+    be refused for being verbose, only bounded."""
+    patient_id = await _create_patient()
+    headers = {**await _login(client, PATIENT_PHONE), **_idem("sos-long-1")}
+    response = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "đau " * 1000},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    assert len(response.json()["data"]["message"]) <= 500
+
+
+@pytest.mark.asyncio
+async def test_sos_metadata_over_4kb_is_rejected_but_agent_metadata_fits(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    big = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "x", "metadata": {"blob": "a" * 5000}},
+        headers={**headers, **_idem("sos-meta-big")},
+    )
+    assert big.status_code == 422
+    ok = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "x", "metadata": {"source": "agent_auto_detect"}},
+        headers={**headers, **_idem("sos-meta-ok")},
+    )
+    assert ok.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_resolution_note_over_1000_chars_is_rejected(client):
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    alert_id = await _raise_alert(client, patient_id, "sos-note-1")
+    headers = await _login(client, DOCTOR_PHONE)
+    response = await client.post(
+        f"/api/v1/alerts/{alert_id}/resolve",
+        json={"resolution_note": "n" * 1001},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert doctor_id
+
+
+@pytest.mark.asyncio
+async def test_sos_soft_limit_returns_latest_open_alert_instead_of_error(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    ids = []
+    for i in range(5):
+        r = await client.post(
+            f"/api/v1/patients/{patient_id}/sos",
+            json={"message": f"cứu {i}"},
+            headers={**headers, **_idem(f"sos-flood-{i}")},
+        )
+        assert r.status_code == 201
+        ids.append(r.json()["data"]["id"])
+    assert len(set(ids)) == 5
+
+    over = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "lại nữa"},
+        headers={**headers, **_idem("sos-flood-6")},
+    )
+    assert over.status_code == 201
+    assert over.json()["data"]["id"] == ids[-1]
+
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (await db.execute(select(Alert).where(Alert.patient_id == patient_id)))
+            .scalars()
+            .all()
+        )
+    assert count == 5
+
+
 # ---------------------------------------------------------------------------
 # GET /alerts, acknowledge, resolve
 # ---------------------------------------------------------------------------
