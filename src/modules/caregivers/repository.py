@@ -1,7 +1,6 @@
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Optional
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +21,7 @@ class CaregiverRepository:
         self,
         patient_id: uuid.UUID,
         phone: str,
-        relationship: Optional[str],
+        relationship: str | None,
         link_code: str,
     ) -> CaregiverLink:
         """Persist a new PENDING_BINDING link. Relies on
@@ -38,7 +37,7 @@ class CaregiverRepository:
         await self._db.flush()
         return link
 
-    async def list_by_patient(self, patient_id: uuid.UUID) -> List[CaregiverLink]:
+    async def list_by_patient(self, patient_id: uuid.UUID) -> list[CaregiverLink]:
         """One SELECT, no join. Every field the response DTO needs lives on
         this row already (see the model docstring) -- never selectinload
         notification_deliveries here."""
@@ -48,7 +47,7 @@ class CaregiverRepository:
 
     async def get_link(
         self, link_id: uuid.UUID, patient_id: uuid.UUID
-    ) -> Optional[CaregiverLink]:
+    ) -> CaregiverLink | None:
         """Scoped to the owning patient -- blocks an IDOR where a valid
         link_id from a different patient is passed in the path."""
         stmt = select(CaregiverLink).where(
@@ -57,7 +56,7 @@ class CaregiverRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_link_by_id(self, link_id: uuid.UUID) -> Optional[CaregiverLink]:
+    async def get_link_by_id(self, link_id: uuid.UUID) -> CaregiverLink | None:
         """Unscoped lookup by id alone -- used by the send task, which
         reaches a link only via a NotificationDelivery row's
         caregiver_link_id and has no patient_id to scope by at that point.
@@ -73,7 +72,7 @@ class CaregiverRepository:
 
     async def bind_by_code(
         self, link_code: str, telegram_chat_id: int, now: datetime
-    ) -> Optional[CaregiverLink]:
+    ) -> CaregiverLink | None:
         """Atomic binding CAS. `WHERE link_code = :code AND telegram_chat_id
         IS NULL` is the claim -- two webhook updates racing on the same
         code can both attempt this; only the first sees telegram_chat_id IS
@@ -153,15 +152,15 @@ class CaregiverRepository:
         )
         await self._db.execute(stmt)
 
-    async def list_deliverable_for_patient(self, patient_id: uuid.UUID) -> List[CaregiverLink]:
+    async def list_deliverable_for_patient(self, patient_id: uuid.UUID) -> list[CaregiverLink]:
         """Bound, ACTIVE links for one patient -- used by the alert-triggered
         send path (one alert, at most a handful of links; no batching
         needed here). No window check: Telegram has none."""
         return await self.list_deliverable_for_patients([patient_id])
 
     async def list_deliverable_for_patients(
-        self, patient_ids: List[uuid.UUID]
-    ) -> List[CaregiverLink]:
+        self, patient_ids: list[uuid.UUID]
+    ) -> list[CaregiverLink]:
         """Same predicate as list_deliverable_for_patient, batched over an
         IN-list. Used by the nightly adherence-review loop, which can
         raise several RED_ALERTs in one run -- one query here plus one
@@ -179,7 +178,7 @@ class CaregiverRepository:
 
     async def claim_due_reports(
         self, now: datetime, report_interval_days: int
-    ) -> List[CaregiverLink]:
+    ) -> list[CaregiverLink]:
         """Claim links due for the weekly CG_REPORT: bound, ACTIVE, and >=
         report_interval_days since the last report (or never sent). No
         window-open condition -- Telegram has none, unlike the Zalo

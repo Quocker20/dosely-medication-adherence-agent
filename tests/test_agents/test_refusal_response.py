@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
+from src.agents.nodes.drug_rag_node import _groundable_question
 from src.agents.nodes.output_guard_node import output_guard_node
 from src.agents.nodes.refusal_response import generate_refusal
 from src.agents.nodes.safety_guard_node import evaluate_safety
-from src.agents.nodes.drug_rag_node import _groundable_question
 from src.agents.nodes.scope_guard_node import scope_guard_node
 
 

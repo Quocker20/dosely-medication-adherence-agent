@@ -1,9 +1,9 @@
 import logging
 import math
 import uuid
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
-from typing import Any, AsyncIterator, Dict, Optional
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -57,7 +57,7 @@ class DashboardService:
         self._repo = dashboard_repository
 
     @staticmethod
-    def _scope_doctor_id(actor_payload: dict) -> Optional[uuid.UUID]:
+    def _scope_doctor_id(actor_payload: dict) -> uuid.UUID | None:
         """None for ADMIN (unscoped), the doctor's own id otherwise."""
         if actor_payload.get("role") == "ADMIN":
             return None
@@ -66,7 +66,7 @@ class DashboardService:
     @staticmethod
     def _window_start() -> datetime:
         settings = get_settings()
-        return datetime.now(dt_timezone.utc) - timedelta(
+        return datetime.now(UTC) - timedelta(
             days=settings.dashboard_adherence_window_days
         )
 
@@ -75,9 +75,9 @@ class DashboardService:
         actor_payload: dict,
         page: int = 1,
         size: int = 10,
-        alert_status: Optional[str] = None,
-        adherence_band: Optional[str] = None,
-        search: Optional[str] = None,
+        alert_status: str | None = None,
+        adherence_band: str | None = None,
+        search: str | None = None,
     ) -> PageResponse[DashboardPatientListResponse]:
         """Roster page, most-alerting patients first. A doctor with no
         prescriptions gets an empty page rather than a 403 — same list-style
@@ -216,7 +216,7 @@ class DashboardEventService:
     """
 
     @staticmethod
-    async def stream() -> AsyncIterator[Dict[str, Any]]:
+    async def stream() -> AsyncIterator[dict[str, Any]]:
         """Frames for one connected client, in arrival order.
 
         Each frame is validated against WebSocketEventStream on the way out, so
@@ -239,7 +239,7 @@ class DashboardEventService:
             yield frame.model_dump(mode="json")
 
     @staticmethod
-    async def stream_patient(patient_id: uuid.UUID) -> AsyncIterator[Dict[str, Any]]:
+    async def stream_patient(patient_id: uuid.UUID) -> AsyncIterator[dict[str, Any]]:
         """Yield only minimal realtime frames belonging to one patient.
 
         The underlying Redis channel is shared with the doctor dashboard, but
@@ -258,7 +258,7 @@ class DashboardEventService:
     async def stream_for_dashboard_actor(
         actor_payload: dict,
         dashboard_repository: DashboardRepository,
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Yield dashboard frames within the receiving actor's care scope.
 
         Redis fan-out is intentionally shared, so authorization cannot stop at

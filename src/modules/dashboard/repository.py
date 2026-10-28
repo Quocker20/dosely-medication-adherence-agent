@@ -1,6 +1,5 @@
 import uuid
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Tuple
 
 from sqlalchemy import Exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,7 +145,7 @@ class DashboardRepository:
         patient_id_col: ColumnElement,
         range_start: datetime,
         overdue_minutes: int,
-        status: Optional[str] = None,
+        status: str | None = None,
     ):
         """Correlated COUNT of due doses scheduled since range_start.
 
@@ -170,13 +169,13 @@ class DashboardRepository:
         self,
         range_start: datetime,
         overdue_minutes: int,
-        doctor_id: Optional[uuid.UUID] = None,
+        doctor_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 10,
-        alert_status: Optional[str] = None,
-        adherence_band: Optional[str] = None,
-        search: Optional[str] = None,
-    ) -> Tuple[List[Tuple[uuid.UUID, str, int, int, int, Optional[date]]], int]:
+        alert_status: str | None = None,
+        adherence_band: str | None = None,
+        search: str | None = None,
+    ) -> tuple[list[tuple[uuid.UUID, str, int, int, int, date | None]], int]:
         """One page of roster rows: (patient_id, name, total_doses, taken_doses,
         open_alerts_count, last_survey_date).
 
@@ -270,8 +269,8 @@ class DashboardRepository:
         return rows, total_count
 
     async def get_patient_identity(
-        self, patient_id: uuid.UUID, doctor_id: Optional[uuid.UUID] = None
-    ) -> Optional[Tuple[uuid.UUID, str, str]]:
+        self, patient_id: uuid.UUID, doctor_id: uuid.UUID | None = None
+    ) -> tuple[uuid.UUID, str, str] | None:
         """(user_id, name, phone) for one patient, or None when out of scope.
 
         Returning None for "exists but not yours" is deliberate — the caller
@@ -301,7 +300,7 @@ class DashboardRepository:
 
     async def get_dose_status_counts(
         self, patient_id: uuid.UUID, range_start: datetime, overdue_minutes: int
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """(total, taken, skipped, missed) *due* doses scheduled since
         range_start, as one aggregate round trip using FILTER-based
         conditional counts. See _is_due_filter for why the future horizon and
@@ -333,7 +332,7 @@ class DashboardRepository:
         row = (await self._db.execute(stmt)).one()
         return row[0], row[1], row[2], row[3]
 
-    async def list_recent_alerts(self, patient_id: uuid.UUID, limit: int) -> List[Alert]:
+    async def list_recent_alerts(self, patient_id: uuid.UUID, limit: int) -> list[Alert]:
         """Newest alerts for one patient regardless of status — the detail view
         shows recent history, not just what is still open. Rides
         idx_alerts_patient_created."""

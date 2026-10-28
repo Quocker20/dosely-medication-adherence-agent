@@ -5,7 +5,7 @@ anticoagulant, and the state-machine half (PENDING -> MISSED) still runs for
 every dose regardless of is_critical.
 """
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -54,7 +54,7 @@ class TestStateFlipUnaffectedByCriticality:
         critical streak could have changed -> nothing to recheck. This is a
         pure optimization, not a correctness gap: if a prior tick already
         checked this patient's critical streak, it has not moved since."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         dose_repo = AsyncMock()
         dose_repo.mark_overdue_pending_as_missed.return_value = [
             (PATIENT_ID, NON_CRITICAL_DOSE_ID, now, False),
@@ -71,7 +71,7 @@ class TestStateFlipUnaffectedByCriticality:
 class TestCriticalStreakAlert:
     @pytest.mark.asyncio
     async def test_alerts_when_critical_streak_meets_threshold(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         dose_repo = AsyncMock()
         dose_repo.mark_overdue_pending_as_missed.return_value = [
             (PATIENT_ID, CRITICAL_DOSE_ID, now, True),
@@ -99,7 +99,7 @@ class TestCriticalStreakAlert:
 
     @pytest.mark.asyncio
     async def test_below_threshold_streak_does_not_alert(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         dose_repo = AsyncMock()
         dose_repo.mark_overdue_pending_as_missed.return_value = [
             (PATIENT_ID, CRITICAL_DOSE_ID, now, True),
@@ -120,8 +120,8 @@ class TestCriticalStreakAlert:
         later in the same tick than the critical one, the alert's
         triggered_by_id/idempotency-key must still point at the critical
         dose -- never at whichever flip happened to be most recent overall."""
-        earlier = datetime.now(timezone.utc) - timedelta(minutes=5)
-        later = datetime.now(timezone.utc)
+        earlier = datetime.now(UTC) - timedelta(minutes=5)
+        later = datetime.now(UTC)
         dose_repo = AsyncMock()
         dose_repo.mark_overdue_pending_as_missed.return_value = [
             (PATIENT_ID, CRITICAL_DOSE_ID, earlier, True),
@@ -140,7 +140,7 @@ class TestCriticalStreakAlert:
 
     @pytest.mark.asyncio
     async def test_integrity_error_is_swallowed_as_idempotent_replay(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         dose_repo = AsyncMock()
         dose_repo.mark_overdue_pending_as_missed.return_value = [
             (PATIENT_ID, CRITICAL_DOSE_ID, now, True),

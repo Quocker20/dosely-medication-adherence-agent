@@ -6,7 +6,7 @@ triggered_by_type='SOS_BUTTON'/severity='CRITICAL', so the doctor's dashboard
 could not tell them apart and `GET /alerts` could not filter on either.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -58,7 +58,7 @@ def _fake_alert(**overrides):
         severity="CRITICAL",
         status="OPEN",
         message=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return SimpleNamespace(**base)

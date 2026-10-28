@@ -1,6 +1,6 @@
 import uuid
-from datetime import date, datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -48,7 +48,7 @@ class AdherenceReview(Base):
     # The exact numbers that produced `severity`, frozen for audit — an
     # alert must be reconstructable even after later dose actions change the
     # underlying scheduled_doses rows.
-    indicators: Mapped[Dict[str, Any]] = mapped_column(
+    indicators: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
     )
 
@@ -71,6 +71,6 @@ class AdherenceReview(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )

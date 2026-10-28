@@ -1,8 +1,8 @@
 """Notification dispatch service for consolidated dose reminders."""
 import hashlib
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +35,7 @@ class NotificationDispatchService:
         self._notif_repo = notification_repository
 
     @staticmethod
-    def _merge_doses(doses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_doses(doses: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge duplicate medications by name, summing their dose_value.
 
         E.g. two entries of Metformin 500mg (1 viên each) become one entry
@@ -44,7 +44,7 @@ class NotificationDispatchService:
         from collections import OrderedDict
         from decimal import Decimal
 
-        merged: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        merged: OrderedDict[str, dict[str, Any]] = OrderedDict()
         for d in doses:
             name = d.get("medication_name") or "thuốc"
             unit = d.get("dose_unit") or "viên"
@@ -63,8 +63,8 @@ class NotificationDispatchService:
 
     @staticmethod
     def format_notification_text(
-        scheduled_at: datetime, doses: List[Dict[str, Any]], timezone_str: str = "Asia/Ho_Chi_Minh"
-    ) -> Tuple[str, str]:
+        scheduled_at: datetime, doses: list[dict[str, Any]], timezone_str: str = "Asia/Ho_Chi_Minh"
+    ) -> tuple[str, str]:
         """Generate user-friendly title and consolidated message body.
 
         Merges duplicate medications by name and converts UTC to local timezone.
@@ -72,7 +72,7 @@ class NotificationDispatchService:
         try:
             from zoneinfo import ZoneInfo
             if scheduled_at.tzinfo is None:
-                local_dt = scheduled_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(timezone_str))
+                local_dt = scheduled_at.replace(tzinfo=UTC).astimezone(ZoneInfo(timezone_str))
             else:
                 local_dt = scheduled_at.astimezone(ZoneInfo(timezone_str))
         except Exception:
@@ -109,12 +109,12 @@ class NotificationDispatchService:
 
     async def create_consolidated_reminders(
         self, cutoff: datetime
-    ) -> List[NotificationDelivery]:
+    ) -> list[NotificationDelivery]:
         """Scan all PENDING doses due at or before cutoff, group by (patient_id, current_scheduled_at),
         and persist consolidated notification deliveries with junction items."""
         grouped = await self._dose_repo.get_due_dose_groups(cutoff)
-        new_deliveries: List[NotificationDelivery] = []
-        final_deliveries: List[NotificationDelivery] = []
+        new_deliveries: list[NotificationDelivery] = []
+        final_deliveries: list[NotificationDelivery] = []
 
         # 1. Tạo các bản ghi delivery
         for (patient_id, scheduled_at), doses in grouped.items():

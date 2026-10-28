@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -68,8 +69,8 @@ async def test_webhook_start_valid_code_binds_caregiver(client, monkeypatch):
             patient_id = user.id
             link_id = link.id
 
-    from src.main import app
     from src.core.telegram import get_telegram_client
+    from src.main import app
     app.dependency_overrides[get_telegram_client] = lambda: fake_tg
 
     headers = {"X-Telegram-Bot-Api-Secret-Token": SECRET_TOKEN}
@@ -114,11 +115,11 @@ async def test_webhook_stop_sets_inactive(client):
                 link_code="ABC999",
             )
             # Bind link first
-            await CaregiverRepository(db).bind_by_code("ABC999", 555555, datetime.now(timezone.utc))
+            await CaregiverRepository(db).bind_by_code("ABC999", 555555, datetime.now(UTC))
             link_id = link.id
 
-    from src.main import app
     from src.core.telegram import get_telegram_client
+    from src.main import app
     app.dependency_overrides[get_telegram_client] = lambda: fake_tg
 
     headers = {"X-Telegram-Bot-Api-Secret-Token": SECRET_TOKEN}

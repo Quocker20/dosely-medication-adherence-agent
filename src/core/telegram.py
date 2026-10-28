@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -63,7 +63,7 @@ class HttpTelegramClient:
         self,
         token: str,
         base_url: str = "https://api.telegram.org",
-        http_client: Optional[httpx.AsyncClient] = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._token = token
         self._base_url = base_url.rstrip("/")
@@ -125,8 +125,8 @@ class FakeTelegramClient:
     """In-memory client for testing and when TELEGRAM_ENABLED is False."""
 
     def __init__(self) -> None:
-        self.sent_messages: List[Dict[str, Any]] = []
-        self.error_to_raise: Optional[Exception] = None
+        self.sent_messages: list[dict[str, Any]] = []
+        self.error_to_raise: Exception | None = None
 
     async def send_message(self, chat_id: int, text: str) -> str:
         if self.error_to_raise:
@@ -141,7 +141,7 @@ class FakeTelegramClient:
         self.error_to_raise = None
 
 
-_fake_instance: Optional[FakeTelegramClient] = None
+_fake_instance: FakeTelegramClient | None = None
 
 
 def get_telegram_client() -> TelegramClient:

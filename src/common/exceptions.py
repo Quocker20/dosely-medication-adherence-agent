@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -16,7 +16,7 @@ class AppException(Exception):
         self,
         message: str = "Internal server error",
         code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
-        errors: Optional[Any] = None,
+        errors: Any | None = None,
     ):
         self.message = message
         self.code = code
@@ -25,27 +25,27 @@ class AppException(Exception):
 
 
 class NotFoundException(AppException):
-    def __init__(self, message: str = "Resource not found", errors: Optional[Any] = None):
+    def __init__(self, message: str = "Resource not found", errors: Any | None = None):
         super().__init__(message=message, code=status.HTTP_404_NOT_FOUND, errors=errors)
 
 
 class UnauthorizedException(AppException):
-    def __init__(self, message: str = "Unauthorized", errors: Optional[Any] = None):
+    def __init__(self, message: str = "Unauthorized", errors: Any | None = None):
         super().__init__(message=message, code=status.HTTP_401_UNAUTHORIZED, errors=errors)
 
 
 class ForbiddenException(AppException):
-    def __init__(self, message: str = "Forbidden", errors: Optional[Any] = None):
+    def __init__(self, message: str = "Forbidden", errors: Any | None = None):
         super().__init__(message=message, code=status.HTTP_403_FORBIDDEN, errors=errors)
 
 
 class ValidationException(AppException):
-    def __init__(self, message: str = "Validation error", errors: Optional[Any] = None):
+    def __init__(self, message: str = "Validation error", errors: Any | None = None):
         super().__init__(message=message, code=status.HTTP_422_UNPROCESSABLE_ENTITY, errors=errors)
 
 
 class ConflictException(AppException):
-    def __init__(self, message: str = "Resource conflict", errors: Optional[Any] = None):
+    def __init__(self, message: str = "Resource conflict", errors: Any | None = None):
         super().__init__(message=message, code=status.HTTP_409_CONFLICT, errors=errors)
 
 

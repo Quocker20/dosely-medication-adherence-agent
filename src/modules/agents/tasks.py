@@ -13,14 +13,11 @@ connection doing one task anyway.
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
-
-from src.core.celery_app import celery_app
-from src.core.config import get_settings
 
 # Registers every ORM model module before anything below runs a query.
 # Without this, an ORM operation on Alert dies with NoReferencedTableError
@@ -28,10 +25,12 @@ from src.core.config import get_settings
 # see src/core/models_registry.py and docs/adherence-review-fix-plan.md
 # Defect 1/5.
 from src.core import models_registry as _models_registry  # noqa: F401
+from src.core.celery_app import celery_app
+from src.core.config import get_settings
 from src.modules.adherence.fcm_service import FCMService
+from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.adherence.notification_service import DOSE_REMINDER_TEMPLATE_CODE, NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
-from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.service import (
     AgentRunLeaseBusyError,
@@ -173,12 +172,12 @@ async def _execute_daily_adverse_event_summary() -> None:
                         SuspectedAdverseEvent.daily_notified_at.is_(None),
                         SuspectedAdverseEvent.review_status == "NEW",
                         SuspectedAdverseEvent.risk_level.in_(["LOW", "MODERATE"]),
-                        SuspectedAdverseEvent.reported_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                        SuspectedAdverseEvent.reported_at >= datetime.now(UTC) - timedelta(hours=24),
                     ).order_by(SuspectedAdverseEvent.patient_id, SuspectedAdverseEvent.reported_at)
                 )).scalars().all())
                 grouped: dict[uuid.UUID, list[SuspectedAdverseEvent]] = {}
                 for row in rows: grouped.setdefault(row.patient_id, []).append(row)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 for patient_id, events in grouped.items():
                     names = sorted({str(s.get("name")) for event in events for s in event.symptoms if s.get("name")})
                     alert = await AlertRepository(session).create_alert(
@@ -269,7 +268,7 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
                         status="DELIVERED",
                         provider_message_id=str(msg_id),
                     )
-                    await cg_repo.update_last_message_sent(link.id, datetime.now(timezone.utc))
+                    await cg_repo.update_last_message_sent(link.id, datetime.now(UTC))
                     await session.commit()
                 except TelegramBlockedError as exc:
                     logger.warning("Caregiver chat %s blocked bot: %s", link.telegram_chat_id, exc)
@@ -376,7 +375,7 @@ async def _execute_send_caregiver_adherence_reports() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     interval_days = settings.caregiver_report_interval_days
 
     try:

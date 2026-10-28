@@ -1,7 +1,7 @@
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone as dt_timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import Exists, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,7 +62,7 @@ class AdherenceLogRepository:
 
     async def get_patient_timezone_scoped(
         self, patient_id: uuid.UUID, actor_id: uuid.UUID
-    ) -> Optional[str]:
+    ) -> str | None:
         """Fetch a patient's timezone, access-scoped the same way as the
         adherence queries themselves — never leak timezone to a caller who
         couldn't read adherence data anyway. None means not found OR no
@@ -80,8 +80,8 @@ class AdherenceLogRepository:
         dose_id: uuid.UUID,
         patient_id: uuid.UUID,
         action: str,
-        snooze_minutes: Optional[int] = None,
-    ) -> Optional[ScheduledDose]:
+        snooze_minutes: int | None = None,
+    ) -> ScheduledDose | None:
         """Atomic compare-and-swap: only updates a row still PENDING, due
         within _EARLY_ACTION_GRACE_MINUTES, and owned by this patient — no
         read-then-write race window (mirrors
@@ -95,7 +95,7 @@ class AdherenceLogRepository:
         snooze_count + 1) so no prior SELECT of the current value is needed.
         """
         if action == "TAKEN":
-            values: Dict[str, Any] = {"status": "TAKEN", "taken_at": func.now()}
+            values: dict[str, Any] = {"status": "TAKEN", "taken_at": func.now()}
         elif action == "SKIPPED":
             values = {"status": "SKIPPED"}
         elif action == "SNOOZE":
@@ -138,7 +138,7 @@ class AdherenceLogRepository:
 
     async def get_dose_scoped(
         self, dose_id: uuid.UUID, patient_id: uuid.UUID
-    ) -> Optional[ScheduledDose]:
+    ) -> ScheduledDose | None:
         """Fetch a dose scoped to its owning patient — used only to
         disambiguate why apply_dose_action_cas matched no row (not
         found/not owned vs. already actioned)."""
@@ -149,8 +149,8 @@ class AdherenceLogRepository:
         return result.scalar_one_or_none()
 
     async def get_doses_scoped(
-        self, dose_ids: List[uuid.UUID], patient_id: uuid.UUID
-    ) -> List[ScheduledDose]:
+        self, dose_ids: list[uuid.UUID], patient_id: uuid.UUID
+    ) -> list[ScheduledDose]:
         """Fetch multiple doses scoped to their owning patient."""
         if not dose_ids:
             return []
@@ -162,7 +162,7 @@ class AdherenceLogRepository:
 
     async def get_next_dose_and_min_gap(
         self, dose: ScheduledDose, patient_id: uuid.UUID
-    ) -> Tuple[Optional[ScheduledDose], Optional[int]]:
+    ) -> tuple[ScheduledDose | None, int | None]:
         """Fetch the next pending dose for the same prescription item and the item's minimum_interval_minutes."""
         stmt = (
             select(ScheduledDose, PrescriptionItem.minimum_interval_minutes)
@@ -185,11 +185,11 @@ class AdherenceLogRepository:
 
     async def batch_apply_dose_actions_cas(
         self,
-        dose_ids: List[uuid.UUID],
+        dose_ids: list[uuid.UUID],
         patient_id: uuid.UUID,
         action: str,
-        snooze_minutes: Optional[int] = None,
-    ) -> List[ScheduledDose]:
+        snooze_minutes: int | None = None,
+    ) -> list[ScheduledDose]:
         """Atomic batch CAS update for multiple doses: updates all rows matching
         dose_ids that are still PENDING and owned by this patient.
         Returns the list of updated ScheduledDose rows."""
@@ -197,7 +197,7 @@ class AdherenceLogRepository:
             return []
 
         if action == "TAKEN":
-            values: Dict[str, Any] = {"status": "TAKEN", "taken_at": func.now()}
+            values: dict[str, Any] = {"status": "TAKEN", "taken_at": func.now()}
         elif action == "SKIPPED":
             values = {"status": "SKIPPED"}
         elif action == "SNOOZE":
@@ -227,9 +227,9 @@ class AdherenceLogRepository:
         patient_id: uuid.UUID,
         action: str,
         action_source: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         idempotency_key: str,
-        scheduled_dose_id: Optional[uuid.UUID] = None,
+        scheduled_dose_id: uuid.UUID | None = None,
     ) -> AdherenceLog:
         """Append-only insert. A duplicate idempotency_key raises
         IntegrityError (uq on the column) — caller catches it and treats the
@@ -251,14 +251,14 @@ class AdherenceLogRepository:
         patient_id: uuid.UUID,
         action: str,
         action_source: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         idempotency_key: str,
-        scheduled_dose_ids: List[uuid.UUID],
-    ) -> List[AdherenceLog]:
+        scheduled_dose_ids: list[uuid.UUID],
+    ) -> list[AdherenceLog]:
         """Insert adherence logs for multiple doses under a single batch request.
         Suffixes the idempotency_key per dose (e.g. key:dose_id) to respect
         unique constraint while guaranteeing idempotency."""
-        logs: List[AdherenceLog] = []
+        logs: list[AdherenceLog] = []
         for dose_id in scheduled_dose_ids:
             key = f"{idempotency_key}:{dose_id}"
             log = AdherenceLog(
@@ -274,14 +274,14 @@ class AdherenceLogRepository:
         await self._db.flush()
         return logs
 
-    async def get_log_by_idempotency_key(self, idempotency_key: str) -> Optional[AdherenceLog]:
+    async def get_log_by_idempotency_key(self, idempotency_key: str) -> AdherenceLog | None:
         stmt = select(AdherenceLog).where(AdherenceLog.idempotency_key == idempotency_key)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_batch_logs_by_idempotency_key(
         self, idempotency_key: str
-    ) -> List[AdherenceLog]:
+    ) -> list[AdherenceLog]:
         """Fetch all adherence logs matching idempotency_key prefix."""
         escaped_key = (
             idempotency_key.replace("\\", "\\\\")
@@ -309,7 +309,7 @@ class AdherenceLogRepository:
         range_start: datetime,
         range_end: datetime,
         overdue_minutes: int,
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Single aggregate query (one round trip, FILTER-based conditional
         counts) returning (total, taken, skipped, missed) doses scheduled in
         [range_start, range_end) — avoids running four separate COUNT
@@ -374,7 +374,7 @@ class AdherenceLogRepository:
         range_end: datetime,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[AdherenceLog], int]:
+    ) -> tuple[list[AdherenceLog], int]:
         """Fetch paginated adherence logs for a patient, newest first.
 
         Count is a separate query rather than count().over() — the window
@@ -418,7 +418,7 @@ class HealthSurveyRepository:
         self,
         patient_id: uuid.UUID,
         survey_date,
-        answers_json: Dict[str, Any],
+        answers_json: dict[str, Any],
     ) -> HealthSurvey:
         """Persist a submitted health survey header.
 
@@ -434,7 +434,7 @@ class HealthSurveyRepository:
             survey_date=survey_date,
             status="SUBMITTED",
             answers_json=answers_json,
-            submitted_at=datetime.now(dt_timezone.utc),
+            submitted_at=datetime.now(UTC),
         )
         self._db.add(survey)
         await self._db.flush()
@@ -444,8 +444,8 @@ class HealthSurveyRepository:
         self,
         patient_id: uuid.UUID,
         survey_id: uuid.UUID,
-        symptoms: List[Dict[str, Any]],
-    ) -> List[SymptomReport]:
+        symptoms: list[dict[str, Any]],
+    ) -> list[SymptomReport]:
         """Insert multiple symptom entries in one flush (single round trip,
         not a per-symptom loop) — mirrors PrescriptionRepository.bulk_create_items."""
         if not symptoms:
@@ -467,7 +467,7 @@ class HealthSurveyRepository:
 
     async def get_by_patient_date(
         self, patient_id: uuid.UUID, survey_date
-    ) -> Optional[HealthSurvey]:
+    ) -> HealthSurvey | None:
         """Look up the existing row after a uq_health_surveys_patient_date
         IntegrityError, so the service can turn a double-submit into a 409
         naming the conflicting survey rather than a bare 500."""
@@ -511,12 +511,12 @@ class HealthSurveyRepository:
         self,
         from_date,
         to_date,
-        doctor_id: Optional[uuid.UUID] = None,
-        patient_id: Optional[uuid.UUID] = None,
-        severity: Optional[str] = None,
+        doctor_id: uuid.UUID | None = None,
+        patient_id: uuid.UUID | None = None,
+        severity: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[Tuple[Any, ...]], int]:
+    ) -> tuple[list[tuple[Any, ...]], int]:
         """DOCTOR/ADMIN platform-wide survey list. doctor_id=None means
         unscoped (ADMIN); otherwise restricted to patients this doctor has
         written at least one prescription for, mirroring
@@ -591,7 +591,7 @@ class HealthSurveyRepository:
         to_date,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[Tuple[Any, ...]], int]:
+    ) -> tuple[list[tuple[Any, ...]], int]:
         """PATIENT/DOCTOR/CAREGIVER per-patient survey list, access-scoped
         the same way as adherence data (self / doctor-prescribed /
         active-caregiver). Out-of-scope returns an empty page, mirroring
@@ -636,7 +636,7 @@ class HealthSurveyRepository:
 
     async def get_survey_detail_scoped(
         self, survey_id: uuid.UUID, actor_id: uuid.UUID
-    ) -> Optional[HealthSurvey]:
+    ) -> HealthSurvey | None:
         """Fetch one survey with its symptom_reports eager-loaded (avoids
         the lazy="raise" trap), scoped the same way as the list endpoints.
         None means not found OR no access — caller turns both into 404."""
@@ -664,10 +664,10 @@ class AlertRepository:
         triggered_by_type: str,
         alert_type: str,
         severity: str,
-        triggered_by_id: Optional[uuid.UUID] = None,
-        message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        idempotency_key: Optional[str] = None,
+        triggered_by_id: uuid.UUID | None = None,
+        message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
     ) -> Alert:
         """Insert a new OPEN alert. A duplicate idempotency_key raises
         IntegrityError (uq_alerts_idempotency_key) — caller catches it and
@@ -687,12 +687,12 @@ class AlertRepository:
         await self._db.flush()
         return alert
 
-    async def get_by_idempotency_key(self, idempotency_key: str) -> Optional[Alert]:
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Alert | None:
         stmt = select(Alert).where(Alert.idempotency_key == idempotency_key)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, alert_id: uuid.UUID) -> Optional[Alert]:
+    async def get_by_id(self, alert_id: uuid.UUID) -> Alert | None:
         """Fetch an alert by ID, unscoped — GET /alerts is DOCTOR/ADMIN-only
         platform-wide (no per-patient ownership restriction in the contract),
         so acknowledge/resolve need no access predicate beyond RBAC."""
@@ -702,7 +702,7 @@ class AlertRepository:
 
     async def acknowledge_if_open(
         self, alert_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Alert]:
+    ) -> Alert | None:
         """Atomic OPEN -> ACKNOWLEDGED compare-and-swap, assigns the
         acknowledging doctor. Returns None if not found or no longer OPEN
         (already acknowledged/resolved by someone else) — caller
@@ -718,7 +718,7 @@ class AlertRepository:
 
     async def resolve_if_active(
         self, alert_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Alert]:
+    ) -> Alert | None:
         """Atomic OPEN/ACKNOWLEDGED -> RESOLVED compare-and-swap. Resolving
         directly from OPEN (skipping acknowledge) is allowed — the contract
         does not mandate the intermediate step. assigned_doctor_id keeps
@@ -738,11 +738,11 @@ class AlertRepository:
 
     async def list_alerts(
         self,
-        status: Optional[str] = None,
-        patient_id: Optional[uuid.UUID] = None,
+        status: str | None = None,
+        patient_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[Alert], int]:
+    ) -> tuple[list[Alert], int]:
         """Fetch paginated alerts, newest first, for the DOCTOR/ADMIN
         dashboard. Rides idx_alerts_status_created / idx_alerts_patient_created
         depending on which filter is supplied.
@@ -790,9 +790,9 @@ class NotificationRepository:
         scheduled_at: datetime,
         title: str,
         body: str,
-        scheduled_dose_ids: List[uuid.UUID],
-        metadata: Optional[Dict[str, Any]] = None,
-        idempotency_key: Optional[str] = None,
+        scheduled_dose_ids: list[uuid.UUID],
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
     ) -> NotificationDelivery:
         """Create a consolidated notification delivery linked to multiple scheduled doses."""
         delivery = NotificationDelivery(
@@ -820,21 +820,21 @@ class NotificationRepository:
 
     async def get_delivery_by_id(
         self, delivery_id: uuid.UUID
-    ) -> Optional[NotificationDelivery]:
+    ) -> NotificationDelivery | None:
         stmt = select(NotificationDelivery).where(NotificationDelivery.id == delivery_id)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_delivery_by_idempotency_key(
         self, idempotency_key: str
-    ) -> Optional[NotificationDelivery]:
+    ) -> NotificationDelivery | None:
         stmt = select(NotificationDelivery).where(
             NotificationDelivery.idempotency_key == idempotency_key
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> List[str]:
+    async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> list[str]:
         stmt = select(UserDevice.fcm_token).where(
             UserDevice.user_id == user_id,
             UserDevice.is_active.is_(True),
@@ -842,7 +842,7 @@ class NotificationRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
-    async def count_reminder_doses(self, delivery_id: uuid.UUID, scheduled_at: datetime) -> Tuple[int, int]:
+    async def count_reminder_doses(self, delivery_id: uuid.UUID, scheduled_at: datetime) -> tuple[int, int]:
         """Return (linked, still_due) for one grouped dose reminder.
 
         Read at send time, because a reminder can go stale between the scan
@@ -886,12 +886,12 @@ class NotificationRepository:
         template_code: str,
         title: str,
         body: str,
-        scheduled_at: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        idempotency_key: Optional[str] = None,
+        scheduled_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
     ) -> NotificationDelivery:
         """Create a notification delivery targeted at a caregiver via Telegram."""
-        now = datetime.now(dt_timezone.utc)
+        now = datetime.now(UTC)
         delivery = NotificationDelivery(
             recipient_user_id=None,
             caregiver_link_id=caregiver_link_id,
@@ -912,11 +912,11 @@ class NotificationRepository:
         self,
         delivery_id: uuid.UUID,
         status: str,
-        provider_message_id: Optional[str] = None,
-        error_message: Optional[str] = None,
+        provider_message_id: str | None = None,
+        error_message: str | None = None,
     ) -> None:
         """Update status, provider_message_id, error in metadata, and sent_at."""
-        values: Dict[str, Any] = {"status": status}
+        values: dict[str, Any] = {"status": status}
         if status in ("SENT", "DELIVERED"):
             values["sent_at"] = func.now()
         if provider_message_id is not None:
@@ -935,14 +935,14 @@ class NotificationRepository:
         )
         await self._db.execute(stmt)
 
-    async def deactivate_fcm_tokens(self, tokens: List[str]) -> None:
+    async def deactivate_fcm_tokens(self, tokens: list[str]) -> None:
         """Deactivate expired or unregistered FCM tokens to prevent accumulation."""
         if not tokens:
             return
         stmt = (
             update(UserDevice)
             .where(UserDevice.fcm_token.in_(tokens))
-            .values(is_active=False, updated_at=datetime.now(dt_timezone.utc))
+            .values(is_active=False, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 

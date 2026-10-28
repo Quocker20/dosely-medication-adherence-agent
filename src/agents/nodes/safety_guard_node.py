@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from pydantic import BaseModel, Field
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from src.agents.medication_policy import fold, match_medication_decision
 from src.agents.state import AgentState

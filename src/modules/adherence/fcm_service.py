@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from firebase_admin import messaging
 
@@ -11,11 +11,11 @@ class FCMService:
 
     @staticmethod
     def send_push_notification(
-        tokens: List[str],
+        tokens: list[str],
         title: str,
         body: str,
-        data: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, List[str]]:
+        data: dict[str, Any] | None = None,
+    ) -> tuple[bool, list[str]]:
         """
         Send a multicast push notification via FCM.
         Returns:
@@ -46,7 +46,7 @@ class FCMService:
             tokens=tokens,
         )
 
-        dead_tokens: List[str] = []
+        dead_tokens: list[str] = []
         try:
             response = messaging.send_each_for_multicast(message)
             logger.info(

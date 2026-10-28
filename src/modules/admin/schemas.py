@@ -1,7 +1,8 @@
-from ipaddress import IPv4Address, IPv6Address
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from ipaddress import IPv4Address, IPv6Address
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -11,15 +12,15 @@ class CreateDoctorRequest(BaseModel):
     phone: str = Field(..., pattern=r"^\+?[0-9]{9,15}$")
     name: str = Field(..., max_length=255)
     license_no: str = Field(..., max_length=100)
-    specialty: Optional[str] = Field(None, max_length=150)
+    specialty: str | None = Field(None, max_length=150)
 
 
 class UpdateDoctorRequest(BaseModel):
     """Request schema for Admin updating Doctor details."""
 
-    name: Optional[str] = Field(None, max_length=255)
-    specialty: Optional[str] = Field(None, max_length=150)
-    status: Optional[str] = Field(None, pattern=r"^(ACTIVE|INACTIVE)$")
+    name: str | None = Field(None, max_length=255)
+    specialty: str | None = Field(None, max_length=150)
+    status: str | None = Field(None, pattern=r"^(ACTIVE|INACTIVE)$")
 
 
 class DoctorDetailResponse(BaseModel):
@@ -37,7 +38,7 @@ class DoctorDetailResponse(BaseModel):
     status: str
     name: str
     license_no: str
-    specialty: Optional[str] = None
+    specialty: str | None = None
     created_at: datetime
 
 
@@ -60,12 +61,12 @@ class AuditLogListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    actor_user_id: Optional[uuid.UUID] = None
+    actor_user_id: uuid.UUID | None = None
     action: str
     entity_type: str
-    entity_id: Optional[uuid.UUID] = None
-    old_values: Optional[Dict[str, Any]] = None
-    new_values: Optional[Dict[str, Any]] = None
-    ip_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
+    entity_id: uuid.UUID | None = None
+    old_values: dict[str, Any] | None = None
+    new_values: dict[str, Any] | None = None
+    ip_address: str | IPv4Address | IPv6Address | None = None
     created_at: datetime
 

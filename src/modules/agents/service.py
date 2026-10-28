@@ -795,6 +795,7 @@ class MissedDoseScanService:
                         idempotency_key=idempotency_key,
                     )
                     from sqlalchemy import select
+
                     from src.modules.adherence.repository import NotificationRepository
                     from src.modules.caregivers.repository import CaregiverRepository
                     from src.modules.patients.models import PatientProfile

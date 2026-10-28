@@ -1,6 +1,7 @@
 import uuid
-from datetime import datetime, timezone
-from typing import Any, List
+from datetime import UTC, datetime
+from typing import Any
+
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,7 +27,7 @@ class DoctorProfile(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
@@ -74,7 +75,7 @@ class AuditLog(Base):
     new_values: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
-    changed_fields: Mapped[List[str] | None] = mapped_column(
+    changed_fields: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
     )
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
@@ -82,7 +83,7 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 

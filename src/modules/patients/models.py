@@ -1,5 +1,6 @@
 import uuid
-from datetime import UTC, date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
+
 from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, Time, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -36,7 +37,7 @@ class PatientProfile(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     # No onupdate= callable here: every write path is a Core update()/
@@ -45,7 +46,7 @@ class PatientProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
@@ -77,7 +78,7 @@ class PatientRoutine(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     # No onupdate= callable here: every write path is a Core update()/
@@ -86,7 +87,7 @@ class PatientRoutine(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 

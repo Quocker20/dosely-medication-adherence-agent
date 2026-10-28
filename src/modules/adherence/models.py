@@ -1,6 +1,6 @@
 import uuid
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -38,11 +38,11 @@ class AdherenceLog(Base):
     performed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     action_source: Mapped[str] = mapped_column(String(30), nullable=False)
-    payload: Mapped[Dict[str, Any]] = mapped_column(
+    payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
     )
     # Header-supplied Idempotency-Key (POST /scheduled-doses/{id}/actions):
@@ -54,7 +54,7 @@ class AdherenceLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
@@ -77,19 +77,19 @@ class HealthSurvey(Base):
     )
     survey_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
-    answers_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    answers_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
     # lazy="raise" prevents implicit N+1 queries. Explicit JOIN/selectinload required to load these.
-    symptom_reports: Mapped[List["SymptomReport"]] = relationship(
+    symptom_reports: Mapped[list["SymptomReport"]] = relationship(
         "SymptomReport", lazy="raise", order_by="SymptomReport.reported_at"
     )
 
@@ -121,7 +121,7 @@ class SymptomReport(Base):
     reported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     source: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -136,19 +136,19 @@ class SuspectedAdverseEvent(Base):
     patient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("patient_profiles.user_id", ondelete="CASCADE"), nullable=False)
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
-    symptoms: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
-    related_medications: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
+    symptoms: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
+    related_medications: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
     causality: Mapped[str] = mapped_column(String(30), nullable=False, server_default="'UNASSESSED'")
     review_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="'NEW'")
     source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="'CHAT'")
     alert_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
     clinician_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), server_default="NOW()")
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default="NOW()")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("doctor_profiles.user_id", ondelete="SET NULL"), nullable=True)
     daily_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), server_default="NOW()")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default="NOW()")
 
 
 class Alert(Base):
@@ -185,7 +185,7 @@ class Alert(Base):
     # Mapped under a different Python attribute: "metadata" collides with
     # DeclarativeBase.metadata (the MetaData registry), so the ORM attribute
     # is renamed while the DB/JSON column name stays "metadata".
-    alert_metadata: Mapped[Dict[str, Any]] = mapped_column(
+    alert_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
     )
     # Header-supplied Idempotency-Key (POST /patients/{id}/sos): UNIQUE lets a
@@ -198,7 +198,7 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
     # No onupdate= callable: acknowledge/resolve are Core update() calls,
@@ -207,7 +207,7 @@ class Alert(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
@@ -247,7 +247,7 @@ class NotificationDelivery(Base):
     template_code: Mapped[str] = mapped_column(String(50), nullable=False)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    delivery_metadata: Mapped[Dict[str, Any]] = mapped_column(
+    delivery_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
     )
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -270,11 +270,11 @@ class NotificationDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 
-    dose_items: Mapped[List["NotificationDoseItem"]] = relationship(
+    dose_items: Mapped[list["NotificationDoseItem"]] = relationship(
         "NotificationDoseItem", lazy="raise", cascade="all, delete-orphan"
     )
 
@@ -297,7 +297,7 @@ class NotificationDoseItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default="NOW()",
     )
 

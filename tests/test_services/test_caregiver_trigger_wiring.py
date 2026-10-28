@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -58,7 +59,7 @@ async def test_periodic_adherence_report_task_claims_and_creates_deliveries(monk
     from src.modules.agents import tasks
     monkeypatch.setattr(tasks.send_notification_task, "delay", lambda d_id: enqueued_task_ids.append(d_id))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")
@@ -147,7 +148,7 @@ async def test_missed_dose_streak_creates_caregiver_notification(monkeypatch):
     from src.modules.agents import tasks
     monkeypatch.setattr(tasks.send_notification_task, "delay", lambda d_id: enqueued_task_ids.append(d_id))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")

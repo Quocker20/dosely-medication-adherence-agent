@@ -1,6 +1,7 @@
-from typing import Any, Generic, Optional, TypeVar
-from pydantic import BaseModel
+from typing import Any, Generic, TypeVar
+
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 T = TypeVar("T")
 
@@ -9,12 +10,12 @@ class APIResponse(BaseModel, Generic[T]):
     success: bool
     code: int
     message: str
-    data: Optional[T] = None
-    errors: Optional[Any] = None
+    data: T | None = None
+    errors: Any | None = None
 
 
 def success_response(
-    data: Optional[Any] = None,
+    data: Any | None = None,
     message: str = "Success",
     code: int = 200,
 ) -> JSONResponse:
@@ -31,7 +32,7 @@ def success_response(
 def error_response(
     message: str = "Error occurred",
     code: int = 400,
-    errors: Optional[Any] = None,
+    errors: Any | None = None,
 ) -> JSONResponse:
     payload = APIResponse(
         success=False,

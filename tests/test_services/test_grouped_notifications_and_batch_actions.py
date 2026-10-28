@@ -2,10 +2,10 @@
 
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from decimal import Decimal
 
 import pytest
 
@@ -30,7 +30,7 @@ DOSE_ID_3 = uuid.uuid4()
 class TestNotificationTextFormatting:
     def test_single_dose_formatting(self):
         # 14:00 UTC corresponds to 21:00 Asia/Ho_Chi_Minh (UTC+7)
-        scheduled_at = datetime(2026, 8, 19, 14, 0, tzinfo=timezone.utc)
+        scheduled_at = datetime(2026, 8, 19, 14, 0, tzinfo=UTC)
         doses = [
             {
                 "scheduled_dose_id": DOSE_ID_1,
@@ -45,7 +45,7 @@ class TestNotificationTextFormatting:
 
     def test_multiple_doses_consolidated_formatting(self):
         # 14:00 UTC corresponds to 21:00 Asia/Ho_Chi_Minh (UTC+7)
-        scheduled_at = datetime(2026, 8, 19, 14, 0, tzinfo=timezone.utc)
+        scheduled_at = datetime(2026, 8, 19, 14, 0, tzinfo=UTC)
         doses = [
             {
                 "scheduled_dose_id": DOSE_ID_1,
@@ -76,7 +76,7 @@ class TestNotificationTextFormatting:
     def test_duplicate_medication_merge(self):
         """Two Metformin 500mg (1 viên each) + one Paracetamol 500mg should
         merge into: Metformin 500mg (2 viên), Paracetamol 500mg (1 viên)."""
-        scheduled_at = datetime(2026, 8, 23, 1, 0, tzinfo=timezone.utc)  # 08:00 VN
+        scheduled_at = datetime(2026, 8, 23, 1, 0, tzinfo=UTC)  # 08:00 VN
         doses = [
             {
                 "scheduled_dose_id": DOSE_ID_1,
@@ -113,7 +113,7 @@ def _fake_delivery(delivery_id, *, status="QUEUED", template_code=DOSE_REMINDER_
         body="Đến giờ uống thuốc",
         status=status,
         template_code=template_code,
-        scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=timezone.utc),
+        scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=UTC),
     )
 
 
@@ -211,8 +211,8 @@ class TestReminderFreshnessGate:
 @pytest.mark.asyncio
 class TestNotificationDispatchService:
     async def test_create_consolidated_reminders(self):
-        scheduled_at = datetime(2026, 8, 19, 21, 0, tzinfo=timezone.utc)
-        cutoff = datetime(2026, 8, 19, 21, 5, tzinfo=timezone.utc)
+        scheduled_at = datetime(2026, 8, 19, 21, 0, tzinfo=UTC)
+        cutoff = datetime(2026, 8, 19, 21, 5, tzinfo=UTC)
 
         dose_groups = {
             (PATIENT_ID, scheduled_at): [
@@ -397,12 +397,12 @@ def _fake_dose(dose_id, patient_id=PATIENT_ID, status="PENDING", snooze_count=0)
         id=dose_id,
         prescription_item_id=uuid.uuid4(),
         patient_id=patient_id,
-        original_scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=timezone.utc),
-        current_scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=timezone.utc),
+        original_scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=UTC),
+        current_scheduled_at=datetime(2026, 8, 19, 21, 0, tzinfo=UTC),
         status=status,
         snooze_count=snooze_count,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
 
@@ -412,11 +412,11 @@ def _fake_log(dose_id, patient_id=PATIENT_ID, action="SNOOZE", key="idem-1"):
         scheduled_dose_id=dose_id,
         patient_id=patient_id,
         action=action,
-        performed_at=datetime.now(timezone.utc),
+        performed_at=datetime.now(UTC),
         action_source="PATIENT_MOBILE_APP",
         payload={"snooze_duration_minutes": 15},
         idempotency_key=f"{key}:{dose_id}",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -547,7 +547,7 @@ class TestBatchDoseActionsService:
         mock_repo = AsyncMock()
         mock_repo.get_batch_logs_by_idempotency_key.return_value = []
 
-        current_time = datetime(2026, 8, 23, 8, 0, tzinfo=timezone.utc)
+        current_time = datetime(2026, 8, 23, 8, 0, tzinfo=UTC)
         dose = _fake_dose(DOSE_ID_1, snooze_count=0)
         dose.current_scheduled_at = current_time
         mock_repo.get_doses_scoped.return_value = [dose]

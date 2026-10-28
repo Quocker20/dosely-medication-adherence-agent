@@ -1,6 +1,6 @@
 import hmac
 import logging
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +29,10 @@ CaregiverServiceDep = Annotated[CaregiverService, Depends(get_caregiver_service)
 async def handle_telegram_webhook(
     request: Request,
     service: CaregiverServiceDep,
-    x_telegram_bot_api_secret_token: Optional[str] = Header(
+    x_telegram_bot_api_secret_token: str | None = Header(
         None, alias="X-Telegram-Bot-Api-Secret-Token"
     ),
-) -> Dict[str, bool]:
+) -> dict[str, bool]:
     """Inbound Telegram webhook endpoint. Authenticates header
     `X-Telegram-Bot-Api-Secret-Token` via constant-time comparison against
     configured secret before reading DB. Always returns 200 on well-formed requests.
@@ -51,6 +51,6 @@ async def handle_telegram_webhook(
             detail="Invalid or missing webhook secret token",
         )
 
-    payload: Dict[str, Any] = await request.json()
+    payload: dict[str, Any] = await request.json()
     await service.handle_webhook_update(payload)
     return {"ok": True}

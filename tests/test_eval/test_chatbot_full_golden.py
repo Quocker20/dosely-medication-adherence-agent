@@ -4,7 +4,6 @@ from pathlib import Path
 from src.agents.medication_policy import match_medication_decision
 from src.agents.semantic_plan import SemanticStep
 
-
 CASES = json.loads(
     (Path(__file__).resolve().parents[2] / "eval" / "chatbot_full_golden_cases.json")
     .read_text(encoding="utf-8")

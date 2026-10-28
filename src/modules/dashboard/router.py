@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -41,13 +41,13 @@ async def list_dashboard_patients(
     service: DashboardServiceDep,
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
-    alert_status: Optional[str] = Query(
+    alert_status: str | None = Query(
         None, alias="alertStatus", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"
     ),
-    adherence_band: Optional[str] = Query(
+    adherence_band: str | None = Query(
         None, alias="adherenceBand", pattern=r"^(LOW|MEDIUM|HIGH)$"
     ),
-    search: Optional[str] = Query(None, min_length=2, description="Search by name or phone"),
+    search: str | None = Query(None, min_length=2, description="Search by name or phone"),
 ) -> JSONResponse:
     """Doctor portal roster (Doctor/Admin). A doctor sees only patients they
     have prescribed for; an admin sees all. Ordered by open alert count so the
@@ -84,7 +84,7 @@ async def get_dashboard_patient_detail(
     )
 
 
-def _authorize_ws_token(token: Optional[str]) -> dict:
+def _authorize_ws_token(token: str | None) -> dict:
     """Validate the handshake token for a dashboard socket.
 
     The token arrives as a query parameter because the browser WebSocket API
@@ -103,7 +103,7 @@ def _authorize_ws_token(token: Optional[str]) -> dict:
     return payload
 
 
-def _authorize_patient_ws_token(token: Optional[str]) -> dict:
+def _authorize_patient_ws_token(token: str | None) -> dict:
     """Validate a patient-only realtime handshake token."""
     if not token:
         raise UnauthorizedException(message="Missing authentication token")
@@ -123,7 +123,7 @@ def _authorize_patient_ws_token(token: Optional[str]) -> dict:
 async def dashboard_events_socket(
     websocket: WebSocket,
     db: Annotated[AsyncSession, Depends(get_db)],
-    token: Optional[str] = Query(None),
+    token: str | None = Query(None),
 ) -> None:
     """Live dashboard feed (Doctor/Admin), one JSON WebSocketEventStream frame
     per event.
@@ -179,7 +179,7 @@ async def dashboard_events_socket(
 @ws_router.websocket("/ws/patient")
 async def patient_events_socket(
     websocket: WebSocket,
-    token: Optional[str] = Query(None),
+    token: str | None = Query(None),
 ) -> None:
     """Live patient feed, filtered server-side to the token subject.
 

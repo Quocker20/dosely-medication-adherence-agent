@@ -1,7 +1,8 @@
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, Optional
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-redis_client: Optional[aioredis.Redis] = None
+redis_client: aioredis.Redis | None = None
 
 # Fan-out channel for the doctor dashboard's live feed. Redis pub/sub (not a
 # stream) because the dashboard only ever wants what is happening now: a portal
@@ -60,7 +61,7 @@ async def close_redis_connection() -> None:
         redis_client = None
 
 
-async def publish_dashboard_event(event_type: str, data: Dict[str, Any]) -> None:
+async def publish_dashboard_event(event_type: str, data: dict[str, Any]) -> None:
     """Publish one dashboard frame, swallowing any transport failure.
 
     The frame envelope (event_type/timestamp/data) is built here rather than by
@@ -77,7 +78,7 @@ async def publish_dashboard_event(event_type: str, data: Dict[str, Any]) -> None
     """
     payload = {
         "event_type": event_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "data": data,
     }
     try:
@@ -87,7 +88,7 @@ async def publish_dashboard_event(event_type: str, data: Dict[str, Any]) -> None
         logger.warning("Could not publish dashboard event", exc_info=True)
 
 
-async def subscribe_dashboard_events() -> AsyncIterator[Dict[str, Any]]:
+async def subscribe_dashboard_events() -> AsyncIterator[dict[str, Any]]:
     """Yield dashboard frames as they arrive, until the consumer stops iterating.
 
     Each subscriber gets its own pubsub handle off the shared pool, so one

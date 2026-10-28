@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,7 @@ class DashboardPatientListResponse(BaseModel):
     patient_name: str
     adherence_rate: float
     open_alerts_count: int
-    last_survey_date: Optional[date] = None
+    last_survey_date: date | None = None
 
 
 class DashboardAdherenceSummary(BaseModel):
@@ -47,7 +47,7 @@ class DashboardPatientDetailResponse(BaseModel):
     patient: DashboardPatientSummary
     active_prescriptions_count: int
     adherence_summary: DashboardAdherenceSummary
-    recent_alerts: List[AlertDetailResponse] = Field(default_factory=list)
+    recent_alerts: list[AlertDetailResponse] = Field(default_factory=list)
 
 
 class WebSocketEventStream(BaseModel):
@@ -55,7 +55,7 @@ class WebSocketEventStream(BaseModel):
 
     event_type: str
     timestamp: datetime
-    data: Dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class RoutineUpdatedEventData(BaseModel):

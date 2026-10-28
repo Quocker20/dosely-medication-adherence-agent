@@ -5,7 +5,7 @@ page a doctor twice, nor double-count a dose) and the alert lifecycle a doctor
 drives from the portal.
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -135,7 +135,7 @@ async def _create_patient(phone: str = PATIENT_PHONE, name: str = "Bệnh nhân 
 async def _create_dose(patient_id: uuid.UUID, doctor_id: uuid.UUID, when=None) -> uuid.UUID:
     """A scheduled dose reachable by the adherence endpoints, built through the
     real chain (prescription -> item -> dose) so FKs and scoping behave."""
-    when = when or (datetime.now(timezone.utc) - timedelta(minutes=30))
+    when = when or (datetime.now(UTC) - timedelta(minutes=30))
     async with AsyncSessionLocal() as db:
         async with db.begin():
             med = (
@@ -244,7 +244,7 @@ async def test_dose_action_before_scheduled_time_is_rejected(client):
     dose_id = await _create_dose(
         patient_id,
         doctor_id,
-        when=datetime.now(timezone.utc) + timedelta(minutes=30),
+        when=datetime.now(UTC) + timedelta(minutes=30),
     )
     headers = {**await _login(client, PATIENT_PHONE), **_idem("dose-too-early-1")}
 
@@ -866,9 +866,9 @@ async def _create_doses_at(
     (source_name, source_record_key) unique index.
     """
     vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    today = datetime.now(timezone.utc).astimezone(vn_tz).date()
-    today_start = datetime.combine(today, time.min, tzinfo=vn_tz).astimezone(timezone.utc)
-    today_end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=vn_tz).astimezone(timezone.utc)
+    today = datetime.now(UTC).astimezone(vn_tz).date()
+    today_start = datetime.combine(today, time.min, tzinfo=vn_tz).astimezone(UTC)
+    today_end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=vn_tz).astimezone(UTC)
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -888,7 +888,7 @@ async def _create_doses_at(
             db.add(item)
             await db.flush()
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             for status, offset in doses:
                 raw_at = now + offset
                 if offset < timedelta(0):
@@ -908,7 +908,7 @@ async def _create_doses_at(
 
 
 async def _summary_today(client, patient_id: uuid.UUID, headers: dict) -> dict:
-    today = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence",
         params={"from": today.isoformat(), "to": today.isoformat()},

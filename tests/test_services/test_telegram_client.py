@@ -1,5 +1,5 @@
-import pytest
 import httpx
+import pytest
 
 from src.core.telegram import (
     FakeTelegramClient,

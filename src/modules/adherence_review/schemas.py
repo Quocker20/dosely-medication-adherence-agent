@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -26,12 +26,12 @@ class AdherenceReviewDetailResponse(BaseModel):
     window_end: date
     severity: str
     days_in_severity: int
-    remedy_class: Optional[str] = None
+    remedy_class: str | None = None
     action_taken: str
     # Frozen severity-side numbers this review's severity was computed from
     # (see AdherenceIndicatorRepository / AdherenceReviewService) -- contains
     # no PII, same population of fields as SeverityIndicators.
-    indicators: Dict[str, Any]
-    llm_reasoning: Optional[str] = None
-    llm_confidence: Optional[str] = None
+    indicators: dict[str, Any]
+    llm_reasoning: str | None = None
+    llm_confidence: str | None = None
     created_at: datetime

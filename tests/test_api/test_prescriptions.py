@@ -5,7 +5,7 @@ and an APPROVED prescription is frozen. These tests pin both, plus the
 find-or-create-patient-by-phone flow that POST /prescriptions runs.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 import pytest
 import pytest_asyncio
@@ -466,9 +466,9 @@ async def test_cancel_clears_future_pending_doses(client):
     draft = await _draft_with_item(client, headers, med_id)
     await client.post(f"/api/v1/prescriptions/{draft['id']}/approve", headers=headers)
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    future = datetime.now(timezone.utc) + timedelta(days=1)
+    future = datetime.now(UTC) + timedelta(days=1)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             db.add(

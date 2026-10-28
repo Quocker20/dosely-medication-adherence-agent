@@ -3,7 +3,6 @@ import math
 import secrets
 import string
 import uuid
-from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +36,7 @@ class AdminService:
         db: AsyncSession,
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
-        auth_repository: Optional[AuthRepository] = None,
+        auth_repository: AuthRepository | None = None,
     ) -> None:
         self._db = db
         self._doctor_repo = doctor_repository
@@ -53,7 +52,7 @@ class AdminService:
         self,
         request: CreateDoctorRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CreateDoctorResponse:
         """Create a new Doctor account and profile.
 
@@ -132,7 +131,7 @@ class AdminService:
         )
 
     async def list_doctors(
-        self, page: int = 1, size: int = 10, search: Optional[str] = None
+        self, page: int = 1, size: int = 10, search: str | None = None
     ) -> PageResponse[DoctorDetailResponse]:
         """Fetch paginated doctor roster with search filter."""
         items, total_count = await self._doctor_repo.list_doctors(
@@ -188,7 +187,7 @@ class AdminService:
         doctor_id: uuid.UUID,
         request: UpdateDoctorRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> DoctorDetailResponse:
         """Update doctor name, specialty, or account status."""
         if (
@@ -291,7 +290,7 @@ class AdminService:
         self,
         doctor_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> MessageResponse:
         """Deactivate a doctor account (soft delete)."""
         actor_user_id = (
@@ -330,8 +329,8 @@ class AdminService:
         self,
         page: int = 1,
         size: int = 10,
-        actor_id: Optional[uuid.UUID] = None,
-        entity_type: Optional[str] = None,
+        actor_id: uuid.UUID | None = None,
+        entity_type: str | None = None,
     ) -> PageResponse[AuditLogListResponse]:
         """Fetch paginated audit logs with optional filters."""
         logs, total_count = await self._audit_repo.list_audit_logs(

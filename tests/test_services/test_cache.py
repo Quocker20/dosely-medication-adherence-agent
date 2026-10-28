@@ -14,7 +14,6 @@ itself.
 """
 
 import fnmatch
-from typing import Optional
 
 import pytest
 from pydantic import BaseModel
@@ -42,13 +41,13 @@ class FakeRedis:
     def __init__(self):
         self.store: dict[str, str] = {}
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         return self.store.get(key)
 
-    async def set(self, key: str, value: str, ex: Optional[int] = None) -> None:
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
 
-    async def scan_iter(self, match: Optional[str] = None, count: Optional[int] = None):
+    async def scan_iter(self, match: str | None = None, count: int | None = None):
         for key in list(self.store.keys()):
             if match is None or fnmatch.fnmatch(key, match):
                 yield key

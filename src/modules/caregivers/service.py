@@ -1,8 +1,8 @@
 import logging
 import secrets
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,9 +34,9 @@ class CaregiverService:
     def __init__(
         self,
         db: AsyncSession,
-        caregiver_repository: Optional[CaregiverRepository] = None,
-        audit_repository: Optional[AuditLogRepository] = None,
-        telegram_client: Optional[TelegramClient] = None,
+        caregiver_repository: CaregiverRepository | None = None,
+        audit_repository: AuditLogRepository | None = None,
+        telegram_client: TelegramClient | None = None,
     ) -> None:
         self._db = db
         self._repo = caregiver_repository or CaregiverRepository(db)
@@ -70,7 +70,7 @@ class CaregiverService:
         patient_id: uuid.UUID,
         request: CreateCaregiverLinkRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CaregiverLinkDetailResponse:
         """PATIENT self-only: link a caregiver phone to the patient.
         Generates an unambiguous 6-char link_code for Telegram bot deep linking.
@@ -110,7 +110,7 @@ class CaregiverService:
 
     async def list_caregiver_links(
         self, patient_id: uuid.UUID, actor_payload: dict
-    ) -> List[CaregiverLinkDetailResponse]:
+    ) -> list[CaregiverLinkDetailResponse]:
         """PATIENT (self) or ADMIN only."""
         role = actor_payload.get("role")
         if role == "PATIENT":
@@ -126,7 +126,7 @@ class CaregiverService:
         patient_id: uuid.UUID,
         caregiver_link_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> None:
         """PATIENT (self) or ADMIN only. Hard delete."""
         role = actor_payload.get("role")
@@ -151,7 +151,7 @@ class CaregiverService:
 
     # ── Webhook Handler ──────────────────────────────────────────────────
 
-    async def handle_webhook_update(self, payload: Dict[str, Any]) -> None:
+    async def handle_webhook_update(self, payload: dict[str, Any]) -> None:
         """Process incoming Telegram webhook update.
         Handles /start <link_code> binding, /stop opt-out, and interaction touches.
         Always fails open without raising so Telegram receives 200.
@@ -166,7 +166,7 @@ class CaregiverService:
             return
 
         text = (message.get("text") or "").strip()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         try:
             if text.startswith("/start"):

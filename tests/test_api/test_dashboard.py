@@ -7,8 +7,7 @@ detail panel must both disappear the moment that fact does.
 import asyncio
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
-
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -93,11 +92,11 @@ async def _add_doses(patient_id: uuid.UUID, prescription_id: uuid.UUID, statuses
                 prescription_id=prescription_id,
                 display_name="Amlodipin 5mg",
                 dose_unit="VIEN",
-                start_date=datetime.now(timezone.utc).date(),
+                start_date=datetime.now(UTC).date(),
             )
             db.add(item)
             await db.flush()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             for offset, status in enumerate(statuses):
                 at = now - timedelta(hours=offset + 1)
                 db.add(
@@ -250,7 +249,7 @@ async def test_roster_row_carries_adherence_alerts_and_last_survey(client):
     await _add_doses(patient_id, rx_id, ["TAKEN", "TAKEN", "MISSED", "SKIPPED"])
     await _add_alert(patient_id, "OPEN")
     await _add_alert(patient_id, "RESOLVED")
-    survey_day = datetime.now(timezone.utc).date()
+    survey_day = datetime.now(UTC).date()
     await _add_survey(patient_id, survey_day)
 
     headers = await _login(client, DOCTOR_PHONE)
@@ -505,14 +504,14 @@ async def test_patient_event_stream_never_yields_another_patients_frame(monkeypa
     patient_id = uuid.uuid4()
     own_frame = {
         "event_type": "routine.updated",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "data": {"patient_id": str(patient_id), "updated_at": "2026-08-28T10:00:00+00:00"},
     }
 
     async def stream():
         yield {
             "event_type": "routine.updated",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "data": {"patient_id": str(uuid.uuid4())},
         }
         yield own_frame
@@ -618,11 +617,11 @@ async def _add_doses_at(
                 prescription_id=prescription_id,
                 display_name="Amlodipin 5mg",
                 dose_unit="VIEN",
-                start_date=datetime.now(timezone.utc).date(),
+                start_date=datetime.now(UTC).date(),
             )
             db.add(item)
             await db.flush()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             for status, offset in doses:
                 at = now + offset
                 db.add(

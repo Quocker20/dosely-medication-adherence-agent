@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 CASES = json.loads(
     (Path(__file__).resolve().parents[2] / "eval" / "indirect_medication_golden_cases.json").read_text(encoding="utf-8")
 )

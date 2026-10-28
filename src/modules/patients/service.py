@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
 from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
-from src.core.redis import publish_dashboard_event
 from src.core.config import get_settings
+from src.core.redis import publish_dashboard_event
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.auth.repository import AuthRepository

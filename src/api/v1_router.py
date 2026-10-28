@@ -8,8 +8,8 @@ from src.modules.adherence.router import (
     patients_adherence_router,
 )
 from src.modules.adherence_review.router import (
-    admin_adherence_reviews_router,
     adherence_reviews_router,
+    admin_adherence_reviews_router,
 )
 from src.modules.agents.router import agent_runs_router, chat_router, schedules_router
 from src.modules.app_update.router import router as app_update_router

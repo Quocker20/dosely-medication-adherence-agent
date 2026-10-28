@@ -10,7 +10,8 @@ another slice also needs.
 import hashlib
 import json
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional, Type, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,8 +26,8 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 def build_cache_key(
     namespace: str,
     *,
-    actor: Optional[Dict[str, Any]] = None,
-    params: Optional[Dict[str, Any]] = None,
+    actor: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
 ) -> str:
     """Deterministic cache key for one read endpoint call.
 
@@ -37,7 +38,7 @@ def build_cache_key(
     it. Only omit `actor` for data that is identical for every caller
     regardless of who's asking (the medication catalog).
     """
-    payload: Dict[str, Any] = {"params": params or {}}
+    payload: dict[str, Any] = {"params": params or {}}
     if actor is not None:
         payload["actor"] = {"sub": actor.get("sub"), "role": actor.get("role")}
     digest = hashlib.sha256(
@@ -47,7 +48,7 @@ def build_cache_key(
     return f"{prefix}:{namespace}:{digest}"
 
 
-async def cache_get_json(key: str) -> Optional[Any]:
+async def cache_get_json(key: str) -> Any | None:
     """Fail-open read: a Redis outage or a malformed entry is a cache miss,
     never a 500 — same reasoning as publish_dashboard_event in core/redis.py."""
     if not get_settings().cache_enabled:
@@ -82,7 +83,7 @@ async def cache_set_json(key: str, value: Any, ttl_seconds: int) -> None:
 async def cached_model(
     key: str,
     ttl_seconds: int,
-    model_type: Type[ModelT],
+    model_type: type[ModelT],
     loader: Callable[[], Awaitable[ModelT]],
 ) -> ModelT:
     """Read-through cache for one Pydantic response model.

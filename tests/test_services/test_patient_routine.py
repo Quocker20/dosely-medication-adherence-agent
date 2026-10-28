@@ -1,6 +1,6 @@
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -41,7 +41,7 @@ async def test_update_routine_upserts_for_profile_without_existing_routine():
         lunch_time=time(12, 0),
         dinner_time=time(18, 30),
         sleep_time=time(22, 30),
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     repository = MagicMock()
     repository.upsert_routine = AsyncMock(return_value=saved)
@@ -94,7 +94,7 @@ async def test_update_routine_rejects_another_patient_without_writing():
 @pytest.mark.asyncio
 async def test_update_routine_publishes_minimal_realtime_marker_after_commit():
     patient_id = uuid.uuid4()
-    updated_at = datetime.now(timezone.utc)
+    updated_at = datetime.now(UTC)
     saved = SimpleNamespace(
         id=uuid.uuid4(), patient_id=patient_id, wake_time=time(6, 30),
         breakfast_time=time(7), lunch_time=time(12), dinner_time=time(18),

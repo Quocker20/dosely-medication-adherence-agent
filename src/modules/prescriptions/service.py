@@ -3,9 +3,7 @@ import math
 import secrets
 import string
 import uuid
-from datetime import date, datetime
-from datetime import timezone as dt_timezone
-from typing import Optional, Tuple
+from datetime import UTC, date, datetime
 
 import anyio
 from sqlalchemy.exc import IntegrityError
@@ -58,7 +56,7 @@ class MedicationService:
         self._medication_repo = medication_repository
 
     async def list_medications(
-        self, page: int = 1, size: int = 10, search: Optional[str] = None
+        self, page: int = 1, size: int = 10, search: str | None = None
     ) -> PageResponse[MedicationDetailResponse]:
         """Fetch paginated medication catalog.
 
@@ -128,10 +126,10 @@ class PrescriptionService:
         prescription_repository: PrescriptionRepository,
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
-        medication_repository: Optional[MedicationRepository] = None,
-        auth_repository: Optional[AuthRepository] = None,
-        patient_repository: Optional[PatientRepository] = None,
-        scheduled_dose_repository: Optional[ScheduledDoseRepository] = None,
+        medication_repository: MedicationRepository | None = None,
+        auth_repository: AuthRepository | None = None,
+        patient_repository: PatientRepository | None = None,
+        scheduled_dose_repository: ScheduledDoseRepository | None = None,
     ) -> None:
         self._db = db
         self._rx_repo = prescription_repository
@@ -205,11 +203,11 @@ class PrescriptionService:
     async def _resolve_or_create_patient(
         self,
         cleaned_phone: str,
-        name: Optional[str] = None,
-        dob: Optional[date] = None,
-        sex: Optional[str] = None,
-        emergency_note: Optional[str] = None,
-    ) -> Tuple[User, Optional[str]]:
+        name: str | None = None,
+        dob: date | None = None,
+        sex: str | None = None,
+        emergency_note: str | None = None,
+    ) -> tuple[User, str | None]:
         """Find the patient's user account by phone, creating one with a temp
         PIN if it doesn't exist yet (same pattern as
         PatientService._resolve_or_create_caregiver).
@@ -275,7 +273,7 @@ class PrescriptionService:
         self,
         prescription_id: uuid.UUID,
         doctor_id: uuid.UUID,
-        allowed_statuses: Tuple[str, ...],
+        allowed_statuses: tuple[str, ...],
     ) -> None:
         """Disambiguate why a conditional state-transition UPDATE matched no
         row: either the prescription doesn't exist / isn't owned by this
@@ -292,7 +290,7 @@ class PrescriptionService:
         self,
         request: CreatePrescriptionRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CreatePrescriptionResponse:
         """Doctor creates a DRAFT prescription for a patient identified by
         phone, atomically with its line items.
@@ -376,7 +374,7 @@ class PrescriptionService:
         self,
         prescription_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> bytes:
         """Render an APPROVED prescription as a PDF (Phụ lục I, TT
         26/2025/TT-BYT layout) — see docs/prescription-pdf-export-plan.md.
@@ -418,7 +416,7 @@ class PrescriptionService:
             raise NotFoundException(message="Prescription not found")
         patient_profile, patient_user = patient_row
 
-        pdf_doctor: Optional[PdfDoctor] = None
+        pdf_doctor: PdfDoctor | None = None
         if prescription.doctor_id is not None:
             doctor_row = await self._doctor_repo.get_doctor_with_user(
                 prescription.doctor_id
@@ -522,7 +520,7 @@ class PrescriptionService:
         self,
         patient_id: uuid.UUID,
         actor_payload: dict,
-        status: Optional[str] = None,
+        status: str | None = None,
         page: int = 1,
         size: int = 10,
     ) -> PageResponse[PrescriptionDetailResponse]:
@@ -579,7 +577,7 @@ class PrescriptionService:
         self,
         prescription_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> PrescriptionDetailResponse:
         """DOCTOR only, scoped to the doctor who created it. DRAFT -> APPROVED."""
         doctor_id = uuid.UUID(actor_payload["sub"])
@@ -610,7 +608,7 @@ class PrescriptionService:
         prescription_id: uuid.UUID,
         request: CancelPrescriptionRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> PrescriptionDetailResponse:
         """DOCTOR only, scoped to the doctor who created it. DRAFT/APPROVED ->
         CANCELLED. cancel_reason has no dedicated column on prescriptions —
@@ -632,7 +630,7 @@ class PrescriptionService:
             # whole patient — other still-active prescriptions' doses must
             # survive (unlike reschedule's delete_future_pending).
             await self._dose_repo.delete_future_pending_for_prescription(
-                prescription_id, now=datetime.now(dt_timezone.utc)
+                prescription_id, now=datetime.now(UTC)
             )
             await self._audit_repo.create_audit_log(
                 action="CANCEL_PRESCRIPTION",
@@ -668,7 +666,7 @@ class PrescriptionService:
         prescription_id: uuid.UUID,
         request: CreatePrescriptionItemRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> PrescriptionItemDetailResponse:
         """DOCTOR only, scoped to the doctor who created the prescription.
         Prescription MUST be DRAFT."""
@@ -702,7 +700,7 @@ class PrescriptionService:
         item_id: uuid.UUID,
         request: UpdatePrescriptionItemRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> PrescriptionItemDetailResponse:
         """DOCTOR only, scoped to the doctor who created the prescription.
         Prescription MUST be DRAFT."""
@@ -737,7 +735,7 @@ class PrescriptionService:
         prescription_id: uuid.UUID,
         item_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> None:
         """DOCTOR only, scoped to the doctor who created the prescription.
         Prescription MUST be DRAFT. Hard delete."""
@@ -759,7 +757,7 @@ class PrescriptionService:
                 ip_address=ip_address,
             )
     async def get_current_medications(
-        self, patient_id: uuid.UUID, as_of: Optional[date] = None
+        self, patient_id: uuid.UUID, as_of: date | None = None
     ) -> CurrentMedicationListResponse:
         """Read the authenticated patient's approved, date-active medication items."""
         effective_date = as_of or date.today()

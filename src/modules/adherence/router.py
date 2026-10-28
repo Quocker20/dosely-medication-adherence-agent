@@ -1,6 +1,6 @@
 import uuid
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -78,7 +78,7 @@ async def record_dose_action(
     request_body: RecordDoseActionRequest,
     current_user: PatientUserDep,
     service: AdherenceLogServiceDep,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> JSONResponse:
     """Record a dose-intake action (TAKEN/SNOOZE/SKIPPED), Patient only,
     scoped to the dose's own patient. Idempotency-Key header is required —
@@ -102,7 +102,7 @@ async def batch_record_dose_action(
     request_body: BatchRecordDoseActionRequest,
     current_user: PatientUserDep,
     service: AdherenceLogServiceDep,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> JSONResponse:
     """Record synchronized dose-intake actions across multiple doses (TAKEN/SNOOZE/SKIPPED),
     Patient only, scoped to the patient's own doses. Idempotency-Key header is required."""
@@ -215,7 +215,7 @@ async def trigger_sos(
     request_body: TriggerSosRequest,
     current_user: PatientUserDep,
     service: AlertServiceDep,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> JSONResponse:
     """Trigger an emergency SOS alert (Patient only, self). Idempotency-Key
     header is required — a retried/duplicate-delivered tap must not page a
@@ -239,8 +239,8 @@ async def list_health_surveys(
     service: HealthSurveyServiceDep,
     from_date: date = Query(..., alias="from"),
     to_date: date = Query(..., alias="to"),
-    patient_id: Optional[uuid.UUID] = Query(None, alias="patientId"),
-    severity: Optional[str] = Query(
+    patient_id: uuid.UUID | None = Query(None, alias="patientId"),
+    severity: str | None = Query(
         None, pattern=r"^(MILD|MODERATE|SEVERE)$"
     ),
     page: int = Query(1, ge=1, le=1000, description="Page number"),
@@ -284,8 +284,8 @@ async def get_health_survey(
 async def list_alerts(
     current_user: DoctorOrAdminUserDep,
     service: AlertServiceDep,
-    status_filter: Optional[str] = Query(None, alias="status", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"),
-    patient_id: Optional[uuid.UUID] = Query(None, alias="patientId"),
+    status_filter: str | None = Query(None, alias="status", pattern=r"^(OPEN|ACKNOWLEDGED|RESOLVED)$"),
+    patient_id: uuid.UUID | None = Query(None, alias="patientId"),
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> JSONResponse:

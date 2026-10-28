@@ -6,12 +6,12 @@ at the schema level, so the renderer must degrade to a placeholder instead
 of crashing or printing something misleading (a literal "NULL", a negative
 day count, an un-decoded glyph).
 """
+import io
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from pypdf import PdfReader
-import io
 
 from src.modules.prescriptions.pdf import (
     PdfDoctor,
@@ -71,7 +71,7 @@ def _item(**overrides) -> PdfItem:
 def _data(**overrides) -> PrescriptionPdfData:
     defaults = dict(
         prescription_id=uuid.uuid4(),
-        approved_at=datetime(2026, 9, 1, 3, 0, tzinfo=timezone.utc),
+        approved_at=datetime(2026, 9, 1, 3, 0, tzinfo=UTC),
         diagnosis_note="Viêm họng cấp",
         patient=PdfPatient(
             name="Nguyễn Văn Ánh", dob=date(1958, 3, 12), sex="MALE",
@@ -277,7 +277,7 @@ class TestRenderPrescriptionPdf:
         """A late-UTC approval must not print the wrong calendar day once
         converted to the patient's timezone."""
         data = _data(
-            approved_at=datetime(2026, 9, 1, 20, 0, tzinfo=timezone.utc),  # 03:00 next day in VN
+            approved_at=datetime(2026, 9, 1, 20, 0, tzinfo=UTC),  # 03:00 next day in VN
             patient=PdfPatient(
                 name="Nguyễn Văn Ánh", dob=None, sex=None, phone="0912345678",
                 timezone="Asia/Ho_Chi_Minh", emergency_note=None,

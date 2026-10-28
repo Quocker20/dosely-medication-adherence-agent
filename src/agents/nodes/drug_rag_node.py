@@ -7,8 +7,8 @@ from functools import lru_cache
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.agents.patient_presentation import patient_facing_text
 from src.agents.medication_mapping import ingredient_candidates, resolve_catalog_medication
+from src.agents.patient_presentation import patient_facing_text
 from src.agents.state import AgentState
 from src.modules.planning.core.backend_client import BackendAPIError, get
 from src.rag_retrieval import SafeDrugRAG

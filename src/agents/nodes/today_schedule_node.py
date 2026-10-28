@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-import re
 
 
 def _resolve_weekday_reference(reference: str, base: date) -> date | None:

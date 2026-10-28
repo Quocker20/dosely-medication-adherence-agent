@@ -1,13 +1,11 @@
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.auth.models import RefreshToken, User, UserDevice
 
@@ -22,13 +20,13 @@ class AuthRepository:
 
     # ── SQL: User operations ──
 
-    async def get_user_by_phone(self, phone: str) -> Optional[User]:
+    async def get_user_by_phone(self, phone: str) -> User | None:
         """Fetch user by phone number."""
         stmt = select(User).where(User.phone == phone)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_user_by_id(self, user_id: uuid.UUID) -> Optional[User]:
+    async def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
         """Fetch user by ID."""
         stmt = select(User).where(User.id == user_id)
         result = await self._db.execute(stmt)
@@ -63,7 +61,7 @@ class AuthRepository:
         the app between changing the PIN and finishing onboarding still routes
         them back to it on the next launch.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         values: dict = {
             "hashed_password": hashed_password,
             "password_changed_at": now,
@@ -93,7 +91,7 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id, User.need_onboarding.is_(True))
-            .values(need_onboarding=False, updated_at=datetime.now(timezone.utc))
+            .values(need_onboarding=False, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -102,7 +100,7 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id)
-            .values(last_login_at=datetime.now(timezone.utc))
+            .values(last_login_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -111,12 +109,12 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id)
-            .values(status=status, updated_at=datetime.now(timezone.utc))
+            .values(status=status, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
     async def upsert_user_device(
-        self, user_id: uuid.UUID, fcm_token: str, device_name: Optional[str] = None
+        self, user_id: uuid.UUID, fcm_token: str, device_name: str | None = None
     ) -> None:
         """Upsert an FCM token for the user. If token already exists (for any user), 
         reassign it to the current user and update device_name/active status."""
@@ -134,7 +132,7 @@ class AuthRepository:
                     "user_id": user_id,
                     "device_name": device_name,
                     "is_active": True,
-                    "updated_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(UTC),
                 },
             )
         )
@@ -147,8 +145,8 @@ class AuthRepository:
         user_id: uuid.UUID,
         token_hash: str,
         expires_at: datetime,
-        device_info: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        device_info: str | None = None,
+        ip_address: str | None = None,
     ) -> RefreshToken:
         """Persist a new refresh token record."""
         record = RefreshToken(
@@ -165,7 +163,7 @@ class AuthRepository:
 
     async def get_refresh_token_by_hash(
         self, token_hash: str
-    ) -> Optional[RefreshToken]:
+    ) -> RefreshToken | None:
         """Find active (non-revoked) refresh token by hash."""
         stmt = select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
@@ -182,7 +180,7 @@ class AuthRepository:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked_at.is_(None),
             )
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -194,7 +192,7 @@ class AuthRepository:
                 RefreshToken.user_id == user_id,
                 RefreshToken.revoked_at.is_(None),
             )
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 

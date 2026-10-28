@@ -1,7 +1,7 @@
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,7 +75,7 @@ class AuthService:
             refresh_token_str = create_refresh_token(user_id=str(user.id))
 
             token_hash = AuthRepository.hash_token(refresh_token_str)
-            refresh_expires_at = datetime.now(timezone.utc) + timedelta(
+            refresh_expires_at = datetime.now(UTC) + timedelta(
                 days=settings.refresh_token_expire_days
             )
             await self._repository.save_refresh_token(
@@ -152,7 +152,7 @@ class AuthService:
                     message="Refresh token not found or already revoked"
                 )
 
-            if stored_token.expires_at < datetime.now(timezone.utc):
+            if stored_token.expires_at < datetime.now(UTC):
                 raise UnauthorizedException(message="Refresh token has expired")
 
             # Fetch user for new token claims
@@ -171,7 +171,7 @@ class AuthService:
 
             # Revoke old + persist new refresh token atomically
             new_token_hash = AuthRepository.hash_token(new_refresh_token)
-            new_expires_at = datetime.now(timezone.utc) + timedelta(
+            new_expires_at = datetime.now(UTC) + timedelta(
                 days=settings.refresh_token_expire_days
             )
             await self._repository.revoke_refresh_token(token_hash)
