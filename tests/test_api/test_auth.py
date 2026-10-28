@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 
 import pytest
@@ -144,13 +143,6 @@ async def test_patient_change_password_does_not_clear_need_onboarding(client):
         )
         assert response.status_code == 200
 
-        # create_refresh_token's JWT truncates iat/exp to whole seconds with
-        # no jti, so a same-user re-login within the same second produces an
-        # identical token -> identical refresh_tokens.token_hash -> unique
-        # violation. Pre-existing issue, unrelated to need_onboarding; sidestep
-        # it here rather than fold an unrelated fix into this change.
-        await asyncio.sleep(1.1)
-
         # Simulate closing the app right after the PIN change, before
         # touching onboarding, then relaunching.
         relogin_body = await _login(client, patient_phone, "999999")
@@ -158,6 +150,29 @@ async def test_patient_change_password_does_not_clear_need_onboarding(client):
         assert relogin_body["need_onboarding"] is True
     finally:
         await _cleanup([doctor_id], [patient_phone])
+
+
+@pytest.mark.asyncio
+async def test_two_refresh_tokens_for_same_user_in_same_second_both_persist(client):
+    """Regression: refresh tokens were deterministic per (user, second), so a
+    second login/refresh in the same second hit the token_hash unique key."""
+    phone = "+84900600005"
+    user_id = await _create_doctor(phone, "555555", "Dr Auth E", "LIC-AUTH-E")
+    try:
+        first = await _login(client, phone, "555555")
+        second = await _login(client, phone, "555555")
+        assert first["refresh_token"] != second["refresh_token"]
+
+        async with AsyncSessionLocal() as db:
+            repo = AuthRepository(db)
+            for body in (first, second):
+                stored = await repo.get_refresh_token_by_hash(
+                    AuthRepository.hash_token(body["refresh_token"])
+                )
+                assert stored is not None
+                assert stored.user_id == user_id
+    finally:
+        await _cleanup([user_id], [])
 
 
 @pytest.mark.asyncio

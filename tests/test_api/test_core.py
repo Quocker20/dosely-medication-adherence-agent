@@ -47,6 +47,20 @@ def test_jwt_tokens_phone_otp():
     assert refresh_payload["type"] == "refresh"
 
 
+def test_tokens_issued_in_same_second_are_unique():
+    """JWT iat/exp are whole seconds; without a random jti two tokens for the
+    same user issued in the same second were byte-identical, which collided on
+    refresh_tokens.token_hash (unique)."""
+    refresh_a = create_refresh_token(user_id="usr_01")
+    refresh_b = create_refresh_token(user_id="usr_01")
+    assert refresh_a != refresh_b
+    assert decode_token(refresh_a)["jti"] != decode_token(refresh_b)["jti"]
+
+    access_a = create_access_token(user_id="usr_01", role="DOCTOR", phone_number="+84912345678")
+    access_b = create_access_token(user_id="usr_01", role="DOCTOR", phone_number="+84912345678")
+    assert access_a != access_b
+
+
 def test_health_endpoint():
     client = TestClient(app)
     response = client.get("/health")

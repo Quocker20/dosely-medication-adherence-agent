@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
 from contextvars import Token as ContextToken
@@ -86,6 +87,9 @@ def create_access_token(
         "type": "access",
         "iat": now,
         "exp": expire,
+        # Random token id: iat/exp are whole seconds, so without it two tokens
+        # for one user issued in the same second would be identical.
+        "jti": uuid.uuid4().hex,
     }
     if additional_claims:
         payload.update(additional_claims)
@@ -110,6 +114,9 @@ def create_refresh_token(
         "type": "refresh",
         "iat": now,
         "exp": expire,
+        # Unique per token: refresh_tokens.token_hash is a unique key over a
+        # hash of this string, so same-second issuance must not collide.
+        "jti": uuid.uuid4().hex,
     }
 
     return jwt.encode(
