@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import uuid
 
@@ -10,10 +11,20 @@ from src.core.logging_config import request_id_var
 
 logger = logging.getLogger(__name__)
 
+# UUIDs fit this too. Anything else (control characters, spaces, long strings)
+# could forge log lines or bloat logs, so it is replaced rather than echoed.
+_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9-]{1,64}")
+
+
+def resolve_request_id(candidate: str | None) -> str:
+    if candidate is not None and _REQUEST_ID_RE.fullmatch(candidate):
+        return candidate
+    return str(uuid.uuid4())
+
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request_id = resolve_request_id(request.headers.get("X-Request-ID"))
         start_time = time.time()
 
         # The id rides on every log record through the contextvar + record factory.
