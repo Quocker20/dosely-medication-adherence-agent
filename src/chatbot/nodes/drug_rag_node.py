@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-from functools import lru_cache
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -13,6 +12,7 @@ from src.chatbot.patient_presentation import patient_facing_text
 from src.chatbot.state import AgentState
 from src.rag_retrieval import SafeDrugRAG
 from src.rag_retrieval.input_guardrail import is_contextual_drug_reference
+from src.rag_retrieval.provider import get_safe_drug_rag
 from src.rag_retrieval.service import fold
 
 _CITATION = re.compile(r"\s*\[Nguồn\s+\d+]", re.IGNORECASE)
@@ -48,9 +48,8 @@ _IDENTITY_MISMATCH_REPLY = (
 )
 
 
-@lru_cache(maxsize=1)
 def _get_rag_service() -> SafeDrugRAG:
-    return SafeDrugRAG()
+    return get_safe_drug_rag()
 
 
 def _last_human_text(state: AgentState) -> str:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from functools import lru_cache
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -15,6 +14,7 @@ from src.chatbot.patient_presentation import patient_facing_text
 from src.chatbot.prescription_consistency import validate_prescription_schedule
 from src.chatbot.state import AgentState
 from src.rag_retrieval import SafeDrugRAG
+from src.rag_retrieval.provider import get_safe_drug_rag
 
 _MEAL_RELATION_TEXT = {
     "BEFORE_MEAL": "Trước bữa ăn",
@@ -32,9 +32,8 @@ _ROUTE_TEXT = {
 }
 
 
-@lru_cache(maxsize=1)
 def _get_rag_service() -> SafeDrugRAG:
-    return SafeDrugRAG()
+    return get_safe_drug_rag()
 
 
 def _regimen(item: dict[str, Any]) -> str:

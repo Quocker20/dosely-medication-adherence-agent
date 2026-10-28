@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 
 from langchain_core.tools import tool
 
 from src.rag_retrieval import DrugRAG
+from src.rag_retrieval.provider import get_drug_rag
 
 _MAX_RESULTS = 5
 _MAX_DOCUMENT_CHARS = 3_500
@@ -17,9 +17,8 @@ _NO_MATCH = (
 )
 
 
-@lru_cache(maxsize=1)
 def _get_rag() -> DrugRAG:
-    return DrugRAG()
+    return get_drug_rag()
 
 
 def _retrieve(query: str) -> str:

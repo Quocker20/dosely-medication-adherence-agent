@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -11,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from src.chatbot.clients.llm import get_llm
 from src.chatbot.state import AgentState
+from src.rag_retrieval.provider import get_drug_rag
 from src.rag_retrieval.service import DrugRAG, fold
 
 _TIMEOUT_SECONDS = 3.0
@@ -109,12 +109,10 @@ def _obviously_allowed(normalized: str) -> str | None:
     return None
 
 
-@lru_cache(maxsize=1)
 def _drug_resolver() -> DrugRAG:
-    # Scope resolution only reads the local formulary lexicon.  Supplying a
-    # sentinel avoids requiring API credentials before we even know whether
-    # the message belongs to the drug chatbot.
-    return DrugRAG(client=object())  # type: ignore[arg-type]
+    # Scope resolution only reads the local formulary lexicon; it shares the
+    # process-wide DrugRAG (P-09) instead of building its own copy.
+    return get_drug_rag()
 
 
 def _looks_like_drug_query(text: str, normalized: str) -> bool:

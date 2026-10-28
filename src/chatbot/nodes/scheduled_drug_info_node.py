@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -15,6 +14,7 @@ from src.chatbot.medication_mapping import resolve_catalog_medication
 from src.chatbot.patient_presentation import patient_facing_text
 from src.chatbot.state import AgentState
 from src.rag_retrieval import SafeDrugRAG
+from src.rag_retrieval.provider import get_drug_rag, get_safe_drug_rag
 from src.rag_retrieval.service import DrugRAG
 
 _TIME = re.compile(r"\b(?P<hour>[01]?\d|2[0-3])\s*(?::|h)\s*(?P<minute>[0-5]\d)?\b", re.IGNORECASE)
@@ -25,14 +25,12 @@ _MEAL = {
 }
 
 
-@lru_cache(maxsize=1)
 def _rag() -> SafeDrugRAG:
-    return SafeDrugRAG()
+    return get_safe_drug_rag()
 
 
-@lru_cache(maxsize=1)
 def _identity_rag() -> DrugRAG:
-    return DrugRAG(client=object())  # type: ignore[arg-type]
+    return get_drug_rag()
 
 
 def _question(state: AgentState) -> str:

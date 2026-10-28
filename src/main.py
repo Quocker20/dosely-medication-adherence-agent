@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,7 @@ from src.core.redis import close_redis_connection
 from src.modules.app_update.service import DOWNLOADS_DIR
 from src.modules.caregivers.webhook_router import webhook_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
+from src.rag_retrieval.provider import warm_up_rag
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -29,6 +31,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
     init_firebase()
+    # P-09: warm the shared RAG index off the event loop; fail-soft.
+    await asyncio.to_thread(warm_up_rag)
     yield
     await close_redis_connection()
     logger.info("Shutting down...")
