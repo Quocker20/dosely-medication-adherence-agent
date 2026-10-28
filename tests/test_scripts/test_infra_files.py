@@ -87,3 +87,56 @@ def test_migrate_service_runs_alembic_and_gates_app_services():
     for name in APP_SERVICES:
         dep = services[name]["depends_on"]["migrate"]
         assert dep["condition"] == "service_completed_successfully", name
+
+
+def _requirement_names(path: str) -> set[str]:
+    import re
+
+    names = set()
+    for raw in (ROOT / path).read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        names.add(re.split(r"[\[<>=!~ ;]", line, maxsplit=1)[0].lower().replace("_", "-"))
+    return names
+
+
+def test_requirements_are_fully_pinned_and_runtime_only():
+    for raw in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line:
+            assert "==" in line and ">=" not in line, line
+    runtime = _requirement_names("requirements.txt")
+    for dev_only in ("pytest", "pytest-asyncio", "pytest-timeout", "ruff", "pypdf"):
+        assert dev_only not in runtime, dev_only
+
+
+def test_dev_requirements_extend_runtime_and_pin_tooling():
+    text = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert "-r requirements.txt" in text
+    dev = _requirement_names("requirements-dev.txt")
+    for tool in ("pytest", "pytest-asyncio", "pytest-timeout", "ruff", "pypdf", "mypy"):
+        assert tool in dev, tool
+
+
+def test_direct_requirements_are_all_resolved_in_lockfile():
+    assert _requirement_names("requirements.in") <= _requirement_names("requirements.txt")
+
+
+def test_pyproject_dependencies_match_requirements_in():
+    import tomllib
+
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {d.split("[")[0].split(">")[0].split("=")[0].strip().lower().replace("_", "-") for d in data["project"]["dependencies"]}
+    assert declared == _requirement_names("requirements.in")
+    extras = {d.lower().replace("_", "-") for d in data["project"]["optional-dependencies"]["dev"]}
+    assert {"pytest", "pytest-asyncio", "pytest-timeout", "ruff", "pypdf", "mypy"} <= extras
+
+
+def test_dockerfile_installs_only_runtime_requirements_and_ci_installs_dev():
+    docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "requirements.txt" in docker and "requirements-dev" not in docker
+    assert "requirements-dev.txt" in (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pip install -r requirements.txt" not in ci
+    assert "requirements-dev.txt" in ci

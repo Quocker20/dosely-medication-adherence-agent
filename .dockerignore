@@ -25,6 +25,8 @@ presentation/
 eval/
 *.md
 !requirements.txt
+requirements-dev.txt
+requirements.in
 .dockerignore
 Dockerfile
 docker-compose.yml

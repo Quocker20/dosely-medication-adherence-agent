@@ -241,7 +241,7 @@ npm run dev
 ### 1. Automated Unit & Integration Tests
 ```bash
 # One-time: create a venv and install deps
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Start the throwaway test Postgres (:5433) + Redis (:6380), build the schema, run everything.
 # Settings come from the committed .env.test (dummy values); the suite refuses to run

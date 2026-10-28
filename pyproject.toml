@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dosely"
 version = "0.1.0"
+description = "Dosely medication adherence backend (FastAPI + Celery + LangGraph)"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -13,19 +14,38 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
+    "tzdata",
+    "python-multipart",
+    "bcrypt",
+    "pyjwt",
+    "fpdf2",
+    "celery",
+    "redis",
+    "langchain",
+    "langchain-openai",
     "langgraph",
-    "numpy>=1.26.0",
-    "openai>=1.0.0",
-    "langdetect>=1.0.9",
+    "sqlalchemy[asyncio]",
+    "alembic",
+    "Mako",
+    "psycopg2-binary",
+    "asyncpg",
+    "chromadb",
+    "tiktoken",
+    "numpy",
+    "openai",
+    "langdetect",
+    "firebase-admin",
+    "httpx",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
-    "httpx",
     "pytest-timeout",
-    "python-dotenv",
+    "ruff",
+    "pypdf",
+    "mypy",
 ]
 
 [tool.setuptools.packages.find]
