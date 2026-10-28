@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../../api";
+import { ApiError as RealApiError } from "../../../api/client";
 import ChatView from "./ChatView";
 
 vi.mock("../../../api", () => ({
@@ -143,6 +144,29 @@ describe("ChatView", () => {
     await waitFor(() => {
       expect(screen.getByText("Thuốc nên uống sau bữa ăn sáng.")).toBeInTheDocument();
     });
+  });
+
+  it.each([
+    [
+      "daily limit message verbatim",
+      "Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
+      "Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
+    ],
+    ["slow-down text for the per-minute limit", "Quá 20 yêu cầu / 60s cho chat.", "Bạn gửi quá nhanh, vui lòng thử lại sau ít giây."],
+  ])("shows the 429 error: %s", async (_name, serverMessage, expected) => {
+    vi.mocked(api.patientChat).mockRejectedValue(
+      new RealApiError(429, serverMessage, { retry_after_seconds: 30 }),
+    );
+
+    render(<ChatView patientId="p-01" />);
+    fireEvent.change(screen.getByPlaceholderText(/Hỏi về thuốc hoặc lịch uống…/i), {
+      target: { value: "Xin chào" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Gửi tin nhắn/i }));
+    });
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
   });
 
   it("uses a fresh conversation id after starting a new chat", async () => {

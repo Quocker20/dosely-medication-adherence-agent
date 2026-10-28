@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "../../../api";
+import { chatErrorMessage } from "../../../api/rateLimit";
 import type { ChatConversationListItem } from "../../../types";
 import Icon from "./Icon";
 
@@ -190,7 +191,7 @@ export default function ChatView({ patientId: _patientId }: { patientId?: string
       ]);
       void loadConversations();
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "Trợ lý AI chưa thể trả lời. Vui lòng thử lại.");
+      setError(chatErrorMessage(cause, "Trợ lý AI chưa thể trả lời. Vui lòng thử lại."));
     } finally {
       setBusy(false);
     }
@@ -242,7 +243,7 @@ export default function ChatView({ patientId: _patientId }: { patientId?: string
           ]);
           void loadConversations();
         } catch (cause) {
-          setError(cause instanceof ApiError ? cause.message : "Trợ lý AI chưa thể trả lời. Vui lòng thử lại.");
+          setError(chatErrorMessage(cause, "Trợ lý AI chưa thể trả lời. Vui lòng thử lại."));
         } finally {
           setBusy(false);
         }
