@@ -3,6 +3,9 @@ package com.dosely.app.data.repository
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
 import com.dosely.app.data.remote.DoselyApiService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -18,6 +21,7 @@ class RemoteAuthRepositoryImplTest {
     private lateinit var server: MockWebServer
     private lateinit var store: SessionStore
     private lateinit var repository: RemoteAuthRepositoryImpl
+    private val refreshLock = SessionRefreshLock()
     private var fcmToken: String? = null
 
     @Before
@@ -38,6 +42,7 @@ class RemoteAuthRepositoryImplTest {
             api,
             store,
             fcmTokenProvider = FcmTokenProvider { fcmToken },
+            refreshLock = refreshLock,
         )
     }
 
@@ -155,6 +160,42 @@ class RemoteAuthRepositoryImplTest {
         runCatching { repository.refreshSession() }
 
         assertEquals("refresh-old", store.refreshToken)
+    }
+
+    @Test
+    fun `refresh 403 clears local session`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(403).setBody(ERROR_RESPONSE))
+
+        runCatching { repository.refreshSession() }
+
+        assertNull(store.session.value)
+    }
+
+    @Test
+    fun `refresh 400 keeps local session`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(400).setBody(ERROR_RESPONSE))
+
+        runCatching { repository.refreshSession() }
+
+        assertEquals("refresh-old", store.refreshToken)
+    }
+
+    @Test
+    fun `refreshSession waits for the shared refresh lock`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(successTokenResponse("access-2", "refresh-2", false))
+        refreshLock.mutex.lock()
+        val job = async(Dispatchers.IO) { repository.refreshSession() }
+
+        delay(300)
+        assertEquals(0, server.requestCount)
+        refreshLock.mutex.unlock()
+        job.await()
+
+        assertEquals(1, server.requestCount)
+        assertEquals("refresh-2", store.refreshToken)
     }
 
     private fun successTokenResponse(

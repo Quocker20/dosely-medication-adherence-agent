@@ -130,3 +130,25 @@ async def test_refresh_after_logout_is_plain_rejection(client):
         assert (await _refresh(client, body["refresh_token"])).status_code == 401
     finally:
         await _cleanup([user_id], [])
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_whole_token_family(client):
+    user_id = await _create_doctor(PHONE, PIN, "Dr Rot", "LIC-ROT-6")
+    try:
+        first = await _login(client, PHONE, PIN)
+        second = (await _refresh(client, first["refresh_token"])).json()["data"]
+        # Grace-path retry: two live tokens in one family.
+        third = (await _refresh(client, first["refresh_token"])).json()["data"]
+
+        headers = {"Authorization": f"Bearer {third['access_token']}"}
+        out = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": third["refresh_token"]},
+            headers=headers,
+        )
+        assert out.status_code == 200
+        assert (await _refresh(client, second["refresh_token"])).status_code == 401
+        assert (await _refresh(client, third["refresh_token"])).status_code == 401
+    finally:
+        await _cleanup([user_id], [])

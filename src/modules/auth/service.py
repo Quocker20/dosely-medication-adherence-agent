@@ -89,6 +89,9 @@ class AuthService:
             )
 
         if not self._is_valid_pin(password):
+            # Same bcrypt cost as a wrong PIN so timing does not reveal the
+            # malformed input; counts as a failure towards the lockout.
+            await verify_password_async(password or "", await _dummy_hash())
             await self._login_failed(cleaned_phone, None, "malformed_pin", ip_address)
 
         # P-03: read, then close the transaction BEFORE the slow bcrypt check so
@@ -336,7 +339,9 @@ class AuthService:
                     message="Refresh token does not belong to the current user"
                 )
             if stored is not None:
-                await self._repository.revoke_refresh_token(token_hash)
+                # Whole session: grace-path refreshes can leave several live
+                # tokens in one family.
+                await self._repository.revoke_family(stored.family_id)
             if fcm_token:
                 # SEC-20: this device must stop receiving the user's pushes.
                 await self._repository.deactivate_user_device(uid, fcm_token)

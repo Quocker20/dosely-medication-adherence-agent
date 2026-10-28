@@ -9,6 +9,7 @@ import com.dosely.app.data.remote.AuthTokenResponseDto
 import com.dosely.app.data.remote.RefreshTokenRequestDto
 import com.dosely.app.data.remote.DoselyApiService
 import com.dosely.app.data.repository.AuthSession
+import com.dosely.app.data.repository.SessionRefreshLock
 import com.dosely.app.data.repository.SessionStore
 import dagger.Module
 import dagger.Provides
@@ -17,6 +18,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Qualifier
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Authenticator
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -91,16 +93,16 @@ class RetrofitTokenRefreshGateway(
 class SessionAuthenticator(
     private val sessionStore: SessionStore,
     private val refreshGateway: TokenRefreshGateway,
+    private val refreshLock: SessionRefreshLock = SessionRefreshLock(),
 ) : Authenticator {
-    private val refreshLock = Any()
 
     override fun authenticate(route: Route?, response: Response): Request? {
         if (response.responseCount() >= MAX_RESPONSE_COUNT) return null
         if (response.request.isNonRefreshableAuthRequest()) return null
 
         val failedAccessToken = response.request.bearerToken() ?: return null
-        return synchronized(refreshLock) {
-            val sessionBeforeRefresh = sessionStore.session.value ?: return@synchronized null
+        return runBlocking { refreshLock.mutex.withLock {
+            val sessionBeforeRefresh = sessionStore.session.value ?: return@withLock null
 
             // A concurrent request already refreshed the session. Reuse its
             // token instead of rotating the single-use refresh token again.
@@ -110,20 +112,20 @@ class SessionAuthenticator(
                     ?.session
                     ?.patientId
                 if (requestPatientId != null && requestPatientId != sessionBeforeRefresh.patientId) {
-                    return@synchronized null
+                    return@withLock null
                 }
-                return@synchronized response.request.withBearerToken(sessionBeforeRefresh.accessToken)
+                return@withLock response.request.withBearerToken(sessionBeforeRefresh.accessToken)
             }
 
             val refreshed = try {
                 refreshGateway.refresh(sessionBeforeRefresh.refreshToken)
             } catch (_: Exception) {
                 // Transient failure: keep the session; the next request retries the refresh.
-                return@synchronized null
+                return@withLock null
             }
             if (refreshed == null || refreshed.user.id != sessionBeforeRefresh.patientId) {
                 sessionStore.clearIfCurrent(sessionBeforeRefresh)
-                return@synchronized null
+                return@withLock null
             }
 
             val renewedSession = AuthSession(
@@ -136,14 +138,14 @@ class SessionAuthenticator(
             )
             try {
                 if (!sessionStore.updateIfCurrent(sessionBeforeRefresh, renewedSession)) {
-                    return@synchronized null
+                    return@withLock null
                 }
             } catch (_: Exception) {
                 sessionStore.clearIfCurrent(sessionBeforeRefresh)
-                return@synchronized null
+                return@withLock null
             }
             response.request.withBearerToken(renewedSession.accessToken)
-        }
+        } }
     }
 }
 
@@ -201,9 +203,10 @@ object NetworkModule {
         sessionStore: SessionStore,
         logging: HttpLoggingInterceptor,
         refreshGateway: TokenRefreshGateway,
+        refreshLock: SessionRefreshLock,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(BearerTokenInterceptor(sessionStore))
-        .authenticator(SessionAuthenticator(sessionStore, refreshGateway))
+        .authenticator(SessionAuthenticator(sessionStore, refreshGateway, refreshLock))
         .addInterceptor(logging)
         .build()
 

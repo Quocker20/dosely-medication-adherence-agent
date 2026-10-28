@@ -117,3 +117,27 @@ async def test_login_works_when_redis_is_down(client, monkeypatch):
             assert (await _post(client, PHONE, PIN)).status_code == 200
     finally:
         await _cleanup(user_id)
+
+
+@pytest.mark.asyncio
+async def test_malformed_pin_spends_bcrypt_and_counts_as_failure(client, lockout_redis):
+    user_id = await _create_doctor(PHONE, PIN, "Dr Malformed", "LIC-LOCK-3")
+    try:
+        with patch(
+            "src.modules.auth.service.verify_password_async",
+            new=AsyncMock(return_value=False),
+        ) as verify:
+            resp = await _post(client, PHONE, "abc")
+        assert resp.status_code == 401
+        assert resp.json()["message"] == "Invalid phone number or password"
+        verify.assert_awaited_once()
+
+        # Malformed input counts towards the lockout like a wrong PIN.
+        _, limiter = lockout_redis
+        for _ in range(3):
+            limiter.advance(61)
+            assert (await _post(client, PHONE, "abc")).status_code == 401
+        limiter.advance(61)
+        assert (await _post(client, PHONE, "abc")).status_code == 429
+    finally:
+        await _cleanup(user_id)

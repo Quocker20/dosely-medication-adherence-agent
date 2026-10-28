@@ -10,8 +10,8 @@ import com.dosely.app.data.remote.RefreshTokenRequestDto
 import com.dosely.app.data.remote.DoselyApiService
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import java.io.IOException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
 
 class RemoteAuthRepositoryImpl @Inject constructor(
@@ -19,6 +19,7 @@ class RemoteAuthRepositoryImpl @Inject constructor(
     private val sessionStore: SessionStore,
     private val readableCacheCleaner: PatientReadableCacheCleaner = NoOpPatientReadableCacheCleaner,
     private val fcmTokenProvider: FcmTokenProvider = NoFcmTokenProvider,
+    private val refreshLock: SessionRefreshLock = SessionRefreshLock(),
 ) : AuthRepository {
 
     override val session: StateFlow<AuthSession?> = sessionStore.session
@@ -48,15 +49,18 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshSession(): AuthSession {
+    override suspend fun refreshSession(): AuthSession = refreshLock.mutex.withLock {
+        // Read the session only once the lock is held: the OkHttp Authenticator
+        // may have just rotated the refresh token.
         val sessionBeforeRefresh = sessionStore.session.value ?: run {
             sessionStore.clear()
             throw IllegalStateException("Không có refresh token trong phiên đăng nhập.")
         }
-        return refreshSession(sessionBeforeRefresh)
+        refreshLocked(sessionBeforeRefresh)
     }
 
-    private suspend fun refreshSession(sessionBeforeRefresh: AuthSession): AuthSession {
+    /** Caller must hold [refreshLock]. */
+    private suspend fun refreshLocked(sessionBeforeRefresh: AuthSession): AuthSession {
         return try {
             val body = api.refreshToken(RefreshTokenRequestDto(sessionBeforeRefresh.refreshToken))
                 .requireData("làm mới phiên đăng nhập")
@@ -71,15 +75,15 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
-            // A rotated/revoked refresh token (401/403) ends the session. A network
-            // error or 5xx says nothing about the token, so keep it for a retry.
-            if (!error.isTransientRefreshFailure()) sessionStore.clearIfCurrent(sessionBeforeRefresh)
+            // Only a rejected refresh token (401/403) ends the session. Anything else
+            // (network, 5xx, parse errors) says nothing about the token: keep it.
+            if (error.isRefreshTokenRejected()) sessionStore.clearIfCurrent(sessionBeforeRefresh)
             throw error
         }
     }
 
-    private fun Exception.isTransientRefreshFailure(): Boolean =
-        this is IOException || (this is HttpException && (code() >= 500 || code() == 408 || code() == 429))
+    private fun Exception.isRefreshTokenRejected(): Boolean =
+        this is HttpException && (code() == 401 || code() == 403)
 
     override suspend fun logout() {
         var sessionBeingLoggedOut = sessionStore.session.value ?: return
@@ -97,7 +101,7 @@ class RemoteAuthRepositoryImpl @Inject constructor(
                 // Logout needs both a valid access token and the refresh token
                 // being revoked. Refresh explicitly so a retried request never
                 // carries the already-rotated token in its body.
-                val renewed = refreshSession(sessionBeingLoggedOut)
+                val renewed = refreshLock.mutex.withLock { refreshLocked(sessionBeingLoggedOut) }
                 sessionBeingLoggedOut = renewed
                 api.logout(LogoutRequestDto(renewed.refreshToken, fcmToken)).requireSuccess("đăng xuất")
             }
