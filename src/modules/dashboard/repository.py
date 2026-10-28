@@ -5,6 +5,7 @@ from sqlalchemy import Exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.adherence.models import Alert, HealthSurvey
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
@@ -203,8 +204,8 @@ class DashboardRepository:
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
         if search and search.strip():
-            term = f"%{search.strip()}%"
-            filters.append(or_(PatientProfile.name.ilike(term), User.phone.ilike(term)))
+            term = contains_pattern(search)
+            filters.append(or_(PatientProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR), User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR)))
         if alert_status:
             filters.append(
                 select(Alert.id)

@@ -7,6 +7,7 @@ from sqlalchemy import Exists, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class MedicationRepository:
         if active_only:
             filters.append(Medication.is_active.is_(True))
         if search and search.strip():
-            filters.append(Medication.name.ilike(f"%{search.strip()}%"))
+            filters.append(Medication.name.ilike(contains_pattern(search), escape=LIKE_ESCAPE_CHAR))
 
         count_stmt = select(func.count(Medication.id))
         if filters:

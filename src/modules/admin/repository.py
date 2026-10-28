@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.admin.models import AuditLog, DoctorProfile
 from src.modules.auth.models import User
 
@@ -71,11 +72,11 @@ class DoctorRepository:
         """
         filter_clause = None
         if search and search.strip():
-            term = f"%{search.strip()}%"
+            term = contains_pattern(search)
             filter_clause = or_(
-                DoctorProfile.name.ilike(term),
-                User.phone.ilike(term),
-                DoctorProfile.license_no.ilike(term),
+                DoctorProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                DoctorProfile.license_no.ilike(term, escape=LIKE_ESCAPE_CHAR),
             )
 
         count_stmt = select(func.count(DoctorProfile.user_id)).join(

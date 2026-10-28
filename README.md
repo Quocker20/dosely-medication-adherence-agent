@@ -219,7 +219,7 @@ npm run dev
 4. Click **Run (`Shift + F10`)** to compile and launch the application.
 
 > **Network Note:** The Android emulator reaches the host backend via `http://10.0.2.2:8000/api/v1/`.  
-> **Demo Account:** Phone: `0900000000` | PIN: `123456`.
+> **Demo Account:** see the seed instructions (`scripts/db/`); credentials are not published in this README.
 
 ---
 
@@ -283,8 +283,8 @@ python eval/hybrid_chat_eval.py
 curl -X POST "http://localhost:8000/api/v1/auth/login" \
      -H "Content-Type: application/json" \
      -d '{
-       "phone": "0900000000",
-       "password": "123456"
+       "phone": "<seeded phone>",
+       "password": "<6-digit PIN>"
      }'
 ```
 

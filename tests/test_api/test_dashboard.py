@@ -313,6 +313,13 @@ async def test_roster_search_and_alert_status_filters(client):
     )
     assert miss.json()["data"]["total_elements"] == 0
 
+    # SEC-24: LIKE wildcards in the term are literals, not "match everything".
+    for wildcard in ("%%", "__", "B%n", "B_nh"):
+        resp = await client.get(
+            "/api/v1/dashboard/patients", params={"search": wildcard}, headers=headers
+        )
+        assert resp.json()["data"]["total_elements"] == 0, wildcard
+
     # No alerts exist for this patient yet, so the filter excludes them.
     filtered = await client.get(
         "/api/v1/dashboard/patients", params={"alertStatus": "OPEN"}, headers=headers

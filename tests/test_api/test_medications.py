@@ -104,6 +104,14 @@ async def test_medication_list_and_detail_returns_active_only(client):
         content = list_response.json()["data"]["content"]
         assert any(item["id"] == str(med_id) for item in content)
 
+        # SEC-24: "%" / "_" are literals, so they must not match the medication.
+        for wildcard in ("%%", "Zzz%Paracetamol", "ZzzTest_aracetamol"):
+            wild = await client.get(
+                "/api/v1/medications", params={"search": wildcard}, headers=headers
+            )
+            assert wild.status_code == 200
+            assert all(item["id"] != str(med_id) for item in wild.json()["data"]["content"]), wildcard
+
         detail_response = await client.get(f"/api/v1/medications/{med_id}", headers=headers)
         assert detail_response.status_code == 200
         assert detail_response.json()["data"]["name"] == "ZzzTestParacetamol"

@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.auth.models import User
 from src.modules.patients.models import PatientProfile, PatientRoutine
 from src.modules.prescriptions.models import Prescription
@@ -149,11 +150,11 @@ class PatientRepository:
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
         if search and search.strip():
-            term = f"%{search.strip()}%"
+            term = contains_pattern(search)
             filters.append(
                 or_(
-                    PatientProfile.name.ilike(term),
-                    User.phone.ilike(term),
+                    PatientProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                    User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR),
                 )
             )
 

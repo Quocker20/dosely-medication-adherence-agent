@@ -59,8 +59,8 @@ Login via phone + 6-digit PIN.
 Request body:
 ```json
 {
-  "phone": "0901234567",
-  "password": "123456"
+  "phone": "<phone>",
+  "password": "<6-digit PIN>"
 }
 ```
 
@@ -88,8 +88,8 @@ Auth required. Sets `password_changed_at = now()`. Also clears `need_onboarding`
 Request body:
 ```json
 {
-  "current_password": "123456",
-  "new_password": "654321"
+  "current_password": "<current 6-digit PIN>",
+  "new_password": "<new 6-digit PIN>"
 }
 ```
 Both fields: exactly 6 digits (`^\d{6}$`).
