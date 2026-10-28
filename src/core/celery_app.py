@@ -10,7 +10,7 @@ from src.core.firebase_app import init_firebase
 settings = get_settings()
 
 celery_app = Celery(
-    "adhe_remind_tasks",
+    "dosely_tasks",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
     include=["src.modules.agents.tasks", "src.modules.adherence_review.tasks"],

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup script cho AI20K project
+# Setup script cho Dosely
 
 set -e
 
-echo "=== AI20K Project Setup ==="
+echo "=== Dosely Setup ==="
 
 # Check Python version
 python3 -c "import sys; assert sys.version_info >= (3, 11), 'Python 3.11+ required'"

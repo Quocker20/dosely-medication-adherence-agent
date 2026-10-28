@@ -15,7 +15,7 @@ from src.main import WEB_DIST, app
 
 def test_settings_load():
     settings = get_settings()
-    assert settings.app_name == "ADHE REMIND API"
+    assert settings.app_name == "Dosely API"
     assert settings.jwt_algorithm == "HS256"
     # Deliberately no assertion on postgres_host/redis_host: those differ
     # between a host-side run and a container, and nothing in the code reads

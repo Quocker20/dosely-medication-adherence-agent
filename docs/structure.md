@@ -1,8 +1,5 @@
 # Dosely — Backend Architecture & Project Structure Guide
 
-> Note: the internal `app_name` default in `src/core/config.py:16` is still the legacy
-> `"ADHE REMIND API"` (asserted by `tests/test_api/test_core.py:18`); the product name is **Dosely**.
-
 This document defines the modular domain-driven architecture for the **Dosely** medication adherence platform backend.
 
 ---
