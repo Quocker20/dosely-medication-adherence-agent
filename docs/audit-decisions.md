@@ -135,3 +135,26 @@ Ghi lại các quyết định phát sinh trong lúc triển khai (tự quyết 
 - Logic báo cáo người thân và tổng hợp tác dụng phụ chuyển sang `caregiver_report_service.py` và `adverse_event_summary_service.py` trong module adherence; ranh giới transaction giữ như cũ. `_execute_send_notification` để nguyên cho Mảng 5.
 - `page_count` ném `ValueError` khi `size < 1`; mọi endpoint đã khai báo `size` với `ge=1` nên không thể gây lỗi 500.
 - Kết quả: 752 pass, 16 fail (chatbot), `ruff` 0 lỗi, 8 task Celery đăng ký đầy đủ như trước.
+
+### Mảng 3: cấu hình và hạ tầng bảo mật (SEC-06, 08, 11, 12, 13, 14, 15, 16, 17, 18, 22, 24, O-14, O-16, O-20) — đã push
+
+Quyết định tự đưa ra:
+- `src/main.py` chuyển sang hàm `create_app()`; vẫn giữ `src.main:app` cho uvicorn và Dockerfile.
+- Voice upload chấp nhận mọi `audio/*` (Android gửi `audio/mp4`, web gửi `audio/webm`), giới hạn mặc định 10 MB; Caddy giới hạn body 12 MB.
+- Escape LIKE áp dụng thêm cho tìm kiếm ở admin và patients (cùng lỗi), dùng helper `src/common/search.py`.
+- `android_download_base_url` mặc định `https://dosely.duckdns.org` (domain của Caddyfile) để bản triển khai hiện tại không đổi. `sha256` là `null` khi file APK không tồn tại.
+- Android chỉ mở link APK bằng trình duyệt nên chưa kiểm hash trong app; đã mang trường `sha256` và để TODO.
+- Celery worker lấy mức log từ `LOG_LEVEL`, không còn theo `--loglevel`.
+- Hoãn: CSP (SEC-12), `--proxy-headers` (làm ở SEC-04, Mảng 4).
+- Kiểm tra: `caddy validate` đạt, `docker compose config` đạt, image build được, `pip freeze` khớp bản ghim. Test Android chưa chạy được vì Gradle 8.7 cần JDK 17 và cache offline thiếu; file test Kotlin đã viết.
+- Kết quả: 810 pass, 16 fail (chatbot), `ruff` 0 lỗi.
+
+Chờ chỉ thị / bạn cần làm khi triển khai:
+1. Thêm `REDIS_PASSWORD` (ký tự an toàn cho URL) vào `.env` triển khai; thiếu thì compose từ chối khởi động. `JWT_SECRET_KEY` và `PASSWORD_PEPPER` trong `.env` hiện tại đã đủ ≥32 ký tự.
+2. Xác nhận `ANDROID_DOWNLOAD_BASE_URL` và đặt `CORS_ORIGINS` rõ ràng ở production (mặc định trong code vẫn là localhost).
+3. `UVICORN_WORKERS` mặc định 2, chưa đo RAM trên VPS 3,8 GB; nếu thiếu RAM đặt 1.
+4. Service `migrate` chỉ chạy `alembic upgrade head`, giả định DB đã có schema gốc từ `docs/database_v1_init.sql`; DB hoàn toàn mới chưa tự dựng được.
+5. Redis không còn mở cổng ra máy; chạy uvicorn ngoài compose cần Redis riêng.
+6. HSTS bật cho domain duckdns (kèm `includeSubDomains`): trình duyệt sẽ từ chối HTTP trong một năm.
+
+Ghi chú khác (ngoài phạm vi, chưa sửa): `.git/hooks/pre-push` và `post-merge` gọi `scripts/log_antigravity.py`, `scripts/submit_log.py` đã bị xóa từ trước, nên mỗi lần push in lỗi nhưng không chặn push.
