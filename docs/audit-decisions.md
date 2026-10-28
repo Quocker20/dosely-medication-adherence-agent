@@ -158,3 +158,29 @@ Chờ chỉ thị / bạn cần làm khi triển khai:
 6. HSTS bật cho domain duckdns (kèm `includeSubDomains`): trình duyệt sẽ từ chối HTTP trong một năm.
 
 Ghi chú khác (ngoài phạm vi, chưa sửa): `.git/hooks/pre-push` và `post-merge` gọi `scripts/log_antigravity.py`, `scripts/submit_log.py` đã bị xóa từ trước, nên mỗi lần push in lỗi nhưng không chặn push.
+
+### Mảng 4: đăng nhập, rate limit, WebSocket (SEC-03, 04, 05, 07, 09, 10, 19, 20, P-03, P-04, P-11) — đã push
+
+Backend, quyết định tự đưa ra:
+- SEC-03: khóa theo số điện thoại sau 5 lần sai trong 15 phút; lần khóa đầu 15 phút, tái phạm trong 24 giờ thì 1 giờ. Bỏ mức 24 giờ vì ai biết số điện thoại cũng có thể cố tình khóa bệnh nhân. Lần sai thứ 5 trả 429 kèm `retry_after_seconds`. PIN sai định dạng vẫn chạy bcrypt với hash giả và tính là một lần sai, để thời gian phản hồi và thông báo không phân biệt được số điện thoại có tồn tại hay không. Redis lỗi thì cho qua.
+- SEC-04: `--forwarded-allow-ips` mặc định `172.16.0.0/12` (dải mạng bridge của Docker, chưa xác nhận trên VPS).
+- SEC-05 + SEC-20: logout chỉ chấp nhận refresh token của chính người gọi, thu hồi cả họ token, nhận thêm `fcm_token` tùy chọn để vô hiệu token thiết bị.
+- SEC-19: thêm migration `0032_refresh_token_family` (`family_id`, `rotated_at`, `replaced_by_id`). Dùng lại token đã xoay trong 30 giây thì nhận cặp mới; ngoài 30 giây thì thu hồi cả họ.
+- SEC-09: `message` của SOS dài hơn 500 ký tự bị cắt chứ không bị từ chối, vì agent đặt lý do và bằng chứng vào đó và không được từ chối một SOS thật. `metadata` trên 4 KB và `resolution_note` trên 1000 ký tự trả 422.
+- SEC-10: giới hạn chat theo ngày (mặc định 200 lượt) reset lúc 0 giờ giờ Việt Nam, `retry_after_seconds` là thời gian tới nửa đêm.
+- SEC-07: WebSocket không nhận token trên URL nữa; client gửi `{"type":"auth","token":...}` trong 5 giây đầu, server trả `auth_ok`. Mã đóng 4401 (xác thực sai hoặc hết hạn), 4403 (sai vai trò). Có xác thực lại trên socket đang mở và ping/pong. Client web và Android cũ không còn dùng được realtime cho tới khi cập nhật.
+- P-11: `retry_after_seconds` của mọi 429 là thời gian còn lại thực tế.
+- Upload chunked vượt giới hạn trả 413; bỏ khóa `version:` lỗi thời trong compose.
+
+Client, quyết định tự đưa ra:
+- Web và Android: chỉ 401/403 khi refresh mới kết thúc phiên; lỗi mạng hoặc 5xx giữ phiên. Android dùng chung một lock (`SessionRefreshLock`) cho OkHttp Authenticator và realtime sync.
+- Web làm mới token khoảng 14 phút một lần khi dashboard đang mở để xác thực lại WebSocket.
+- Doctor và admin trên web không gửi `fcm_token` khi logout vì không dùng web push.
+- Phát hiện thêm và đã sửa: test Android không biên dịch được từ trước (`FakePatientRepository` lỗi thời). Gradle chạy được với JDK 17.
+
+Kết quả: backend 851 pass, 16 fail (chatbot), `ruff` 0 lỗi, alembic một head; web vitest 92/92, `tsc` sạch; Android `testDebugUnitTest` pass.
+
+Chờ chỉ thị / bạn cần kiểm:
+1. Xác nhận dải mạng Docker trên VPS khớp `FORWARDED_ALLOW_IPS`; sai thì mọi client hiện cùng IP của Caddy và dùng chung giới hạn đăng nhập theo IP.
+2. Android chưa thử trên thiết bị thật: lấy FCM token khi logout, xác thực lại WebSocket, hiển thị đếm ngược khi bị khóa.
+3. Chưa có đường mở khóa cho bác sĩ hoặc admin (theo quyết định không làm API cấp lại PIN).
