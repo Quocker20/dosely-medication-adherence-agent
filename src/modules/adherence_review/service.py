@@ -554,7 +554,7 @@ class AdherenceReviewService:
                         settings.adherence_review_patient_send_from,
                         settings.adherence_review_patient_send_to,
                     )
-                    notification = await self._notifications.create_grouped_delivery(
+                    notification, _created = await self._notifications.create_grouped_delivery(
                         recipient_user_id=candidate.patient_id,
                         channel="APP_NOTIFICATION",
                         template_code="ADHERENCE_SUGGESTION",

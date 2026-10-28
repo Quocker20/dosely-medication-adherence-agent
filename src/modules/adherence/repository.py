@@ -808,30 +808,49 @@ class NotificationRepository:
         scheduled_dose_ids: list[uuid.UUID],
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
-    ) -> NotificationDelivery:
-        """Create a consolidated notification delivery linked to multiple scheduled doses."""
-        delivery = NotificationDelivery(
-            recipient_user_id=recipient_user_id,
-            channel=channel,
-            template_code=template_code,
-            title=title,
-            body=body,
-            delivery_metadata=metadata or {},
-            scheduled_at=scheduled_at,
-            idempotency_key=idempotency_key,
-            status="QUEUED",
+    ) -> tuple[NotificationDelivery, bool]:
+        """Create a consolidated notification delivery linked to multiple scheduled doses.
+
+        INSERT ... ON CONFLICT (idempotency_key) DO NOTHING (audit O-03): when two
+        scans overlap, the loser must not raise IntegrityError -- Postgres would
+        abort the whole transaction and roll back every other group in the batch.
+        Returns (delivery, created); created is False when another scan already
+        inserted the row, in which case the existing delivery is returned and no
+        dose items are added.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        stmt = (
+            pg_insert(NotificationDelivery)
+            .values(
+                id=uuid.uuid4(),
+                recipient_user_id=recipient_user_id,
+                channel=channel,
+                template_code=template_code,
+                title=title,
+                body=body,
+                delivery_metadata=metadata or {},
+                scheduled_at=scheduled_at,
+                idempotency_key=idempotency_key,
+                status="QUEUED",
+            )
+            .on_conflict_do_nothing(index_elements=[NotificationDelivery.idempotency_key])
+            .returning(NotificationDelivery.id)
         )
-        self._db.add(delivery)
-        await self._db.flush()
+        inserted_id = (await self._db.execute(stmt)).scalar_one_or_none()
+        if inserted_id is None:
+            existing = await self.get_delivery_by_idempotency_key(idempotency_key) if idempotency_key else None
+            if existing is None:  # pragma: no cover - row vanished between conflict and read
+                raise RuntimeError("notification delivery conflict without a visible existing row")
+            return existing, False
 
         for dose_id in scheduled_dose_ids:
-            item = NotificationDoseItem(
-                notification_delivery_id=delivery.id,
-                scheduled_dose_id=dose_id,
-            )
-            self._db.add(item)
+            self._db.add(NotificationDoseItem(notification_delivery_id=inserted_id, scheduled_dose_id=dose_id))
         await self._db.flush()
-        return delivery
+        delivery = await self.get_delivery_by_id(inserted_id)
+        if delivery is None:  # pragma: no cover - just inserted in this transaction
+            raise RuntimeError("inserted notification delivery not found")
+        return delivery, True
 
     async def get_delivery_by_id(
         self, delivery_id: uuid.UUID

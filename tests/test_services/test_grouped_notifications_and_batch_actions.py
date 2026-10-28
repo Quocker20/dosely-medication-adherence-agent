@@ -255,7 +255,7 @@ class TestNotificationDispatchService:
             title="Nhắc nhở uống thuốc (21:00)",
             body="Đến giờ uống 3 loại thuốc...",
         )
-        mock_notif_repo.create_grouped_delivery.return_value = fake_delivery
+        mock_notif_repo.create_grouped_delivery.return_value = (fake_delivery, True)
 
         service = NotificationDispatchService(
             db=mock_db,

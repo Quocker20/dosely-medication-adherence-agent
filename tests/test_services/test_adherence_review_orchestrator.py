@@ -84,7 +84,7 @@ def _make_service(indicator_repo=None, review_repo=None, alert_repo=None, notifi
     )
 
     notification_repo = notification_repo or AsyncMock()
-    notification_repo.create_grouped_delivery.return_value = SimpleNamespace(id=uuid.uuid4())
+    notification_repo.create_grouped_delivery.return_value = (SimpleNamespace(id=uuid.uuid4()), True)
 
     service = AdherenceReviewService(
         db=db,

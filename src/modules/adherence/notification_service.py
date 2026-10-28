@@ -133,7 +133,7 @@ class NotificationDispatchService:
                 final_deliveries.append(existing)
                 continue
 
-            delivery = await self._notif_repo.create_grouped_delivery(
+            delivery, created = await self._notif_repo.create_grouped_delivery(
                 recipient_user_id=patient_id,
                 channel="APP_NOTIFICATION",
                 template_code="DOSE_REMINDER_GROUPED",
@@ -144,7 +144,8 @@ class NotificationDispatchService:
                 metadata={"dose_ids": [str(d_id) for d_id in dose_ids]},
                 idempotency_key=idempotency_key,
             )
-            new_deliveries.append(delivery)
+            if created:
+                new_deliveries.append(delivery)
             final_deliveries.append(delivery)
 
         if new_deliveries:
