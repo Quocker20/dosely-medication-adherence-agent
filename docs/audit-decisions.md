@@ -184,3 +184,22 @@ Chờ chỉ thị / bạn cần kiểm:
 1. Xác nhận dải mạng Docker trên VPS khớp `FORWARDED_ALLOW_IPS`; sai thì mọi client hiện cùng IP của Caddy và dùng chung giới hạn đăng nhập theo IP.
 2. Android chưa thử trên thiết bị thật: lấy FCM token khi logout, xác thực lại WebSocket, hiển thị đếm ngược khi bị khóa.
 3. Chưa có đường mở khóa cho bác sĩ hoặc admin (theo quyết định không làm API cấp lại PIN).
+
+### Mảng 5: luồng gửi thông báo (O-01, O-02, O-03, O-04, O-19, P-01, P-02, P-08, P-13) — đã push
+
+Quyết định tự đưa ra:
+- Bảng `notification_deliveries` không có cột `updated_at`, nên thời điểm claim và requeue lưu trong `metadata` JSONB (`claimed_at`, `requeued_at`, `requeue_count`). Không cần migration (cột status là `VARCHAR(30)`, không có CHECK).
+- O-01: delivery còn `QUEUED` được đẩy lại vào queue theo backoff 2, 4, 8 phút; sau 3 lần không tiến triển thì chuyển `FAILED` (ghi lý do trong `metadata`). Delivery kẹt `SENDING`/`RETRYING` quá 10 phút được claim lại và tính vào cùng giới hạn. Chỉ xét delivery trong 24 giờ gần nhất.
+- O-02: claim nguyên tử bằng `UPDATE … WHERE status IN ('QUEUED','RETRYING') RETURNING`; lỗi FCM tạm thời retry tối đa 3 lần, token chết thì vô hiệu token. Nhánh Telegram trước đây để `RETRYING` sau lần retry cuối, nay kết thúc `FAILED` (nếu không sẽ bị gửi lại mỗi 10 phút).
+- P-02: cận dưới của truy vấn quét liều bằng `missed_dose_overdue_minutes`, khớp với job đánh dấu lỡ liều nên không có khoảng trống.
+- P-08: phần đếm báo cáo người thân bằng `GROUP BY` làm ở mảng này (Mảng 2 chưa làm).
+- O-04: múi giờ bệnh nhân lấy cùng truy vấn liều đến hạn (không N+1); múi giờ sai thì dùng giờ Việt Nam và ghi cảnh báo.
+- P-13: time limit mặc định 120/180 giây; job review 6000/6600 giây, tắt `acks_late` để không chạy trùng; `generate_schedule` giới hạn cứng 180 giây (bằng lease). Tách worker: `worker` nhận `-Q celery,notifications` (concurrency 2), `worker-review` nhận `-Q review` (concurrency 1). Giữ queue mặc định tên `celery` để tương thích task đang nằm trong Redis khi deploy.
+
+Kết quả: backend 913 pass, 16 fail (chatbot), `ruff` 0 lỗi, 8 task Celery giữ nguyên tên.
+
+Chờ chỉ thị / bạn cần kiểm khi triển khai:
+1. Chạy `docker compose up -d` để tạo service mới `worker-review`.
+2. `worker-review` tốn thêm khoảng 200 MB RAM trên VPS 3,8 GB. Nếu thiếu RAM, có thể gộp về một worker nhận cả ba queue (nhắc thuốc sẽ dùng chung slot với job review chạy lâu).
+3. Nếu sau này lập lịch chạy quá 180 giây, cần nâng giới hạn của `generate_schedule`.
+4. Cron theo múi giờ từng bệnh nhân vẫn chưa làm (giới hạn đã biết, theo O-04).
