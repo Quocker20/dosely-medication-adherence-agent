@@ -130,6 +130,9 @@ class Settings(BaseSettings):
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
     planning_grouping_enabled: bool = False
+    # SEC-19: a refresh token rotated less than this long ago may be presented
+    # again (client retry after a lost response) without revoking the session.
+    refresh_reuse_grace_seconds: int = Field(default=30, ge=0, le=300)
     rate_limit_enabled: bool = True
     # Duyệt đơn xong thì Planning Agent tự sinh lịch (docs mục 8: approve phát
     # event PrescriptionApproved). Tắt cờ này thì bác sĩ phải gọi tay

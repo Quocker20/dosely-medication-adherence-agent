@@ -70,6 +70,21 @@ class RefreshToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # SEC-19: all tokens descended from one login share a family so reuse of a
+    # rotated token can revoke the whole session. rotated_at is set when the
+    # token was exchanged for a new one (as opposed to logout / PIN change).
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        default=uuid.uuid4,
+        server_default="gen_random_uuid()",
+    )
+    rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -147,10 +147,14 @@ class AuthRepository:
         expires_at: datetime,
         device_info: str | None = None,
         ip_address: str | None = None,
+        family_id: uuid.UUID | None = None,
     ) -> RefreshToken:
-        """Persist a new refresh token record."""
+        """Persist a new refresh token record. A new login starts a new family;
+        a rotation passes the parent's family_id (SEC-19)."""
+        token_id = uuid.uuid4()
         record = RefreshToken(
-            id=uuid.uuid4(),
+            id=token_id,
+            family_id=family_id or token_id,
             user_id=user_id,
             token_hash=token_hash,
             device_info=device_info,
@@ -171,6 +175,45 @@ class AuthRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_refresh_token_for_update(
+        self, token_hash: str
+    ) -> RefreshToken | None:
+        """Lock and return a refresh token row in any state (SEC-19).
+
+        FOR UPDATE serialises concurrent refreshes of the same token, so the
+        loser observes the winner's rotation instead of racing it.
+        """
+        stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.token_hash == token_hash)
+            .with_for_update()
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def mark_rotated(
+        self, token_id: uuid.UUID, replaced_by_id: uuid.UUID, now: datetime
+    ) -> None:
+        """Revoke a token because it was exchanged for a new one."""
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.id == token_id)
+            .values(revoked_at=now, rotated_at=now, replaced_by_id=replaced_by_id)
+        )
+        await self._db.execute(stmt)
+
+    async def revoke_family(self, family_id: uuid.UUID) -> None:
+        """Revoke every live token of a login session."""
+        stmt = (
+            update(RefreshToken)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
+        await self._db.execute(stmt)
 
     async def get_refresh_token_any_state(
         self, token_hash: str

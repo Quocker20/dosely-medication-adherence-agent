@@ -22,7 +22,6 @@ from src.core.security import (
     verify_password_async,
 )
 from src.core.utils import clean_phone_number
-from src.modules.admin.repository import AuditLogRepository
 from src.modules.auth.repository import AuthRepository
 from src.modules.auth.schemas import (
     AuthTokenResponse,
@@ -156,6 +155,10 @@ class AuthService:
         Always raises: 429 if this failure tripped the lockout, otherwise the
         same generic 401 for unknown phone / inactive / wrong PIN.
         """
+        # Local import: admin.repository imports auth models, so a top-level
+        # import here is circular when alembic/env.py loads the model registry.
+        from src.modules.admin.repository import AuditLogRepository
+
         locked_for = await login_lockout.register_failure(cleaned_phone)
         try:
             async with self._db.begin():
@@ -218,64 +221,94 @@ class AuthService:
         return MessageResponse(message="Password changed successfully")
 
     async def refresh_token(self, refresh_token_str: str) -> AuthTokenResponse:
-        """Exchange valid refresh token for a new token pair."""
+        """Exchange a refresh token for a new pair, rotating it (SEC-19).
+
+        * Normal: old token revoked (marked rotated), new token in the same family.
+        * Reuse of an already-rotated token:
+            - within ``refresh_reuse_grace_seconds`` of the rotation: treated as
+              a client retry after a lost response. A fresh pair is issued in
+              the same family and nothing is revoked (the earlier replacement
+              stays valid for that short window too).
+            - later: possible theft -> the whole family (session) is revoked
+              and the caller gets 401.
+        * The token row is locked (FOR UPDATE) so concurrent refreshes with the
+          same token serialise; the loser lands in the grace branch.
+        """
         payload = decode_token(refresh_token_str)
         if payload.get("type") != "refresh":
             raise UnauthorizedException(message="Invalid token type")
 
         token_hash = AuthRepository.hash_token(refresh_token_str)
+        grace = timedelta(seconds=settings.refresh_reuse_grace_seconds)
+        reuse_detected = False
+        result: AuthTokenResponse | None = None
 
-        # All DB operations in one transaction
         async with self._db.begin():
-            stored_token = await self._repository.get_refresh_token_by_hash(token_hash)
-            if stored_token is None:
+            stored = await self._repository.get_refresh_token_for_update(token_hash)
+            now = datetime.now(UTC)
+            if stored is None or str(stored.user_id) != payload.get("sub"):
                 raise UnauthorizedException(
                     message="Refresh token not found or already revoked"
                 )
-
-            if stored_token.expires_at < datetime.now(UTC):
+            if stored.expires_at < now:
                 raise UnauthorizedException(message="Refresh token has expired")
 
-            # Fetch user for new token claims
-            user_id = uuid.UUID(payload["sub"])
-            user = await self._repository.get_user_by_id(user_id)
-            if user is None or user.status != "ACTIVE":
-                raise UnauthorizedException(message="User not found or inactive")
+            in_grace = False
+            if stored.revoked_at is not None:
+                if stored.rotated_at is None:
+                    # Revoked by logout / PIN change: plain rejection.
+                    raise UnauthorizedException(
+                        message="Refresh token not found or already revoked"
+                    )
+                if now - stored.rotated_at <= grace:
+                    in_grace = True
+                else:
+                    reuse_detected = True
+                    await self._repository.revoke_family(stored.family_id)
 
-            # Generate new token pair
-            new_access_token = create_access_token(
-                user_id=str(user.id),
-                role=user.role,
-                phone_number=user.phone,
-            )
-            new_refresh_token = create_refresh_token(user_id=str(user.id))
+            if not reuse_detected:
+                user = await self._repository.get_user_by_id(stored.user_id)
+                if user is None or user.status != "ACTIVE":
+                    raise UnauthorizedException(message="User not found or inactive")
 
-            # Revoke old + persist new refresh token atomically
-            new_token_hash = AuthRepository.hash_token(new_refresh_token)
-            new_expires_at = datetime.now(UTC) + timedelta(
-                days=settings.refresh_token_expire_days
-            )
-            await self._repository.revoke_refresh_token(token_hash)
-            await self._repository.save_refresh_token(
-                user_id=user.id,
-                token_hash=new_token_hash,
-                expires_at=new_expires_at,
-            )
+                new_access_token = create_access_token(
+                    user_id=str(user.id),
+                    role=user.role,
+                    phone_number=user.phone,
+                )
+                new_refresh_token = create_refresh_token(user_id=str(user.id))
+                new_record = await self._repository.save_refresh_token(
+                    user_id=user.id,
+                    token_hash=AuthRepository.hash_token(new_refresh_token),
+                    expires_at=now
+                    + timedelta(days=settings.refresh_token_expire_days),
+                    family_id=stored.family_id,
+                )
+                if not in_grace:
+                    await self._repository.mark_rotated(stored.id, new_record.id, now)
 
-        return AuthTokenResponse(
-            access_token=new_access_token,
-            refresh_token=new_refresh_token,
-            token_type="Bearer",
-            expires_in=settings.access_token_expire_minutes * 60,
-            must_change_password=user.password_changed_at is None,
-            need_onboarding=user.need_onboarding,
-            user=UserResponse(
-                id=user.id,
-                phone=user.phone,
-                role=user.role,
-                status=user.status,
-            ),
-        )
+                result = AuthTokenResponse(
+                    access_token=new_access_token,
+                    refresh_token=new_refresh_token,
+                    token_type="Bearer",
+                    expires_in=settings.access_token_expire_minutes * 60,
+                    must_change_password=user.password_changed_at is None,
+                    need_onboarding=user.need_onboarding,
+                    user=UserResponse(
+                        id=user.id,
+                        phone=user.phone,
+                        role=user.role,
+                        status=user.status,
+                    ),
+                )
+
+        # Raised after the transaction block so the family revocation commits.
+        if reuse_detected or result is None:
+            logger.warning("Refresh token reuse detected; session revoked")
+            raise UnauthorizedException(
+                message="Refresh token reuse detected. Please log in again."
+            )
+        return result
 
     async def logout(
         self, refresh_token_str: str, current_user_id: str | uuid.UUID
