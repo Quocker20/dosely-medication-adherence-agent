@@ -172,6 +172,14 @@ class AuthRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_refresh_token_any_state(
+        self, token_hash: str
+    ) -> RefreshToken | None:
+        """Find a refresh token by hash whether or not it is revoked."""
+        stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def revoke_refresh_token(self, token_hash: str) -> None:
         """Revoke a single refresh token by hash."""
         stmt = (

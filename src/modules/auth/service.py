@@ -7,6 +7,7 @@ from typing import NoReturn
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.exceptions import (
+    ForbiddenException,
     TooManyRequestsException,
     UnauthorizedException,
     ValidationException,
@@ -276,11 +277,30 @@ class AuthService:
             ),
         )
 
-    async def logout(self, refresh_token_str: str) -> MessageResponse:
-        """Revoke refresh token on logout."""
+    async def logout(
+        self, refresh_token_str: str, current_user_id: str | uuid.UUID
+    ) -> MessageResponse:
+        """Revoke the caller's own refresh token on logout.
+
+        SEC-05: the token must belong to the authenticated user; otherwise 403
+        and nothing is revoked, so one user cannot log another out by
+        presenting their refresh token. An unknown token is a no-op success
+        (logout is idempotent and must not reveal which tokens exist).
+        """
+        uid = (
+            uuid.UUID(str(current_user_id))
+            if not isinstance(current_user_id, uuid.UUID)
+            else current_user_id
+        )
         token_hash = AuthRepository.hash_token(refresh_token_str)
         async with self._db.begin():
-            await self._repository.revoke_refresh_token(token_hash)
+            stored = await self._repository.get_refresh_token_any_state(token_hash)
+            if stored is not None and stored.user_id != uid:
+                raise ForbiddenException(
+                    message="Refresh token does not belong to the current user"
+                )
+            if stored is not None:
+                await self._repository.revoke_refresh_token(token_hash)
         return MessageResponse(message="Logged out successfully")
 
     async def register_device_token(

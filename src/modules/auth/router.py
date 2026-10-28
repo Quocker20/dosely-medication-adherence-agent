@@ -86,7 +86,7 @@ async def logout(
     service: AuthServiceDep,
 ) -> JSONResponse:
     """Revoke refresh token session for authenticated user."""
-    result = await service.logout(request.refresh_token)
+    result = await service.logout(request.refresh_token, current_user["sub"])
     return success_response(data=None, message=result.message)
 
 

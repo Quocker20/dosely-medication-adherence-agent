@@ -287,3 +287,41 @@ async def test_login_verifies_pin_without_open_transaction():
         assert states == [False]
     finally:
         await _cleanup([user_id], [])
+
+
+@pytest.mark.asyncio
+async def test_logout_rejects_refresh_token_of_another_user(client):
+    """SEC-05: A cannot revoke B's refresh token."""
+    a_id = await _create_doctor("+84900600601", "111111", "Dr A", "LIC-LOGOUT-A")
+    b_id = await _create_doctor("+84900600602", "222222", "Dr B", "LIC-LOGOUT-B")
+    try:
+        a = await _login(client, "+84900600601", "111111")
+        b = await _login(client, "+84900600602", "222222")
+        headers_a = {"Authorization": f"Bearer {a['access_token']}"}
+
+        response = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": b["refresh_token"]},
+            headers=headers_a,
+        )
+        assert response.status_code == 403
+
+        # B's token must still work.
+        refreshed = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": b["refresh_token"]}
+        )
+        assert refreshed.status_code == 200
+
+        # A can log out with its own token.
+        own = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"]},
+            headers=headers_a,
+        )
+        assert own.status_code == 200
+        again = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": a["refresh_token"]}
+        )
+        assert again.status_code == 401
+    finally:
+        await _cleanup([a_id, b_id], [])
