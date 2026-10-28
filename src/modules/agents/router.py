@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_db, oauth2_scheme, require_roles
 from src.common.exceptions import AppException
 from src.core.config import get_settings
-from src.core.rate_limit import rate_limit_by_user
+from src.core.rate_limit import rate_limit_by_user, rate_limit_by_user_per_vn_day
 from src.core.response import success_response
 from src.core.security import create_access_token, reset_actor_token, set_actor_token
 from src.modules.agents.chat_service import ChatService
@@ -287,10 +287,9 @@ async def get_agent_run_status(
 # SEC-10: daily LLM-cost cap shared by /chat and /chat/voice. The message is
 # shown to the patient as-is; errors.retry_after_seconds is the time left.
 CHAT_DAILY_LIMIT = Depends(
-    rate_limit_by_user(
+    rate_limit_by_user_per_vn_day(
         "chat_daily",
         lambda: get_settings().chat_daily_limit,
-        86400,
         message="Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
     )
 )

@@ -82,7 +82,7 @@ Response `data` (`AuthTokenResponse`):
 }
 ```
 
-**Login lockout (SEC-03).** Wrong PIN and unknown phone return the same generic `401` (`"Invalid phone number or password"`), so the response never reveals whether an account exists. After **5 consecutive failures within 15 minutes** for a phone number, login for that phone is blocked with **`429`**; each repeat within 24 h escalates the block: 15 min, then 1 h, then 24 h. A successful login resets the failure counter. The fifth failing attempt itself already returns the `429`. Body:
+**Login lockout (SEC-03).** Wrong PIN and unknown phone return the same generic `401` (`"Invalid phone number or password"`), so the response never reveals whether an account exists. After **5 consecutive failures within 15 minutes** for a phone number, login for that phone is blocked with **`429`**; a repeat within 24 h escalates the block from 15 min to 1 h (1 h is the cap). A successful login resets the failure counter. The fifth failing attempt itself already returns the `429`. Body:
 ```json
 {
   "success": false,
@@ -566,7 +566,7 @@ Response `data` (`AgentRunStatusResponse`):
 > Newest addition — voice/text conversational agent (LangGraph), wired to the same agent tools as dose actions / SOS.
 
 ### Chat rate limits (SEC-10)
-`POST /chat` and `POST /chat/voice` share two per-user limits: 20 requests/minute and **200 requests per rolling 24 h** (`CHAT_DAILY_LIMIT`, text + voice combined). Exceeding either returns `429`; `errors.retry_after_seconds` is the time left in the window. The daily-limit body is
+`POST /chat` and `POST /chat/voice` share two per-user limits: 20 requests/minute and **200 requests per calendar day, reset at midnight Asia/Ho_Chi_Minh** (`CHAT_DAILY_LIMIT`, text + voice combined). Exceeding either returns `429`; `errors.retry_after_seconds` is the time left in the window (for the daily limit: seconds until the next Vietnam midnight). The daily-limit body is
 ```json
 {
   "success": false,

@@ -8,6 +8,19 @@ from src.core.config import get_settings
 from src.core.security import create_access_token
 from src.modules.agents.schemas import ChatResponse
 
+# 10:00 UTC = 17:00 in Asia/Ho_Chi_Minh -> 7 h to the next VN midnight.
+VN_DAY = "2026-10-28"
+VN_SECONDS_LEFT = 7 * 3600
+
+
+def _freeze_vn_clock(monkeypatch):
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        "src.core.rate_limit._now_utc",
+        lambda: datetime(2026, 10, 28, 10, 0, tzinfo=UTC),
+    )
+
 
 class FakePipeline:
     def __init__(self, redis: "FakeRedis") -> None:
@@ -103,6 +116,7 @@ async def test_login_rate_limit_counts_by_ip(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chat_rate_limit_counts_by_user(client, monkeypatch):
+    _freeze_vn_clock(monkeypatch)
     monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
     redis = FakeRedis()
     user_id = str(uuid.uuid4())
@@ -141,7 +155,7 @@ async def test_chat_rate_limit_counts_by_user(client, monkeypatch):
     # (dependency order), so the daily counter only saw the 20 allowed ones.
     assert redis.counts == {
         f"ratelimit:chat:{user_id}": 21,
-        f"ratelimit:chat_daily:{user_id}": 20,
+        f"ratelimit:chat_daily:{user_id}:{VN_DAY}": 20,
     }
 
 
@@ -203,6 +217,7 @@ def test_get_client_ip_ignores_spoofed_x_forwarded_for():
 
 @pytest.mark.asyncio
 async def test_chat_daily_limit_applies_to_text_and_voice_with_friendly_429(client, monkeypatch):
+    _freeze_vn_clock(monkeypatch)
     monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
     monkeypatch.setattr(get_settings(), "chat_daily_limit", 3)
     redis = FakeRedis()
@@ -244,8 +259,23 @@ async def test_chat_daily_limit_applies_to_text_and_voice_with_friendly_429(clie
         assert body["message"] == (
             "Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai."
         )
-        assert body["errors"] == {"retry_after_seconds": 86400}
-    assert redis.expires[f"ratelimit:chat_daily:{user_id}"] == 86400
+        assert body["errors"] == {"retry_after_seconds": VN_SECONDS_LEFT}
+    assert redis.expires[f"ratelimit:chat_daily:{user_id}:{VN_DAY}"] == VN_SECONDS_LEFT
+
+
+def test_seconds_until_vn_midnight_uses_ho_chi_minh_calendar_day():
+    from datetime import UTC, datetime
+
+    from src.core.rate_limit import seconds_until_vn_midnight, vn_day_key
+
+    # 16:59:00 UTC = 23:59:00 VN (UTC+7): 60 s to midnight, still the same day.
+    now = datetime(2026, 10, 28, 16, 59, tzinfo=UTC)
+    assert vn_day_key(now) == "2026-10-28"
+    assert seconds_until_vn_midnight(now) == 60
+    # 17:00:00 UTC = 00:00:00 VN next day: a full day left, new key.
+    now = datetime(2026, 10, 28, 17, 0, tzinfo=UTC)
+    assert vn_day_key(now) == "2026-10-29"
+    assert seconds_until_vn_midnight(now) == 86400
 
 
 def test_chat_daily_limit_default_is_200():

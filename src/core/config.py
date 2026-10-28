@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     refresh_reuse_grace_seconds: int = Field(default=30, ge=0, le=300)
     rate_limit_enabled: bool = True
     # SEC-10: per-patient cap on LLM-backed chat turns (text + voice combined)
-    # per rolling 24 h, on top of the 20/minute burst limit.
+    # per calendar day (resets at midnight Asia/Ho_Chi_Minh), on top of the 20/minute burst limit.
     chat_daily_limit: int = Field(default=200, ge=1, le=100000)
     # Duyệt đơn xong thì Planning Agent tự sinh lịch (docs mục 8: approve phát
     # event PrescriptionApproved). Tắt cờ này thì bác sĩ phải gọi tay
