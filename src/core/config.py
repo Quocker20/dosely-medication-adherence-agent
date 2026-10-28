@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # SQLAlchemy statement logging. Off by default and independent of app_env:
     # echoed SQL carries bound parameters (PHI) into the logs (SEC-06/SEC-17).
     sql_echo: bool = False
+    # P-05: main engine pool. Defaults suit a Supabase session pooler / direct
+    # Postgres. Recycle below the pooler's idle-connection timeout.
+    db_pool_size: int = Field(default=5, ge=1, le=100)
+    db_max_overflow: int = Field(default=10, ge=0, le=100)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=-1)
+    db_pool_timeout_seconds: int = Field(default=30, ge=1)
+    # Set true when DATABASE_URL goes through a pgbouncer *transaction* pooler
+    # (Supabase port 6543): asyncpg's prepared statement cache breaks there.
+    db_disable_statement_cache: bool = False
 
     # Redis Cache & Message Broker
     redis_host: str = "localhost"
