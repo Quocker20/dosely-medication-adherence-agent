@@ -484,7 +484,9 @@ CREATE TABLE adherence_reviews (
     prompt_version VARCHAR(50),
 
     alert_id UUID REFERENCES alerts(id) ON DELETE SET NULL,
-    notification_delivery_id UUID REFERENCES notification_deliveries(id) ON DELETE SET NULL,
+    -- FK added after notification_deliveries exists (see section 6): a forward
+    -- reference here made a from-scratch run of this file fail.
+    notification_delivery_id UUID,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -647,6 +649,11 @@ CREATE TABLE notification_deliveries (
 );
 
 CREATE INDEX idx_notif_deliveries_recipient_scheduled ON notification_deliveries(recipient_user_id, scheduled_at);
+
+-- adherence_reviews.notification_delivery_id (declared above, before this table existed).
+ALTER TABLE adherence_reviews
+    ADD CONSTRAINT fk_adherence_reviews_notification_delivery
+    FOREIGN KEY (notification_delivery_id) REFERENCES notification_deliveries(id) ON DELETE SET NULL;
 
 -- notification_dose_items (Junction Table)
 CREATE TABLE notification_dose_items (
