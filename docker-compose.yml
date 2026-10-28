@@ -16,9 +16,9 @@ services:
       - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
       - ./downloads:/app/downloads
@@ -38,12 +38,17 @@ services:
     image: redis:7-alpine
     container_name: dosely_redis
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    # SEC-15: password required, and no `ports:` -- only containers on the compose
+    # network reach Redis (nothing on the host needs it; the test suite uses
+    # docker-compose.test.yml). Use a URL-safe REDIS_PASSWORD (it is embedded in
+    # redis:// URLs).
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    command: [ "sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\"" ]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,9 +67,9 @@ services:
       - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
       - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
@@ -98,9 +103,9 @@ services:
       - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
     depends_on:
