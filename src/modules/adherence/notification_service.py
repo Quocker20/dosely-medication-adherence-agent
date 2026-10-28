@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 # them, so "has no linked doses" cannot distinguish a stale reminder from an
 # alert delivery, which must never be held back.
 DOSE_REMINDER_TEMPLATE_CODE = "DOSE_REMINDER_GROUPED"
+
+DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh"
 
 
 class NotificationDispatchService:
@@ -65,20 +68,22 @@ class NotificationDispatchService:
 
     @staticmethod
     def format_notification_text(
-        scheduled_at: datetime, doses: list[dict[str, Any]], timezone_str: str = "Asia/Ho_Chi_Minh"
+        scheduled_at: datetime, doses: list[dict[str, Any]], timezone_str: str | None = DEFAULT_TIMEZONE
     ) -> tuple[str, str]:
         """Generate user-friendly title and consolidated message body.
 
-        Merges duplicate medications by name and converts UTC to local timezone.
+        Merges duplicate medications by name and converts UTC to the patient's
+        timezone. An unknown/invalid timezone falls back to Vietnam time (the
+        deployment's market), never UTC, and logs a warning (audit O-04).
         """
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=UTC)
         try:
-            from zoneinfo import ZoneInfo
-            if scheduled_at.tzinfo is None:
-                local_dt = scheduled_at.replace(tzinfo=UTC).astimezone(ZoneInfo(timezone_str))
-            else:
-                local_dt = scheduled_at.astimezone(ZoneInfo(timezone_str))
-        except Exception:
-            local_dt = scheduled_at
+            zone = ZoneInfo(timezone_str or DEFAULT_TIMEZONE)
+        except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError, OSError):
+            logger.warning("Invalid patient timezone %r; using %s for reminder text", timezone_str, DEFAULT_TIMEZONE)
+            zone = ZoneInfo(DEFAULT_TIMEZONE)
+        local_dt = scheduled_at.astimezone(zone)
 
         time_str = local_dt.strftime("%H:%M")
 
@@ -139,7 +144,7 @@ class NotificationDispatchService:
                 final_deliveries.append(existing)
                 continue
 
-            title, body = self.format_notification_text(scheduled_at, doses)
+            title, body = self.format_notification_text(scheduled_at, doses, doses[0].get("timezone"))
             delivery, created = await self._notif_repo.create_grouped_delivery(
                 recipient_user_id=patient_id,
                 channel="APP_NOTIFICATION",

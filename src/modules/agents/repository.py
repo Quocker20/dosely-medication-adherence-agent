@@ -915,11 +915,13 @@ class ScheduledDoseRepository:
         if not_before is not None:
             conditions.append(ScheduledDose.current_scheduled_at >= not_before)
         stmt = (
-            select(ScheduledDose, PrescriptionItem.display_name)
+            select(ScheduledDose, PrescriptionItem.display_name, PatientProfile.timezone)
             .join(
                 PrescriptionItem,
                 ScheduledDose.prescription_item_id == PrescriptionItem.id,
             )
+            # The patient's timezone rides along with the batch (audit O-04): no per-patient lookup.
+            .outerjoin(PatientProfile, PatientProfile.user_id == ScheduledDose.patient_id)
             .where(*conditions)
             .order_by(
                 ScheduledDose.patient_id,
@@ -929,7 +931,7 @@ class ScheduledDoseRepository:
         )
         result = await self._db.execute(stmt)
         grouped: dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]] = {}
-        for dose, medication_name in result.all():
+        for dose, medication_name, patient_timezone in result.all():
             key = (dose.patient_id, dose.current_scheduled_at)
             grouped.setdefault(key, []).append(
                 {
@@ -944,6 +946,7 @@ class ScheduledDoseRepository:
                     "meal_relation": dose.meal_relation,
                     "snooze_count": dose.snooze_count,
                     "status": dose.status,
+                    "timezone": patient_timezone,
                 }
             )
         return grouped
