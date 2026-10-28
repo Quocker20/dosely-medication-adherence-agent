@@ -75,7 +75,11 @@ def test_dockerfile_runs_multiple_workers_configurable_via_env():
     text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "--workers" in text
     assert "UVICORN_WORKERS" in text
-    assert "--proxy-headers" not in text  # SEC-04, handled separately
+    # SEC-04: proxy headers trusted only from the configured proxy network.
+    assert "--proxy-headers" in text
+    assert "--forwarded-allow-ips ${FORWARDED_ALLOW_IPS" in text
+    assert "ENV FORWARDED_ALLOW_IPS=" in text
+    assert "--forwarded-allow-ips *" not in text
 
 
 def test_migrate_service_runs_alembic_and_gates_app_services():

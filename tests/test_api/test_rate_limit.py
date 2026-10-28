@@ -76,22 +76,22 @@ async def test_login_rate_limit_counts_by_ip(client, monkeypatch):
             response = await client.post(
                 "/api/v1/auth/login",
                 json={"phone": "+84900111222", "password": "000000"},
-                headers={"X-Forwarded-For": "203.0.113.10, 10.0.0.2"},
+                headers={"X-Forwarded-For": "198.51.100.7, 10.0.0.2"},
             )
             assert response.status_code == 401
 
         response = await client.post(
             "/api/v1/auth/login",
             json={"phone": "+84900111222", "password": "000000"},
-            headers={"X-Forwarded-For": "203.0.113.10, 10.0.0.2"},
+            headers={"X-Forwarded-For": "198.51.100.7, 10.0.0.2"},
         )
 
     assert response.status_code == 429
     body = response.json()
     assert body["success"] is False
     assert body["errors"] == {"retry_after_seconds": 60}
-    assert redis.counts == {"ratelimit:login:203.0.113.10": 6}
-    assert redis.expires == {"ratelimit:login:203.0.113.10": 60}
+    assert redis.counts == {"ratelimit:login:127.0.0.1": 6}
+    assert redis.expires == {"ratelimit:login:127.0.0.1": 60}
     assert login.await_count == 5
 
 
@@ -169,3 +169,22 @@ async def test_rate_limit_fails_open_when_client_cannot_connect(monkeypatch):
         new=AsyncMock(side_effect=ConnectionError("down")),
     ):
         await _check("scope", "id", 1, 60)
+
+
+def test_get_client_ip_ignores_spoofed_x_forwarded_for():
+    from starlette.requests import Request
+
+    from src.common.http import get_client_ip
+
+    def make(headers, client=("172.18.0.5", 5000)):
+        return Request(
+            {
+                "type": "http",
+                "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+                "client": client,
+            }
+        )
+
+    assert get_client_ip(make({"X-Forwarded-For": "1.2.3.4"})) == "172.18.0.5"
+    assert get_client_ip(make({})) == "172.18.0.5"
+    assert get_client_ip(make({}, client=None)) == "127.0.0.1"
