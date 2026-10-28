@@ -2,10 +2,11 @@ from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import worker_process_init
+from celery.signals import setup_logging, worker_process_init
 
 from src.core.config import get_settings
 from src.core.firebase_app import init_firebase
+from src.core.logging_config import configure_logging
 
 settings = get_settings()
 
@@ -50,6 +51,13 @@ celery_app.conf.update(
         },
     },
 )
+
+@setup_logging.connect
+def init_logging(**kwargs):
+    # Connecting to setup_logging stops Celery from configuring logging itself, so
+    # LOG_LEVEL (not the --loglevel CLI flag) governs the worker and beat.
+    configure_logging(settings.log_level)
+
 
 @worker_process_init.connect
 def init_worker(**kwargs):

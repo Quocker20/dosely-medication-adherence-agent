@@ -53,3 +53,28 @@ async def test_trigger_red_alert_fails_open_on_stubbed_send():
         }
     )
     assert "LỖI NGHIÊM TRỌNG" in result
+
+
+@pytest.mark.asyncio
+async def test_red_alert_failure_log_has_no_patient_evidence(caplog, monkeypatch):
+    import logging
+
+    from src.chatbot.tools import safety_tools
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("backend down")
+
+    monkeypatch.setattr(safety_tools, "_send_alert", boom)
+    with caplog.at_level(logging.CRITICAL):
+        await trigger_red_alert.ainvoke(
+            {
+                "patient_id": "p-1",
+                "reason": "SEVERE_SYMPTOM: tức ngực",
+                "severity": "CRITICAL",
+                "evidence": "TÔI ĐAU NGỰC SỐ-ĐIỆN-THOẠI-0912345678",
+            }
+        )
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "p-1" in text
+    assert "ĐAU NGỰC" not in text
+    assert "0912345678" not in text

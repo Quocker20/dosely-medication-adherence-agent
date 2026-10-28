@@ -6,7 +6,12 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
+from src.common.exceptions import (
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+    describe_integrity_error,
+)
 from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
@@ -156,7 +161,7 @@ class PatientService:
                     ip_address=ip_address,
                 )
         except IntegrityError as exc:
-            logger.warning(f"IntegrityError creating patient: {exc}")
+            logger.warning("IntegrityError creating patient: %s", describe_integrity_error(exc))
             raise ConflictException(message="Phone number already registered")
 
         return CreatePatientResponse(

@@ -203,12 +203,11 @@ async def trigger_red_alert(patient_id: str, reason: str, severity: str, evidenc
         result = await _send_alert(patient_id, reason, severity, evidence)
     except Exception as e:  # noqa: BLE001 — fail-open: must never propagate
         logger.critical(
-            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s reason=%s severity=%s evidence=%s error=%s",
+            # No reason/evidence: both can carry the patient's own words (PHI).
+            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s severity=%s error=%s",
             patient_id,
-            reason,
             severity,
-            evidence,
-            e,
+            type(e).__name__,
         )
         return (
             f"[LỖI NGHIÊM TRỌNG] Không gửi được Red Alert tự động cho bệnh nhân "

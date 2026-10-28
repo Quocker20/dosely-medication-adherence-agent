@@ -11,6 +11,18 @@ from src.core.response import error_response
 logger = logging.getLogger(__name__)
 
 
+def describe_integrity_error(exc: Exception) -> str:
+    """Log-safe summary of a DB IntegrityError: constraint/driver error type only.
+
+    ``str(exc)`` embeds the failing statement's bound parameters, i.e. the phone
+    number or other PHI being inserted.
+    """
+    orig = getattr(exc, "orig", None)
+    constraint = getattr(orig, "constraint_name", None)
+    kind = type(orig).__name__ if orig is not None else type(exc).__name__
+    return f"{kind} constraint={constraint or 'unknown'}"
+
+
 class AppException(Exception):
     def __init__(
         self,
@@ -75,7 +87,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        logger.warning(f"ValidationError on {request.url.path}: {exc.errors()}")
+        # Field location and error type only: errors() also echoes the submitted
+        # input (phone numbers, PINs, symptom text) which must stay out of logs.
+        fields = [f"{'.'.join(str(p) for p in e['loc'])}:{e['type']}" for e in exc.errors()]
+        logger.warning("ValidationError on %s: %s", request.url.path, fields)
         return error_response(
             message="Request validation failed",
             code=status.HTTP_422_UNPROCESSABLE_ENTITY,

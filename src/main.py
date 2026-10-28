@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from src.common.exceptions import register_exception_handlers
 from src.common.middleware import RequestContextMiddleware
 from src.core.config import Settings, get_settings
 from src.core.firebase_app import init_firebase
+from src.core.logging_config import configure_logging
 from src.core.redis import close_redis_connection
 from src.modules.caregivers.webhook_router import webhook_router
 from src.modules.dashboard.router import ws_router as dashboard_ws_router
@@ -18,15 +20,17 @@ from src.modules.dashboard.router import ws_router as dashboard_ws_router
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 DOWNLOADS_DIR = Path(__file__).resolve().parent.parent / "downloads"
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
     init_firebase()
     yield
     await close_redis_connection()
-    print("Shutting down...")
+    logger.info("Shutting down...")
 
 
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
@@ -42,6 +46,7 @@ CORS_ALLOW_HEADERS = [
 
 def create_app(settings: Settings) -> FastAPI:
     """Build the FastAPI app for ``settings`` (a factory so tests can vary the env)."""
+    configure_logging(settings.log_level)
     production = settings.app_env == "production"
     app = FastAPI(
         title=settings.app_name,

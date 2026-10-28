@@ -7,7 +7,12 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
+from src.common.exceptions import (
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+    describe_integrity_error,
+)
 from src.core.config import get_settings
 from src.core.security import validate_phone_number
 from src.core.telegram import TelegramClient, get_telegram_client
@@ -103,7 +108,7 @@ class CaregiverService:
                     ip_address=ip_address,
                 )
         except IntegrityError as exc:
-            logger.warning("IntegrityError creating caregiver link: %s", exc)
+            logger.warning("IntegrityError creating caregiver link: %s", describe_integrity_error(exc))
             raise ConflictException(message="Caregiver is already linked to this patient")
 
         return self._to_response(link)

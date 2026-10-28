@@ -10,6 +10,7 @@ from src.common.exceptions import (
     ConflictException,
     NotFoundException,
     ValidationException,
+    describe_integrity_error,
 )
 from src.common.pagination import page_count
 from src.common.schemas import PageResponse
@@ -97,7 +98,7 @@ class AdminService:
                     ip_address=ip_address,
                 )
         except IntegrityError as exc:
-            logger.warning(f"IntegrityError creating doctor: {exc}")
+            logger.warning("IntegrityError creating doctor: %s", describe_integrity_error(exc))
             constraint = getattr(exc.orig, "constraint_name", None)
             err_msg = str(exc).lower()
 
