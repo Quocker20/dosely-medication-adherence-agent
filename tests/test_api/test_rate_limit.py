@@ -22,6 +22,10 @@ class FakePipeline:
         self._ops.append(("incr", key))
         return self
 
+    def ttl(self, key):
+        self._ops.append(("ttl", key))
+        return self
+
     async def execute(self):
         self._redis.round_trips += 1
         results = []
@@ -35,6 +39,8 @@ class FakePipeline:
                 if ex is not None:
                     self._redis.expires[key] = ex
                 results.append(True)
+            elif op[0] == "ttl":
+                results.append(self._redis.expires.get(op[1], -1))
             else:
                 self._redis.counts[op[1]] = self._redis.counts.get(op[1], 0) + 1
                 results.append(self._redis.counts[op[1]])
@@ -131,7 +137,12 @@ async def test_chat_rate_limit_counts_by_user(client, monkeypatch):
 
     assert response.status_code == 429
     assert response.json()["errors"] == {"retry_after_seconds": 60}
-    assert redis.counts == {f"ratelimit:chat:{user_id}": 21}
+    # The 21st request is rejected by the minute limit before the daily counter
+    # (dependency order), so the daily counter only saw the 20 allowed ones.
+    assert redis.counts == {
+        f"ratelimit:chat:{user_id}": 21,
+        f"ratelimit:chat_daily:{user_id}": 20,
+    }
 
 
 @pytest.mark.asyncio
@@ -188,3 +199,54 @@ def test_get_client_ip_ignores_spoofed_x_forwarded_for():
     assert get_client_ip(make({"X-Forwarded-For": "1.2.3.4"})) == "172.18.0.5"
     assert get_client_ip(make({})) == "172.18.0.5"
     assert get_client_ip(make({}, client=None)) == "127.0.0.1"
+
+
+@pytest.mark.asyncio
+async def test_chat_daily_limit_applies_to_text_and_voice_with_friendly_429(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
+    monkeypatch.setattr(get_settings(), "chat_daily_limit", 3)
+    redis = FakeRedis()
+    user_id = str(uuid.uuid4())
+    token = create_access_token(user_id=user_id, role="PATIENT", phone_number="+84900999888")
+    headers = {"Authorization": f"Bearer {token}"}
+    reply = ChatResponse(response="ok")
+
+    with (
+        patch("src.core.rate_limit.get_redis_client", new=AsyncMock(return_value=redis)),
+        patch(
+            "src.modules.agents.chat_service.ChatService.handle_text_chat",
+            new=AsyncMock(return_value=reply),
+        ),
+        patch(
+            "src.modules.agents.chat_service.ChatService.handle_voice_chat",
+            new=AsyncMock(return_value=reply),
+        ),
+    ):
+        for _ in range(2):
+            r = await client.post("/api/v1/chat", json={"message": "hi"}, headers=headers)
+            assert r.status_code == 200
+        voice = await client.post(
+            "/api/v1/chat/voice",
+            files={"audio": ("a.webm", b"x", "audio/webm")},
+            headers=headers,
+        )
+        assert voice.status_code == 200
+        blocked = await client.post("/api/v1/chat", json={"message": "hi"}, headers=headers)
+        blocked_voice = await client.post(
+            "/api/v1/chat/voice",
+            files={"audio": ("a.webm", b"x", "audio/webm")},
+            headers=headers,
+        )
+
+    for resp in (blocked, blocked_voice):
+        assert resp.status_code == 429
+        body = resp.json()
+        assert body["message"] == (
+            "Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai."
+        )
+        assert body["errors"] == {"retry_after_seconds": 86400}
+    assert redis.expires[f"ratelimit:chat_daily:{user_id}"] == 86400
+
+
+def test_chat_daily_limit_default_is_200():
+    assert get_settings().chat_daily_limit == 200

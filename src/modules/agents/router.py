@@ -284,9 +284,21 @@ async def get_agent_run_status(
 # bound would hand it to whatever runs next on this task.
 
 
+# SEC-10: daily LLM-cost cap shared by /chat and /chat/voice. The message is
+# shown to the patient as-is; errors.retry_after_seconds is the time left.
+CHAT_DAILY_LIMIT = Depends(
+    rate_limit_by_user(
+        "chat_daily",
+        lambda: get_settings().chat_daily_limit,
+        86400,
+        message="Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
+    )
+)
+
+
 @chat_router.post(
     "/chat",
-    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60)), CHAT_DAILY_LIMIT],
 )
 async def chat(
     request_body: ChatRequest,
@@ -404,7 +416,7 @@ async def _read_audio_limited(audio: UploadFile) -> bytes:
 
 @chat_router.post(
     "/chat/voice",
-    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60)), CHAT_DAILY_LIMIT],
 )
 async def chat_voice(
     current_user: PatientUserDep,
