@@ -1,6 +1,27 @@
 version: "3.8"
 
 services:
+  # 0. One-shot schema migration (O-20). backend/worker/beat start only after it
+  # exits 0, so a new image never serves against an un-migrated database.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dosely_migrate
+    command: [ "alembic", "upgrade", "head" ]
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+    restart: "no"
+    # The image HEALTHCHECK probes the web server, which this one-shot never runs.
+    healthcheck:
+      disable: true
+
   # 1. FastAPI Backend Service
   backend:
     build:
@@ -26,6 +47,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
@@ -76,6 +99,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Overrides the image's HEALTHCHECK, which probes http://localhost:8000/health
     # — right for the backend, but this container serves no HTTP, so it inherited
@@ -111,6 +136,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Disabled rather than replaced. Beat is a scheduler, not a worker: it has
     # no inspect protocol to answer, and it serves no HTTP, so the image's

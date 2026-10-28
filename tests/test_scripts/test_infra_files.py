@@ -52,3 +52,38 @@ def test_every_redis_url_in_compose_carries_the_password():
         env = _env(COMPOSE["services"][name])
         for key in ("REDIS_URL", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"):
             assert env[key].startswith("redis://:${REDIS_PASSWORD"), (name, key)
+
+
+def _dockerignore_lines() -> set[str]:
+    return {
+        line.strip()
+        for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+
+def test_dockerignore_excludes_secrets_and_non_runtime_trees():
+    lines = _dockerignore_lines()
+    for required in ("firebase-adminsdk.json", "downloads/", "android/", "tests/", "docs/", ".venv", ".env.*"):
+        assert required in lines, required
+    # The production RAG index must stay in the image.
+    assert "!data/rag_dense_index_q1_q2/" in lines
+    assert "!.env.example" not in lines
+
+
+def test_dockerfile_runs_multiple_workers_configurable_via_env():
+    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "--workers" in text
+    assert "UVICORN_WORKERS" in text
+    assert "--proxy-headers" not in text  # SEC-04, handled separately
+
+
+def test_migrate_service_runs_alembic_and_gates_app_services():
+    services = COMPOSE["services"]
+    migrate = services["migrate"]
+    assert "alembic upgrade head" in " ".join(migrate["command"]) if isinstance(migrate["command"], list) else "alembic upgrade head" in migrate["command"]
+    assert migrate.get("restart", "no") == "no"
+    assert _env(migrate).get("APP_ENV") == "production"
+    for name in APP_SERVICES:
+        dep = services[name]["depends_on"]["migrate"]
+        assert dep["condition"] == "service_completed_successfully", name
