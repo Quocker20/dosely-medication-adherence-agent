@@ -109,3 +109,29 @@ Toàn bộ 20 mã nhóm O đã có quyết định.
 
 1. Mục 7 (Tổ chức code và vận hành): ghi quyết định xử lý cho từng mã.
 2. O-05, O-07, O-15, O-17 ghi rõ là bỏ qua có chủ đích; O-14 và O-20 ghi liên kết với SEC-22 và SEC-16.
+
+## Nhật ký triển khai
+
+Ghi lại các quyết định phát sinh trong lúc triển khai (tự quyết khi không quá quan trọng; mục quan trọng ghi "chờ chỉ thị").
+
+### Mảng 1: hạ tầng test và lint (O-12, O-11) — đã push
+
+- Phát hiện thêm: backend không khởi động được do `requirements.txt` không ghim phiên bản, SQLAlchemy 2.1 không còn kéo `greenlet`. Đã sửa bằng `sqlalchemy[asyncio]`. Ghim phiên bản đầy đủ vẫn để ở SEC-22/O-14.
+- Phát hiện thêm: `docs/database_v1_init.sql` không chạy được trên DB trống (khóa ngoại `adherence_reviews` trỏ tới `notification_deliveries` khai báo trước khi bảng được tạo). Đã sửa thứ tự.
+- DB test riêng: Postgres cổng 5433, Redis cổng 6380 (`docker-compose.test.yml`), `.env.test` chỉ chứa giá trị giả. `tests/db_guard.py` chặn chạy test nếu `DATABASE_URL` không phải loopback với tên DB kết thúc `_test`.
+- CI: job lint `ruff` chuyển sang chặn. Job `backend-tests` vẫn để `continue-on-error` vì còn 16 test chatbot fail đã biết (chờ quyết định nhóm CHAT).
+- `ruff.toml`: bỏ qua N818 (`AppException`) và UP042 (các lớp `(str, Enum)`) theo từng file, có chú thích lý do.
+- Phát hiện thêm và đã sửa: refresh token trùng khi cấp hai lần trong cùng một giây (gây `UniqueViolation`). Đã thêm `jti` ngẫu nhiên vào access và refresh token. Phần xoay vòng và phát hiện dùng lại vẫn để ở SEC-19.
+- `tests/test_api/test_patient_app.py` (test cho app demo trong bộ nhớ đã bị gỡ) được viết lại thành 5 test chạy trên DB thật; 4 test cũ bị bỏ vì `test_alerts.py` đã phủ cùng hành vi.
+- Các test tổng hợp tuân thủ được sửa để không phụ thuộc giờ trong ngày (trước đây fail sau nửa đêm giờ Việt Nam).
+- Kết quả: 735 pass, 16 fail (đều thuộc chatbot, giữ nguyên chủ ý), `ruff` 0 lỗi.
+
+### Mảng 2: cấu trúc (O-18, O-13, O-08, O-10, O-06, O-09) — đã push
+
+- Tên Celery app đổi thành `dosely_tasks`; giữ nguyên toàn bộ tên task tường minh (`agents.*`, `adherence_review.scan`) để task đang xếp hàng vẫn chạy được.
+- `scripts/` chia thành `scripts/rag/` và `scripts/db/`. Giữ nguyên `scripts/_pyrun.*` và `scripts/doc_audit_hook.py` vì hook trong `.claude/settings.json` trỏ tới.
+- `src/agents/` đổi thành `src/chatbot/`; `src/modules/planning/core/` chuyển vào `src/chatbot/clients/`. `tests/test_agents/` đổi thành `tests/test_chatbot/`; test của router backend (`test_schedule_self_routes`) chuyển sang `tests/test_services/`.
+- `src/modules/agents/service.py` tách thành `scheduling_service.py`, `missed_dose_scan_service.py`, `chat_service.py`, không giữ shim tương thích.
+- Logic báo cáo người thân và tổng hợp tác dụng phụ chuyển sang `caregiver_report_service.py` và `adverse_event_summary_service.py` trong module adherence; ranh giới transaction giữ như cũ. `_execute_send_notification` để nguyên cho Mảng 5.
+- `page_count` ném `ValueError` khi `size < 1`; mọi endpoint đã khai báo `size` với `ge=1` nên không thể gây lỗi 500.
+- Kết quả: 752 pass, 16 fail (chatbot), `ruff` 0 lỗi, 8 task Celery đăng ký đầy đủ như trước.
