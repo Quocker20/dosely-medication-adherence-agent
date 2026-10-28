@@ -1,5 +1,4 @@
 import logging
-import math
 import secrets
 import string
 import uuid
@@ -14,6 +13,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model
 from src.core.celery_app import celery_app
@@ -73,7 +73,7 @@ class MedicationService:
                 page=page, size=size, search=search, active_only=True
             )
 
-            total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+            total_pages = page_count(total_count, size)
             last = page >= total_pages if total_pages > 0 else True
 
             content = [MedicationDetailResponse.model_validate(m) for m in items]
@@ -534,7 +534,7 @@ class PrescriptionService:
             patient_id, actor_id=actor_id, status=status, page=page, size=size
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         items_map = await self._rx_repo.get_items_for_prescriptions(

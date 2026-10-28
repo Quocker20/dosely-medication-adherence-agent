@@ -1,5 +1,4 @@
 import logging
-import math
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -8,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.common.exceptions import NotFoundException
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model
 from src.core.config import get_settings
@@ -113,7 +113,7 @@ class DashboardService:
                 search=search,
             )
 
-            total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+            total_pages = page_count(total_count, size)
             last = page >= total_pages if total_pages > 0 else True
 
             content = [

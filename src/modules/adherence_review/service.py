@@ -42,7 +42,6 @@ separate special case needed.
 from __future__ import annotations
 
 import logging
-import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -53,6 +52,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import invalidate_prefix
 from src.core.config import Settings, get_settings
@@ -654,7 +654,7 @@ class AdherenceReviewQueryService:
         actor_id = uuid.UUID(actor_payload["sub"])
         rows, total_count = await self._reviews.list_for_patient(patient_id, actor_id, page=page, size=size)
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         content = [AdherenceReviewDetailResponse.model_validate(row) for row in rows]
 

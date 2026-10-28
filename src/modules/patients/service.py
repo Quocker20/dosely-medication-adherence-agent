@@ -1,5 +1,4 @@
 import logging
-import math
 import secrets
 import string
 import uuid
@@ -8,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
@@ -180,7 +180,7 @@ class PatientService:
             doctor_id=doctor_id, page=page, size=size, search=search
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         content = [self._to_detail(profile, user) for profile, user in items]

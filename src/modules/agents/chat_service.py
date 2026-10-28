@@ -23,6 +23,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.config import get_settings
@@ -87,7 +88,7 @@ class ChatService:
                 )
             rows, total = await self._memory.list_conversations(patient_id, page=page, size=size)
             items = [ChatConversationListItem.model_validate(r) for r in rows]
-            total_pages = (total + size - 1) // size if total > 0 else 0
+            total_pages = page_count(total, size)
             return PageResponse(
                 content=items,
                 page_no=page,

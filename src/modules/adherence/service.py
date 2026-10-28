@@ -1,5 +1,4 @@
 import logging
-import math
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -13,6 +12,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.config import get_settings
@@ -60,7 +60,7 @@ def _page_from_survey_rows(
     both repository methods return the same
     (patient_id, patient_name, survey_date, id, status, submitted_at,
     symptom_count, max_severity) row shape."""
-    total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+    total_pages = page_count(total_count, size)
     last = page >= total_pages if total_pages > 0 else True
     content = [
         HealthSurveyListItemResponse(
@@ -458,7 +458,7 @@ class AdherenceLogService:
             patient_id, actor_id, range_start, range_end, page=page, size=size
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         content = [AdherenceLogDetailResponse.model_validate(r) for r in rows]
 
@@ -857,7 +857,7 @@ class AlertService:
             status=status, patient_id=patient_id, page=page, size=size
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         # Batched, not one lookup per row — a page of alerts can span up to
         # `size` distinct patients and this endpoint is platform-wide.

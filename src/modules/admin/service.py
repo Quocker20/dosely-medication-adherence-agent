@@ -1,5 +1,4 @@
 import logging
-import math
 import secrets
 import string
 import uuid
@@ -12,6 +11,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.security import hash_password, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
@@ -138,7 +138,7 @@ class AdminService:
             page=page, size=size, search=search
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         content = [
@@ -337,7 +337,7 @@ class AdminService:
             page=page, size=size, actor_id=actor_id, entity_type=entity_type
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         content = [
