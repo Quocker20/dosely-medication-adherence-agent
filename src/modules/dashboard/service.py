@@ -1,6 +1,7 @@
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,7 @@ from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model
 from src.core.config import get_settings
+from src.core.database import AsyncSessionLocal
 from src.core.redis import subscribe_dashboard_events
 from src.modules.adherence.schemas import AlertDetailResponse
 from src.modules.dashboard.repository import DashboardRepository
@@ -25,6 +27,18 @@ from src.modules.dashboard.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def short_dashboard_repository() -> AsyncIterator[DashboardRepository]:
+    """A DashboardRepository on its own short-lived session (P-04).
+
+    A WebSocket can stay open for hours; holding one AsyncSession (and its
+    pooled connection) for that whole time exhausts the pool. Callers open this
+    per check and release the connection immediately afterwards.
+    """
+    async with AsyncSessionLocal() as db:
+        yield DashboardRepository(db)
 
 
 def _adherence_rate(taken: int, total: int) -> float:
@@ -257,7 +271,9 @@ class DashboardEventService:
     @staticmethod
     async def stream_for_dashboard_actor(
         actor_payload: dict,
-        dashboard_repository: DashboardRepository,
+        repository_scope: Callable[
+            [], AbstractAsyncContextManager[DashboardRepository]
+        ] = short_dashboard_repository,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield dashboard frames within the receiving actor's care scope.
 
@@ -280,5 +296,10 @@ class DashboardEventService:
                 patient_id = uuid.UUID(str(raw_patient_id))
             except (TypeError, ValueError):
                 continue
-            if await dashboard_repository.get_patient_identity(patient_id, doctor_id=doctor_id):
+            # P-04: one short session per frame, never one per socket lifetime.
+            async with repository_scope() as repository:
+                in_scope = await repository.get_patient_identity(
+                    patient_id, doctor_id=doctor_id
+                )
+            if in_scope:
                 yield frame

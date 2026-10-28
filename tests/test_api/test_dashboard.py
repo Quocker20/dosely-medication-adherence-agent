@@ -26,6 +26,7 @@ from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
+from src.modules.dashboard import router as dashboard_router
 from src.modules.dashboard.service import DashboardEventService
 from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
@@ -472,38 +473,141 @@ def _ws_token(role: str) -> str:
     )
 
 
+def _ws_auth(ws, token: str | None) -> None:
+    """First-message authentication (SEC-07): the token never rides the URL."""
+    ws.send_json({"type": "auth", **({"token": token} if token is not None else {})})
+
+
+def _expect_close(ws) -> int:
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        ws.receive_json()
+    return exc_info.value.code
+
+
 def test_socket_rejects_missing_token():
-    """Rejected before accept(), so a caller never sees a socket that opens and
-    then dies — 1008 is the policy-violation close."""
+    """An auth frame without a token closes with 4401."""
     with TestClient(app) as tc:
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect("/ws/dashboard"):
-                pass
-    assert exc_info.value.code == 1008
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, None)
+            assert _expect_close(ws) == 4401
+
+
+def test_socket_closes_when_no_auth_frame_arrives(monkeypatch):
+    monkeypatch.setattr(dashboard_router, "WS_AUTH_TIMEOUT_SECONDS", 0.3)
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            assert _expect_close(ws) == 4401
+
+
+def test_query_string_token_is_no_longer_accepted(monkeypatch):
+    monkeypatch.setattr(dashboard_router, "WS_AUTH_TIMEOUT_SECONDS", 0.3)
+    with TestClient(app) as tc:
+        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
+            assert _expect_close(ws) == 4401
+
+
+def test_socket_rejects_non_json_first_frame():
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            ws.send_text("hello")
+            assert _expect_close(ws) == 4401
 
 
 def test_socket_rejects_patient_role():
     with TestClient(app) as tc:
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('PATIENT')}"):
-                pass
-    assert exc_info.value.code == 1008
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, _ws_token("PATIENT"))
+            assert _expect_close(ws) == 4403
 
 
 def test_patient_socket_rejects_doctor_role():
     with TestClient(app) as tc:
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect(f"/ws/patient?token={_ws_token('DOCTOR')}"):
-                pass
-    assert exc_info.value.code == 1008
+        with tc.websocket_connect("/ws/patient") as ws:
+            _ws_auth(ws, _ws_token("DOCTOR"))
+            assert _expect_close(ws) == 4403
 
 
 def test_patient_socket_rejects_missing_token():
     with TestClient(app) as tc:
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect("/ws/patient"):
-                pass
-    assert exc_info.value.code == 1008
+        with tc.websocket_connect("/ws/patient") as ws:
+            _ws_auth(ws, None)
+            assert _expect_close(ws) == 4401
+
+
+def test_patient_socket_accepts_patient_token():
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/patient") as ws:
+            _ws_auth(ws, _ws_token("PATIENT"))
+            ack = ws.receive_json()
+    assert ack["type"] == "auth_ok"
+    assert 0 < ack["expires_in"] <= 30 * 60
+
+
+def test_socket_rejects_expired_token():
+    expired = create_access_token(
+        user_id=str(uuid.uuid4()),
+        role="ADMIN",
+        phone_number="+84900700099",
+        expires_delta=timedelta(seconds=-5),
+    )
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, expired)
+            assert _expect_close(ws) == 4401
+
+
+def test_socket_closes_when_token_expires_mid_session():
+    short = create_access_token(
+        user_id=str(uuid.uuid4()),
+        role="ADMIN",
+        phone_number="+84900700099",
+        expires_delta=timedelta(seconds=1),
+    )
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, short)
+            assert ws.receive_json()["type"] == "auth_ok"
+            assert _expect_close(ws) == 4401
+
+
+def test_reauth_with_fresh_token_extends_the_session():
+    user_id = str(uuid.uuid4())
+
+    def token(seconds: int) -> str:
+        return create_access_token(
+            user_id=user_id,
+            role="ADMIN",
+            phone_number="+84900700099",
+            expires_delta=timedelta(seconds=seconds),
+        )
+
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, token(2))
+            assert ws.receive_json()["type"] == "auth_ok"
+            _ws_auth(ws, token(600))
+            ack = ws.receive_json()
+            assert ack["type"] == "auth_ok" and ack["expires_in"] > 60
+            time.sleep(2.5)  # past the first token's expiry: still open
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json() == {"type": "pong"}
+
+
+def test_reauth_for_a_different_user_is_refused():
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, _ws_token("ADMIN"))
+            assert ws.receive_json()["type"] == "auth_ok"
+            _ws_auth(ws, _ws_token("ADMIN"))  # fresh random sub
+            assert _expect_close(ws) == 4403
+
+
+def test_dashboard_socket_handler_does_not_depend_on_a_db_session():
+    """P-04: no AsyncSession pinned for the socket's lifetime."""
+    import inspect
+
+    params = inspect.signature(dashboard_router.dashboard_events_socket).parameters
+    assert list(params) == ["websocket"]
 
 
 @pytest.mark.asyncio
@@ -533,10 +637,9 @@ def test_socket_rejects_a_refresh_token():
     """A refresh token carries no role claim and must not open the feed."""
     refresh = create_refresh_token(user_id=str(uuid.uuid4()))
     with TestClient(app) as tc:
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect(f"/ws/dashboard?token={refresh}"):
-                pass
-    assert exc_info.value.code == 1008
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, refresh)
+            assert _expect_close(ws) == 4401
 
 
 def _publish_from_test_thread(event_type: str, data: dict) -> None:
@@ -565,7 +668,9 @@ def test_admin_socket_delivers_published_frames():
     """End-to-end through Redis: what a write path publishes is what the portal
     receives, in the documented envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, _ws_token("ADMIN"))
+            assert ws.receive_json()["type"] == "auth_ok"
             # accept() returns before the pump task has issued SUBSCRIBE, and
             # Redis pub/sub drops anything published to a channel with no
             # subscriber yet — publishing immediately would race that gap.
@@ -598,7 +703,9 @@ def test_admin_socket_delivers_every_published_event_type(event_type, data):
     """The four event types the write paths emit all reach the portal through
     the same channel and envelope."""
     with TestClient(app) as tc:
-        with tc.websocket_connect(f"/ws/dashboard?token={_ws_token('ADMIN')}") as ws:
+        with tc.websocket_connect("/ws/dashboard") as ws:
+            _ws_auth(ws, _ws_token("ADMIN"))
+            assert ws.receive_json()["type"] == "auth_ok"
             time.sleep(0.5)
             _publish_from_test_thread(event_type, data)
             frame = ws.receive_json()
