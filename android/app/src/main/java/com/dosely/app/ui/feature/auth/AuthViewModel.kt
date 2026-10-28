@@ -2,6 +2,7 @@ package com.dosely.app.ui.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dosely.app.data.remote.loginRateLimit
 import com.dosely.app.data.repository.AuthRepository
 import com.dosely.app.data.repository.AuthSession
 import com.dosely.app.ui.toVietnameseUiMessage
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -21,6 +23,8 @@ data class AuthUiState(
     val error: String? = null,
     val session: AuthSession? = null,
     val shouldClearLoginPin: Boolean = false,
+    /** Seconds left before login may be tried again after a 429 (lockout / rate limit); 0 = open. */
+    val lockRemainingSeconds: Int = 0,
 )
 
 @HiltViewModel
@@ -29,6 +33,8 @@ class AuthViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AuthUiState(session = repository.session.value))
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+
+    private var lockJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -39,7 +45,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun login(phone: String, pin: String, onSuccess: (mustChangePassword: Boolean) -> Unit) {
-        if (_state.value.isLoading) return
+        if (_state.value.isLoading || _state.value.lockRemainingSeconds > 0) return
         if (!validateVnPhone(phone).ok) {
             _state.update { it.copy(error = "Số điện thoại không đúng định dạng (VD: 0901234567)") }
             return
@@ -63,14 +69,28 @@ class AuthViewModel @Inject constructor(
                     onSuccess(session.mustChangePassword)
                 }
                 .onFailure { error ->
+                    val limit = error.loginRateLimit()
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = error.loginMessage(),
-                            shouldClearLoginPin = error is HttpException && error.code() == 401,
+                            error = limit?.message ?: error.loginMessage(),
+                            shouldClearLoginPin = limit != null || (error is HttpException && error.code() == 401),
                         )
                     }
+                    if (limit != null && limit.seconds > 0) startLockCountdown(limit.seconds)
                 }
+        }
+    }
+
+    /** Ticks [lockRemainingSeconds] down once per second so the UI can show a countdown. */
+    private fun startLockCountdown(seconds: Int) {
+        lockJob?.cancel()
+        _state.update { it.copy(lockRemainingSeconds = seconds) }
+        lockJob = viewModelScope.launch {
+            repeat(seconds) {
+                delay(1_000L)
+                _state.update { it.copy(lockRemainingSeconds = (it.lockRemainingSeconds - 1).coerceAtLeast(0)) }
+            }
         }
     }
 

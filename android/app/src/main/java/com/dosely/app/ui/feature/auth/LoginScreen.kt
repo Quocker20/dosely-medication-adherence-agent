@@ -54,6 +54,7 @@ fun LoginScreen(
     onInputChanged: () -> Unit,
     onPinCleared: () -> Unit,
     onLogin: (phone: String, pin: String) -> Unit,
+    lockRemainingSeconds: Int = 0,
 ) {
     val extras = LocalDoselyColors.current
     val focusManager = LocalFocusManager.current
@@ -123,6 +124,7 @@ fun LoginScreen(
                 pin = pin,
                 error = error,
                 isLoading = isLoading,
+                lockRemainingSeconds = lockRemainingSeconds,
                 onPinChange = { pin = it; onInputChanged() },
                 onLogin = { focusManager.clearFocus(); onLogin(phone, pin) },
             )
@@ -180,6 +182,7 @@ private fun PinStep(
     pin: String,
     error: String?,
     isLoading: Boolean,
+    lockRemainingSeconds: Int,
     onPinChange: (String) -> Unit,
     onLogin: () -> Unit,
 ) {
@@ -195,13 +198,24 @@ private fun PinStep(
         modifier = Modifier.padding(top = 8.dp),
     )
     error?.let { LoginError(it) }
+    if (lockRemainingSeconds > 0) {
+        Text(
+            "Có thể thử lại sau ${formatCountdown(lockRemainingSeconds)}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = extras.inkMuted,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
     PrimaryButton(
         text = if (isLoading) "Đang đăng nhập…" else "Đăng nhập",
         onClick = onLogin,
         modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-        enabled = pin.length == 6 && !isLoading,
+        enabled = pin.length == 6 && !isLoading && lockRemainingSeconds <= 0,
     )
 }
+
+internal fun formatCountdown(totalSeconds: Int): String =
+    "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 
 @Composable
 private fun LoginError(message: String) {
