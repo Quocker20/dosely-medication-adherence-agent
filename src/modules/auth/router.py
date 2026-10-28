@@ -85,8 +85,11 @@ async def logout(
     current_user: CurrentUserDep,
     service: AuthServiceDep,
 ) -> JSONResponse:
-    """Revoke refresh token session for authenticated user."""
-    result = await service.logout(request.refresh_token, current_user["sub"])
+    """Revoke refresh token session for authenticated user; optionally also
+    deactivate this device's FCM token (``fcm_token``)."""
+    result = await service.logout(
+        request.refresh_token, current_user["sub"], fcm_token=request.fcm_token
+    )
     return success_response(data=None, message=result.message)
 
 

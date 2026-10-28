@@ -325,3 +325,63 @@ async def test_logout_rejects_refresh_token_of_another_user(client):
         assert again.status_code == 401
     finally:
         await _cleanup([a_id, b_id], [])
+
+
+@pytest.mark.asyncio
+async def test_logout_deactivates_device_token_and_login_reactivates_for_new_user(client):
+    """SEC-20: logout with fcm_token stops pushes; registering the same token
+    from another account still upserts it to that account."""
+    from src.modules.auth.models import UserDevice
+
+    a_id = await _create_doctor("+84900600611", "111111", "Dr A", "LIC-FCM-A")
+    b_id = await _create_doctor("+84900600612", "222222", "Dr B", "LIC-FCM-B")
+    token = "fcm-token-sec20-test"
+    try:
+        a = await _login(client, "+84900600611", "111111")
+        headers_a = {"Authorization": f"Bearer {a['access_token']}"}
+        reg = await client.post(
+            "/api/v1/auth/device-token", json={"fcm_token": token}, headers=headers_a
+        )
+        assert reg.status_code == 200
+
+        out = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"], "fcm_token": token},
+            headers=headers_a,
+        )
+        assert out.status_code == 200
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is False and device.user_id == a_id
+
+        b = await _login(client, "+84900600612", "222222")
+        headers_b = {"Authorization": f"Bearer {b['access_token']}"}
+        await client.post(
+            "/api/v1/auth/device-token", json={"fcm_token": token}, headers=headers_b
+        )
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is True and device.user_id == b_id
+
+        # B logging out with a token that is not B's... A's logout must not
+        # deactivate B's device.
+        again = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"], "fcm_token": token},
+            headers=headers_a,
+        )
+        assert again.status_code == 200
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                await db.execute(delete(UserDevice).where(UserDevice.fcm_token == token))
+        await _cleanup([a_id, b_id], [])

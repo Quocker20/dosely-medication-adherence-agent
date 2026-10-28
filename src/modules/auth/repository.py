@@ -138,6 +138,16 @@ class AuthRepository:
         )
         await self._db.execute(stmt)
 
+    async def deactivate_user_device(self, user_id: uuid.UUID, fcm_token: str) -> None:
+        """Stop pushing to one of the user's devices (logout). Scoped to the
+        user so presenting another account's token deactivates nothing."""
+        stmt = (
+            update(UserDevice)
+            .where(UserDevice.user_id == user_id, UserDevice.fcm_token == fcm_token)
+            .values(is_active=False, updated_at=datetime.now(UTC))
+        )
+        await self._db.execute(stmt)
+
     # ── SQL: RefreshToken operations ──
 
     async def save_refresh_token(

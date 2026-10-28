@@ -48,6 +48,11 @@ class LogoutRequest(BaseModel):
     """Request schema to logout/revoke session."""
 
     refresh_token: str
+    # SEC-20: this device's FCM token. When sent, the push token is deactivated
+    # for the user so the next person to log in on the device is not served
+    # (and the previous user stops receiving) notifications. Optional so old
+    # clients keep working.
+    fcm_token: str | None = Field(None, max_length=255)
 
 
 class MessageResponse(BaseModel):

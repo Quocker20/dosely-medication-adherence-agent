@@ -311,7 +311,10 @@ class AuthService:
         return result
 
     async def logout(
-        self, refresh_token_str: str, current_user_id: str | uuid.UUID
+        self,
+        refresh_token_str: str,
+        current_user_id: str | uuid.UUID,
+        fcm_token: str | None = None,
     ) -> MessageResponse:
         """Revoke the caller's own refresh token on logout.
 
@@ -334,6 +337,9 @@ class AuthService:
                 )
             if stored is not None:
                 await self._repository.revoke_refresh_token(token_hash)
+            if fcm_token:
+                # SEC-20: this device must stop receiving the user's pushes.
+                await self._repository.deactivate_user_device(uid, fcm_token)
         return MessageResponse(message="Logged out successfully")
 
     async def register_device_token(
