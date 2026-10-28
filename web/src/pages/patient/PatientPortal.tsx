@@ -15,7 +15,7 @@ import RoutineView from "./components/RoutineView";
 import ScheduleView from "./components/ScheduleView";
 import SosView from "./components/SosView";
 import SurveyView from "./components/SurveyView";
-import { useFcmReminders } from "./components/useFcmReminders";
+import { getCachedFcmToken, useFcmReminders } from "./components/useFcmReminders";
 import { isoDate } from "./components/utils";
 
 type Tab = "dashboard" | "schedule" | "routine" | "caregivers" | "assistant" | "survey" | "sos";
@@ -96,7 +96,7 @@ export default function PatientPortal({ session, tab, onTabChange }: Props) {
   async function logout() {
     try {
       window.sessionStorage.removeItem(chatStorageKey(patientId));
-      await api.logout(session.refreshToken);
+      await api.logout(session.refreshToken, getCachedFcmToken(patientId));
     } catch {
       /* Session cục bộ vẫn phải bị xóa khi token server đã hết hạn hoặc offline. */
     } finally {

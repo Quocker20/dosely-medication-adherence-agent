@@ -34,6 +34,15 @@ function saveStoredHistory(patientId: string, history: DoseReminder[]): void {
   }
 }
 
+/** FCM token đã đăng ký cho thiết bị này (để gửi kèm khi đăng xuất), nếu có. */
+export function getCachedFcmToken(patientId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(`${TOKEN_CACHE_KEY_PREFIX}${patientId}`);
+  } catch {
+    return null;
+  }
+}
+
 export function useFcmReminders(patientId: string, accessToken?: string) {
   const [active, setActive] = useState<DoseReminder[]>([]);
   const [history, setHistory] = useState<DoseReminder[]>(() => loadStoredHistory(patientId));

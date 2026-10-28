@@ -113,6 +113,7 @@ export default function AlertsView({
                     <input
                       className="resolve-note"
                       placeholder="Ghi chú xử lý (bắt buộc)"
+                      maxLength={1000}
                       value={note}
                       onChange={(event) =>
                         setNotes((current) => ({ ...current, [alert.id]: event.target.value }))
