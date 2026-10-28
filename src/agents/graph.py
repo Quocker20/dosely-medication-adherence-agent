@@ -128,7 +128,7 @@ def build_graph() -> CompiledStateGraph:
             "scheduled_drug_info": "scheduled_drug_info", "prescribed_drug_info": "prescribed_drug_info",
             "current_medications": "current_medications", "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose", "today_schedule": "today_schedule",
-            "clarification": "clarification", "clarify": "clarification", "agent": "agent",
+            "agent": "agent",
             "multi_tool_executor": "multi_tool_executor",
         },
     )
