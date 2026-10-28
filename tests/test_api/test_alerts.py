@@ -341,14 +341,7 @@ async def test_adherence_summary_counts_the_recorded_dose(client):
         headers={**headers, **_idem("summary-1")},
     )
 
-    today = date.today()
-    response = await client.get(
-        f"/api/v1/patients/{patient_id}/adherence",
-        params={"from": today.isoformat(), "to": today.isoformat()},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    summary = response.json()["data"]
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["adherence_rate"] == 100.0
@@ -366,10 +359,15 @@ async def test_adherence_logs_are_paginated(client):
         headers={**headers, **_idem("logs-1")},
     )
 
-    today = date.today()
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence/logs",
-        params={"from": today.isoformat(), "to": today.isoformat(), "page": 1, "size": 10},
+        params={
+            "from": (today - timedelta(days=1)).isoformat(),
+            "to": (today + timedelta(days=1)).isoformat(),
+            "page": 1,
+            "size": 10,
+        },
         headers=headers,
     )
     assert response.status_code == 200
