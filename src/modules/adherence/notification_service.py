@@ -169,3 +169,39 @@ class NotificationDispatchService:
                 logger.error("Failed to enqueue send_notification_task: %s", exc)
 
         return final_deliveries
+
+    async def requeue_stale_deliveries(self, now: datetime) -> list[uuid.UUID]:
+        """Re-enqueue deliveries whose Celery message was lost (audit O-01).
+
+        There is no outbox: the task is enqueued after the delivery row commits,
+        so a crash or broker blip in between leaves a QUEUED row nobody sends.
+        A delivery whose worker died mid-send is stuck in SENDING and is treated
+        the same way once it is older than the stale threshold. Re-enqueueing is
+        safe because send_notification atomically claims the row first.
+        """
+        settings = get_settings()
+        stale_ids = await self._notif_repo.list_stale_delivery_ids(
+            now,
+            queued_after=timedelta(minutes=settings.notification_requeue_after_minutes),
+            stale_after=timedelta(minutes=settings.notification_sending_stale_minutes),
+            lookback=timedelta(hours=settings.notification_requeue_lookback_hours),
+        )
+        if not stale_ids:
+            return []
+
+        # Stamp before enqueueing and commit, so overlapping/next scans skip
+        # these rows while the messages sit in a backed-up queue.
+        await self._notif_repo.mark_requeued(stale_ids, now)
+        await self._db.commit()
+
+        from src.modules.agents.tasks import send_notification_task
+
+        enqueued: list[uuid.UUID] = []
+        for delivery_id in stale_ids:
+            try:
+                send_notification_task.delay(str(delivery_id))
+                enqueued.append(delivery_id)
+            except Exception:
+                logger.error("Failed to re-enqueue delivery %s", delivery_id, exc_info=True)
+        logger.info("Re-enqueued %d stale notification deliveries", len(enqueued))
+        return enqueued

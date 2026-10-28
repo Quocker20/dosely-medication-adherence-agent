@@ -122,7 +122,9 @@ async def _execute_scan_due_doses() -> None:
             scheduled_dose_repository=ScheduledDoseRepository(session),
             notification_repository=NotificationRepository(session),
         )
-        await service.create_consolidated_reminders(datetime.now(UTC))
+        now = datetime.now(UTC)
+        await service.create_consolidated_reminders(now)
+        await service.requeue_stale_deliveries(now)
 
 
 @celery_app.task(name="agents.scan_due_doses")

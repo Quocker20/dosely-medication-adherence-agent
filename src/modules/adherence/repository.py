@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Exists, case, func, or_, select, update
+from sqlalchemy import Exists, and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -877,6 +877,67 @@ class NotificationRepository:
         stmt = select(NotificationDelivery).where(NotificationDelivery.idempotency_key.in_(idempotency_keys))
         result = await self._db.execute(stmt)
         return {d.idempotency_key: d for d in result.scalars().all() if d.idempotency_key}
+
+    @staticmethod
+    def _delivery_activity_at() -> Any:
+        """Latest of created_at / claimed_at / requeued_at: when this delivery last
+        showed signs of life. The two stamps live in the metadata JSONB so no
+        migration is needed (notification_deliveries has no updated_at)."""
+        from sqlalchemy import TIMESTAMP, cast
+
+        meta = NotificationDelivery.delivery_metadata
+        created = NotificationDelivery.created_at
+        return func.greatest(
+            created,
+            func.coalesce(cast(meta["claimed_at"].astext, TIMESTAMP(timezone=True)), created),
+            func.coalesce(cast(meta["requeued_at"].astext, TIMESTAMP(timezone=True)), created),
+        )
+
+    async def list_stale_delivery_ids(
+        self,
+        now: datetime,
+        *,
+        queued_after: timedelta,
+        stale_after: timedelta,
+        lookback: timedelta,
+    ) -> list[uuid.UUID]:
+        """Deliveries that need another Celery enqueue (audit O-01).
+
+        QUEUED idle for queued_after (the post-commit enqueue was lost), or
+        SENDING/RETRYING idle for stale_after (the worker died mid-send).
+        Sending is guarded by an atomic claim, so a spurious re-enqueue is harmless.
+        """
+        activity = self._delivery_activity_at()
+        stmt = (
+            select(NotificationDelivery.id)
+            .where(
+                NotificationDelivery.created_at >= now - lookback,
+                or_(
+                    and_(NotificationDelivery.status == "QUEUED", activity <= now - queued_after),
+                    and_(NotificationDelivery.status.in_(("SENDING", "RETRYING")), activity <= now - stale_after),
+                ),
+            )
+            .order_by(NotificationDelivery.created_at)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
+    async def mark_requeued(self, delivery_ids: list[uuid.UUID], now: datetime) -> None:
+        """Stamp requeued_at so the next scan does not enqueue the same delivery again."""
+        if not delivery_ids:
+            return
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        stmt = (
+            update(NotificationDelivery)
+            .where(NotificationDelivery.id.in_(delivery_ids))
+            .values(
+                delivery_metadata=func.coalesce(NotificationDelivery.delivery_metadata, cast({}, JSONB)).op("||")(
+                    cast({"requeued_at": now.isoformat()}, JSONB)
+                )
+            )
+        )
+        await self._db.execute(stmt)
 
     async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> list[str]:
         stmt = select(UserDevice.fcm_token).where(

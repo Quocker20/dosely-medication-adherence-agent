@@ -127,6 +127,15 @@ class Settings(BaseSettings):
     # Missed-dose scan job (Celery Beat) — see prbm.md #1 / planner.py trigger 1.
     missed_dose_overdue_minutes: int = Field(default=60, ge=1, le=1440)
     missed_dose_scan_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    # O-01: a delivery still QUEUED this long after creation lost its Celery
+    # enqueue (no outbox) and is enqueued again by the due-dose scan.
+    notification_requeue_after_minutes: int = Field(default=2, ge=1, le=60)
+    # O-01/O-02: SENDING (or RETRYING) older than this means the worker died
+    # mid-send; it is treated like QUEUED. Must exceed the send task's hard
+    # time limit (P-13) so a live worker is never raced.
+    notification_sending_stale_minutes: int = Field(default=10, ge=1, le=240)
+    # Deliveries older than this are never re-enqueued automatically.
+    notification_requeue_lookback_hours: int = Field(default=24, ge=1, le=168)
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
     planning_grouping_enabled: bool = False
