@@ -117,6 +117,7 @@ def _fake_delivery(delivery_id, *, status="QUEUED", template_code=DOSE_REMINDER_
         # Patient push path: anything not TELEGRAM and not linked to a caregiver.
         channel="PUSH",
         caregiver_link_id=None,
+        attempt_no=1,
     )
 
 
@@ -139,7 +140,8 @@ async def _patched_send_environment(delivery, *, tokens=("token_123",), fcm_resu
         patch("src.modules.agents.tasks.FCMService.send_push_notification") as mock_fcm,
     ):
         mock_repo = AsyncMock()
-        mock_repo.get_delivery_by_id.return_value = delivery
+        # Atomic claim (O-02): only a QUEUED/RETRYING row can be claimed.
+        mock_repo.claim_delivery.return_value = delivery if delivery.status in ("QUEUED", "RETRYING") else None
         mock_repo.get_active_fcm_tokens.return_value = list(tokens)
         mock_repo_cls.return_value = mock_repo
         mock_fcm.return_value = fcm_result
@@ -285,7 +287,7 @@ class TestNotificationDispatchService:
 
             await _execute_send_notification(str(delivery_id))
 
-            repo.get_delivery_by_id.assert_awaited_once_with(delivery_id)
+            repo.claim_delivery.assert_awaited_once()
             repo.get_active_fcm_tokens.assert_awaited_once_with(PATIENT_ID)
             fcm.assert_called_once_with(
                 tokens=["token_123"],
@@ -320,7 +322,7 @@ class TestNotificationDispatchService:
 
             await _execute_send_notification(str(delivery_id))
 
-            repo.get_delivery_by_id.assert_awaited_once_with(delivery_id)
+            repo.claim_delivery.assert_awaited_once()
             repo.get_active_fcm_tokens.assert_awaited_once_with(PATIENT_ID)
             fcm.assert_not_called()
             repo.update_delivery_status.assert_awaited_once_with(delivery_id, "NO_DEVICE")

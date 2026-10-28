@@ -7,7 +7,7 @@ which owns the per-event-loop engine and its disposal.
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 # Registers every ORM model module before anything below runs a query.
 # Without this, an ORM operation on Alert dies with NoReferencedTableError
@@ -20,7 +20,7 @@ from src.core.celery_db import task_session
 from src.core.config import get_settings
 from src.modules.adherence.adverse_event_summary_service import AdverseEventSummaryService
 from src.modules.adherence.caregiver_report_service import CaregiverReportService
-from src.modules.adherence.fcm_service import FCMService
+from src.modules.adherence.fcm_service import FCMService, FCMTransientError
 from src.modules.adherence.notification_service import DOSE_REMINDER_TEMPLATE_CODE, NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository, SuspectedAdverseEventRepository
 from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
@@ -147,19 +147,36 @@ def summarize_daily_adverse_events_task() -> None:
     asyncio.run(_execute_daily_adverse_event_summary())
 
 
-async def _execute_send_notification(delivery_id_str: str) -> None:
+# Hard cap on claims per delivery (initial send + Celery retries + stale
+# re-enqueues from the scan), so a delivery that keeps killing its worker
+# cannot be re-sent forever.
+MAX_DELIVERY_ATTEMPTS = 10
+
+
+async def _execute_send_notification(delivery_id_str: str, *, final_attempt: bool = False) -> None:
+    """Send one delivery. ``final_attempt`` is set by the Celery wrapper when no
+    retries are left: a transient error then ends in FAILED instead of RETRYING."""
     settings = get_settings()
     delivery_id = uuid.UUID(delivery_id_str)
     async with task_session() as session:
         notif_repo = NotificationRepository(session)
-        delivery = await notif_repo.get_delivery_by_id(delivery_id)
-        if not delivery:
-            logger.warning("Delivery %s not found for notification", delivery_id)
+        now = datetime.now(UTC)
+        # Celery is at-least-once and the scan re-enqueues orphans (O-01), so
+        # the same delivery can reach several workers. Only the one whose
+        # atomic UPDATE ... RETURNING gets the row may send (O-02).
+        delivery = await notif_repo.claim_delivery(
+            delivery_id,
+            now,
+            stale_sending_before=now - timedelta(minutes=settings.notification_sending_stale_minutes),
+        )
+        await session.commit()
+        if delivery is None:
+            logger.info("Delivery %s not claimable (missing or already handled); skipping send", delivery_id)
             return
-
-        # Celery is at-least-once; a redelivered task must not push twice.
-        if delivery.status not in ("QUEUED", "RETRYING"):
-            logger.info("Delivery %s already in status %s; skipping send", delivery_id, delivery.status)
+        if delivery.attempt_no > MAX_DELIVERY_ATTEMPTS:
+            logger.error("Delivery %s exceeded %d attempts; marking FAILED", delivery_id, MAX_DELIVERY_ATTEMPTS)
+            await notif_repo.update_delivery_result(delivery.id, status="FAILED", error_message="Too many attempts")
+            await session.commit()
             return
 
         # ── 1. Telegram / Caregiver Delivery Branch ───────────────────
@@ -237,20 +254,22 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
                 logger.warning("Telegram rate limit hit (retry_after=%s): %s", exc.retry_after, exc)
                 await notif_repo.update_delivery_result(
                     delivery.id,
-                    status="RETRYING",
+                    status="FAILED" if final_attempt else "RETRYING",
                     error_message=str(exc),
                 )
                 await session.commit()
-                raise exc
+                if not final_attempt:
+                    raise exc
             except TelegramTransientError as exc:
                 logger.warning("Transient error contacting Telegram: %s", exc)
                 await notif_repo.update_delivery_result(
                     delivery.id,
-                    status="RETRYING",
+                    status="FAILED" if final_attempt else "RETRYING",
                     error_message=str(exc),
                 )
                 await session.commit()
-                raise exc
+                if not final_attempt:
+                    raise exc
             return
 
         # ── 2. Patient FCM Push Notification Branch ────────────────────
@@ -271,7 +290,16 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
                 return
 
         tokens = await notif_repo.get_active_fcm_tokens(delivery.recipient_user_id)
-        if tokens:
+        if not tokens:
+            logger.info(
+                "Recipient user %s has no active FCM device tokens; marked as NO_DEVICE.",
+                delivery.recipient_user_id,
+            )
+            await notif_repo.update_delivery_status(delivery.id, "NO_DEVICE")
+            await session.commit()
+            return
+
+        try:
             success, dead_tokens = FCMService.send_push_notification(
                 tokens=tokens,
                 title=delivery.title,
@@ -281,19 +309,27 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
                     "action": "dose_reminder",
                 },
             )
-            if dead_tokens:
-                logger.info("Deactivating %d expired/unregistered FCM token(s)", len(dead_tokens))
-                await notif_repo.deactivate_fcm_tokens(dead_tokens)
-
-            status = "SENT" if success else "FAILED"
-        else:
-            logger.info(
-                "Recipient user %s has no active FCM device tokens; marked as NO_DEVICE.",
-                delivery.recipient_user_id,
+        except FCMTransientError as exc:
+            # Network / 5xx / UNAVAILABLE / quota: nothing reached the patient.
+            # Dead tokens found in the same batch are deactivated either way.
+            if exc.dead_tokens:
+                await notif_repo.deactivate_fcm_tokens(exc.dead_tokens)
+            logger.warning("Transient FCM error for delivery %s (final_attempt=%s): %s", delivery.id, final_attempt, exc)
+            await notif_repo.update_delivery_result(
+                delivery.id,
+                status="FAILED" if final_attempt else "RETRYING",
+                error_message=str(exc),
             )
-            status = "NO_DEVICE"
+            await session.commit()
+            if not final_attempt:
+                raise
+            return
 
-        await notif_repo.update_delivery_status(delivery.id, status)
+        if dead_tokens:
+            logger.info("Deactivating %d expired/unregistered FCM token(s)", len(dead_tokens))
+            await notif_repo.deactivate_fcm_tokens(dead_tokens)
+        # Permanent failure (every token invalid/rejected) ends in FAILED.
+        await notif_repo.update_delivery_status(delivery.id, "SENT" if success else "FAILED")
         await session.commit()
 
 
@@ -306,13 +342,16 @@ async def _execute_send_notification(delivery_id_str: str) -> None:
 def send_notification_task(self, delivery_id: str) -> None:
     from src.core.telegram import TelegramRateLimitError, TelegramTransientError
 
+    # On the last retry the coroutine marks the delivery FAILED itself rather
+    # than leaving it RETRYING forever.
+    final_attempt = self.request.retries >= self.max_retries
     try:
-        asyncio.run(_execute_send_notification(delivery_id))
+        asyncio.run(_execute_send_notification(delivery_id, final_attempt=final_attempt))
     except TelegramRateLimitError as exc:
         countdown = exc.retry_after if exc.retry_after is not None else 10
         raise self.retry(exc=exc, countdown=countdown) from exc
-    except TelegramTransientError as exc:
-        raise self.retry(exc=exc, countdown=5 * (2 ** self.request.retries)) from exc
+    except (TelegramTransientError, FCMTransientError) as exc:
+        raise self.retry(exc=exc, countdown=5 * (2**self.request.retries)) from exc
 
 
 async def _execute_send_caregiver_adherence_reports() -> None:

@@ -10,7 +10,7 @@ from src.modules.adherence.models import NotificationDelivery
 from src.modules.admin.models import DoctorProfile
 from src.modules.admin.repository import DoctorRepository
 from src.modules.agents.models import ScheduledDose
-from src.modules.auth.models import User
+from src.modules.auth.models import User, UserDevice
 from src.modules.auth.repository import AuthRepository
 from src.modules.patients.models import PatientProfile
 from src.modules.patients.repository import PatientRepository
@@ -24,6 +24,7 @@ async def purge(phones: list[str]) -> None:
             if not ids:
                 return
             await db.execute(delete(NotificationDelivery).where(NotificationDelivery.recipient_user_id.in_(ids)))
+            await db.execute(delete(UserDevice).where(UserDevice.user_id.in_(ids)))
             await db.execute(delete(ScheduledDose).where(ScheduledDose.patient_id.in_(ids)))
             rx_ids = (
                 (
@@ -95,3 +96,9 @@ async def create_doses(
                 await db.flush()
                 ids.append(dose.id)
             return ids
+
+
+async def add_device(user_id: uuid.UUID, token: str) -> None:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            db.add(UserDevice(user_id=user_id, fcm_token=token, is_active=True))

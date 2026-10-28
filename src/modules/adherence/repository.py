@@ -939,6 +939,44 @@ class NotificationRepository:
         )
         await self._db.execute(stmt)
 
+    async def claim_delivery(
+        self, delivery_id: uuid.UUID, now: datetime, *, stale_sending_before: datetime
+    ) -> NotificationDelivery | None:
+        """Atomically move a delivery to SENDING; only the caller that gets a row may send (audit O-02).
+
+        Claimable: QUEUED, RETRYING, or SENDING whose claim is older than
+        stale_sending_before (the previous worker died or hit its time limit).
+        notification_deliveries has no updated_at, so the claim time is stamped
+        in the metadata JSONB. attempt_no counts claims.
+        """
+        from sqlalchemy import TIMESTAMP, cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        meta = NotificationDelivery.delivery_metadata
+        claimed_at = func.coalesce(
+            cast(meta["claimed_at"].astext, TIMESTAMP(timezone=True)), NotificationDelivery.created_at
+        )
+        stmt = (
+            update(NotificationDelivery)
+            .where(
+                NotificationDelivery.id == delivery_id,
+                or_(
+                    NotificationDelivery.status.in_(("QUEUED", "RETRYING")),
+                    and_(NotificationDelivery.status == "SENDING", claimed_at <= stale_sending_before),
+                ),
+            )
+            .values(
+                status="SENDING",
+                attempt_no=NotificationDelivery.attempt_no + 1,
+                delivery_metadata=func.coalesce(meta, cast({}, JSONB)).op("||")(
+                    cast({"claimed_at": now.isoformat()}, JSONB)
+                ),
+            )
+            .returning(NotificationDelivery)
+            .execution_options(populate_existing=True, synchronize_session=False)
+        )
+        return (await self._db.execute(stmt)).scalar_one_or_none()
+
     async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> list[str]:
         stmt = select(UserDevice.fcm_token).where(
             UserDevice.user_id == user_id,
