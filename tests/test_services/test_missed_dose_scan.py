@@ -6,7 +6,8 @@ every dose regardless of is_critical.
 """
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -69,6 +70,16 @@ class TestStateFlipUnaffectedByCriticality:
 
 
 class TestCriticalStreakAlert:
+    @pytest.fixture(autouse=True)
+    def caregiver_repo(self):
+        """run_scan builds its own CaregiverRepository(self._db) to fan the
+        alert out to caregivers; with a bare MagicMock db that would try to
+        await a real query. Default: the patient has no deliverable links."""
+        repo = AsyncMock()
+        repo.list_deliverable_for_patient.return_value = []
+        with patch("src.modules.caregivers.repository.CaregiverRepository", return_value=repo):
+            yield repo
+
     @pytest.mark.asyncio
     async def test_alerts_when_critical_streak_meets_threshold(self):
         now = datetime.now(UTC)
@@ -96,6 +107,42 @@ class TestCriticalStreakAlert:
         assert kwargs["alert_type"] == "RED_ALERT"
         assert kwargs["severity"] == "HIGH"
         assert kwargs["idempotency_key"] == f"missed-dose-streak:{PATIENT_ID}:{CRITICAL_DOSE_ID}"
+
+    @pytest.mark.asyncio
+    async def test_streak_alert_fans_out_to_bound_caregivers(self, caregiver_repo):
+        link_id = uuid.uuid4()
+        delivery_id = uuid.uuid4()
+        caregiver_repo.list_deliverable_for_patient.return_value = [SimpleNamespace(id=link_id)]
+        now = datetime.now(UTC)
+        dose_repo = AsyncMock()
+        dose_repo.mark_overdue_pending_as_missed.return_value = [
+            (PATIENT_ID, CRITICAL_DOSE_ID, now, True),
+        ]
+        dose_repo.get_recent_critical_dose_statuses.return_value = {
+            PATIENT_ID: [{"status": "MISSED"}, {"status": "MISSED"}, {"status": "MISSED"}]
+        }
+        alert = SimpleNamespace(id=uuid.uuid4())
+        alert_repo = AsyncMock()
+        alert_repo.create_alert.return_value = alert
+        service = _service_with_mocks(dose_repo, alert_repo)
+        service._db.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value="Bác An"))
+        )
+        notif_repo = AsyncMock()
+        notif_repo.create_caregiver_delivery.return_value = SimpleNamespace(id=delivery_id)
+
+        with (
+            patch("src.modules.adherence.repository.NotificationRepository", return_value=notif_repo),
+            patch("src.modules.agents.tasks.send_notification_task.delay") as delay,
+        ):
+            await service.run_scan()
+
+        notif_repo.create_caregiver_delivery.assert_awaited_once()
+        kwargs = notif_repo.create_caregiver_delivery.await_args.kwargs
+        assert kwargs["caregiver_link_id"] == link_id
+        assert kwargs["template_code"] == "CG_MISSED_DOSE"
+        assert kwargs["metadata"] == {"alert_id": str(alert.id)}
+        delay.assert_called_once_with(str(delivery_id))
 
     @pytest.mark.asyncio
     async def test_below_threshold_streak_does_not_alert(self):
