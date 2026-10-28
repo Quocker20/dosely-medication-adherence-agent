@@ -13,9 +13,8 @@ connection doing one task anyway.
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -27,10 +26,11 @@ from sqlalchemy.pool import NullPool
 from src.core import models_registry as _models_registry  # noqa: F401
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
+from src.modules.adherence.adverse_event_summary_service import AdverseEventSummaryService
+from src.modules.adherence.caregiver_report_service import CaregiverReportService
 from src.modules.adherence.fcm_service import FCMService
-from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.adherence.notification_service import DOSE_REMINDER_TEMPLATE_CODE, NotificationDispatchService
-from src.modules.adherence.repository import AlertRepository, NotificationRepository
+from src.modules.adherence.repository import AlertRepository, NotificationRepository, SuspectedAdverseEventRepository
 from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
 from src.modules.agents.scheduling_service import (
@@ -38,6 +38,8 @@ from src.modules.agents.scheduling_service import (
     AutoscheduleOutcome,
     SchedulingService,
 )
+from src.modules.caregivers.repository import CaregiverRepository
+from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)
 
@@ -166,30 +168,12 @@ async def _execute_daily_adverse_event_summary() -> None:
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
     try:
         async with session_factory() as session:
+            service = AdverseEventSummaryService(
+                event_repository=SuspectedAdverseEventRepository(session),
+                alert_repository=AlertRepository(session),
+            )
             async with session.begin():
-                rows = list((await session.execute(
-                    select(SuspectedAdverseEvent).where(
-                        SuspectedAdverseEvent.daily_notified_at.is_(None),
-                        SuspectedAdverseEvent.review_status == "NEW",
-                        SuspectedAdverseEvent.risk_level.in_(["LOW", "MODERATE"]),
-                        SuspectedAdverseEvent.reported_at >= datetime.now(UTC) - timedelta(hours=24),
-                    ).order_by(SuspectedAdverseEvent.patient_id, SuspectedAdverseEvent.reported_at)
-                )).scalars().all())
-                grouped: dict[uuid.UUID, list[SuspectedAdverseEvent]] = {}
-                for row in rows:
-                    grouped.setdefault(row.patient_id, []).append(row)
-                now = datetime.now(UTC)
-                for patient_id, events in grouped.items():
-                    names = sorted({str(s.get("name")) for event in events for s in event.symptoms if s.get("name")})
-                    alert = await AlertRepository(session).create_alert(
-                        patient_id=patient_id, triggered_by_type="ADVERSE_EVENT",
-                        alert_type="SUSPECTED_ADVERSE_EVENT", severity="MEDIUM",
-                        message=f"Tổng hợp {len(events)} ghi nhận triệu chứng trong ngày: {', '.join(names)}",
-                        metadata={"adverse_event_ids": [str(event.id) for event in events], "symptoms": names, "summary_type": "DAILY"},
-                    )
-                    await session.execute(update(SuspectedAdverseEvent).where(
-                        SuspectedAdverseEvent.id.in_([event.id for event in events])
-                    ).values(daily_notified_at=now, alert_id=alert.id))
+                await service.summarize_daily(datetime.now(UTC))
     finally:
         await engine.dispose()
 
@@ -376,76 +360,20 @@ async def _execute_send_caregiver_adherence_reports() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
-    now = datetime.now(UTC)
-    interval_days = settings.caregiver_report_interval_days
-
     try:
         async with session_factory() as session:
-            from src.modules.adherence.repository import NotificationRepository
-            from src.modules.agents.models import ScheduledDose
-            from src.modules.caregivers.repository import CaregiverRepository
-            from src.modules.patients.models import PatientProfile
-
-            cg_repo = CaregiverRepository(session)
-            async with session.begin():
-                claimed_links = await cg_repo.claim_due_reports(now, interval_days)
-
-            if not claimed_links:
-                logger.info("No caregiver links due for adherence report at %s", now.isoformat())
-                return
-
-            notif_repo = NotificationRepository(session)
-            delivery_ids: list[uuid.UUID] = []
-
-            for link in claimed_links:
-                start_date = now - timedelta(days=interval_days)
-
-                p_stmt = select(PatientProfile.name).where(PatientProfile.user_id == link.patient_id)
-                patient_name = (await session.execute(p_stmt)).scalar_one_or_none() or "Người bệnh"
-
-                doses_stmt = select(ScheduledDose.status).where(
-                    ScheduledDose.patient_id == link.patient_id,
-                    ScheduledDose.current_scheduled_at >= start_date,
-                    ScheduledDose.current_scheduled_at <= now,
-                )
-                statuses = list((await session.execute(doses_stmt)).scalars().all())
-                total = len(statuses)
-                taken = sum(1 for s in statuses if s == "TAKEN")
-                missed = sum(1 for s in statuses if s in ("MISSED", "SKIPPED"))
-                rate = (taken / total * 100.0) if total > 0 else 100.0
-
-                body = (
-                    f"Báo cáo tuân thủ dùng thuốc định kỳ ({interval_days} ngày qua)\n"
-                    f"Người bệnh: {patient_name}\n"
-                    f"• Tổng số liều: {total}\n"
-                    f"• Đã uống: {taken}\n"
-                    f"• Quên/Bỏ lỡ: {missed}\n"
-                    f"• Tỷ lệ tuân thủ: {rate:.1f}%\n\n"
-                    f"Cảm ơn bạn đã đồng hành chăm sóc sức khỏe cùng Dosely."
-                )
-
-                if session.in_transaction():
-                    await session.commit()
-
-                async with session.begin():
-                    delivery = await notif_repo.create_caregiver_delivery(
-                        caregiver_link_id=link.id,
-                        template_code="CG_REPORT",
-                        title=f"Báo cáo tuân thủ {patient_name}",
-                        body=body,
-                        metadata={
-                            "patient_id": str(link.patient_id),
-                            "interval_days": interval_days,
-                            "total_doses": total,
-                            "taken_doses": taken,
-                            "missed_doses": missed,
-                            "adherence_rate": rate,
-                        },
-                    )
-                    delivery_ids.append(delivery.id)
-
-            for d_id in delivery_ids:
-                send_notification_task.delay(str(d_id))
+            service = CaregiverReportService(
+                db=session,
+                caregiver_repository=CaregiverRepository(session),
+                notification_repository=NotificationRepository(session),
+                scheduled_dose_repository=ScheduledDoseRepository(session),
+                patient_repository=PatientRepository(session),
+            )
+            delivery_ids = await service.create_due_reports(
+                datetime.now(UTC), settings.caregiver_report_interval_days
+            )
+        for d_id in delivery_ids:
+            send_notification_task.delay(str(d_id))
     finally:
         await engine.dispose()
 

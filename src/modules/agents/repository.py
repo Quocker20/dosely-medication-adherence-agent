@@ -937,3 +937,16 @@ class ScheduledDoseRepository:
                 }
             )
         return grouped
+
+    async def get_statuses_in_window(
+        self, patient_id: uuid.UUID, start: datetime, end: datetime
+    ) -> list[str]:
+        """Statuses of a patient's doses whose current schedule falls in [start, end]."""
+        result = await self._db.execute(
+            select(ScheduledDose.status).where(
+                ScheduledDose.patient_id == patient_id,
+                ScheduledDose.current_scheduled_at >= start,
+                ScheduledDose.current_scheduled_at <= end,
+            )
+        )
+        return list(result.scalars().all())

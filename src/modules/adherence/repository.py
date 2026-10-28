@@ -14,6 +14,7 @@ from src.modules.adherence.models import (
     HealthSurvey,
     NotificationDelivery,
     NotificationDoseItem,
+    SuspectedAdverseEvent,
     SymptomReport,
 )
 from src.modules.agents.models import ScheduledDose
@@ -946,3 +947,32 @@ class NotificationRepository:
         )
         await self._db.execute(stmt)
 
+
+
+class SuspectedAdverseEventRepository:
+    """Repository for SuspectedAdverseEvent rows (daily-summary bookkeeping)."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def list_pending_daily_summary(self, since: datetime) -> list[SuspectedAdverseEvent]:
+        """LOW/MODERATE events still NEW and not yet rolled into a daily
+        summary, reported at or after `since`, ordered by patient then time."""
+        stmt = (
+            select(SuspectedAdverseEvent)
+            .where(
+                SuspectedAdverseEvent.daily_notified_at.is_(None),
+                SuspectedAdverseEvent.review_status == "NEW",
+                SuspectedAdverseEvent.risk_level.in_(["LOW", "MODERATE"]),
+                SuspectedAdverseEvent.reported_at >= since,
+            )
+            .order_by(SuspectedAdverseEvent.patient_id, SuspectedAdverseEvent.reported_at)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
+    async def mark_summarized(self, event_ids: list[uuid.UUID], notified_at: datetime, alert_id: uuid.UUID) -> None:
+        await self._db.execute(
+            update(SuspectedAdverseEvent)
+            .where(SuspectedAdverseEvent.id.in_(event_ids))
+            .values(daily_notified_at=notified_at, alert_id=alert_id)
+        )
