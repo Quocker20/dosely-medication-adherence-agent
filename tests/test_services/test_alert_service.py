@@ -74,7 +74,11 @@ def _service_with_mocks():
 
     alert_repo = AsyncMock()
     patient_repo = AsyncMock()
-    patient_repo.get_patient_with_user.return_value = SimpleNamespace(user_id=PATIENT_ID)
+    # The real repository returns a (PatientProfile, User) row, not one object.
+    patient_repo.get_patient_with_user.return_value = (
+        SimpleNamespace(user_id=PATIENT_ID, name="Test Patient"),
+        SimpleNamespace(id=PATIENT_ID),
+    )
 
     service = AlertService(
         db=db,
