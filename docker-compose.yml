@@ -86,7 +86,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: dosely_worker
-    command: celery -A src.core.celery_app worker --loglevel=info -Q default,notifications --concurrency=2 -n main@%h
+    command: celery -A src.core.celery_app worker --loglevel=info -Q celery,notifications --concurrency=2 -n main@%h
     env_file:
       - .env
     environment:

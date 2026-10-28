@@ -30,6 +30,10 @@ DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh"
 # wraps connection errors in OperationalError; raw redis/OS errors can leak).
 ENQUEUE_ERRORS = (KombuError, RedisError, OSError)
 
+# Re-enqueues allowed without progress before a delivery is FAILED. Backoff is
+# notification_requeue_after_minutes * 2**requeue_count (2, 4, 8 min by default).
+MAX_REQUEUES = 3
+
 
 class NotificationDispatchService:
     """Service that scans due scheduled doses and consolidates concurrent
@@ -193,14 +197,27 @@ class NotificationDispatchService:
         safe because send_notification atomically claims the row first.
         """
         settings = get_settings()
-        stale_ids = await self._notif_repo.list_stale_delivery_ids(
+        stale = await self._notif_repo.list_stale_delivery_ids(
             now,
             queued_after=timedelta(minutes=settings.notification_requeue_after_minutes),
             stale_after=timedelta(minutes=settings.notification_sending_stale_minutes),
             lookback=timedelta(hours=settings.notification_requeue_lookback_hours),
         )
-        if not stale_ids:
+        if not stale:
             return []
+
+        stale_ids = [d for d, count in stale if count < MAX_REQUEUES]
+        exhausted_ids = [d for d, count in stale if count >= MAX_REQUEUES]
+        if exhausted_ids:
+            await self._notif_repo.mark_requeue_exhausted(
+                exhausted_ids, now, f"no progress after {MAX_REQUEUES} requeues"
+            )
+            logger.warning(
+                "Marked %d notification deliveries FAILED after %d requeues without progress: %s",
+                len(exhausted_ids),
+                MAX_REQUEUES,
+                [str(d) for d in exhausted_ids],
+            )
 
         # Stamp before enqueueing and commit, so overlapping/next scans skip
         # these rows while the messages sit in a backed-up queue.

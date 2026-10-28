@@ -893,6 +893,13 @@ class NotificationRepository:
             func.coalesce(cast(meta["requeued_at"].astext, TIMESTAMP(timezone=True)), created),
         )
 
+    @staticmethod
+    def _requeue_count() -> Any:
+        """Requeues so far (metadata JSONB, 0 when absent)."""
+        from sqlalchemy import Integer, cast
+
+        return func.coalesce(cast(NotificationDelivery.delivery_metadata["requeue_count"].astext, Integer), 0)
+
     async def list_stale_delivery_ids(
         self,
         now: datetime,
@@ -900,29 +907,41 @@ class NotificationRepository:
         queued_after: timedelta,
         stale_after: timedelta,
         lookback: timedelta,
-    ) -> list[uuid.UUID]:
-        """Deliveries that need another Celery enqueue (audit O-01).
+    ) -> list[tuple[uuid.UUID, int]]:
+        """Deliveries due for another Celery enqueue (audit O-01) as (id, requeue_count).
 
-        QUEUED idle for queued_after (the post-commit enqueue was lost), or
+        QUEUED idle for queued_after * 2**requeue_count (the post-commit enqueue
+        was lost; capped exponential backoff so a stuck queue is not flooded), or
         SENDING/RETRYING idle for stale_after (the worker died mid-send).
         Sending is guarded by an atomic claim, so a spurious re-enqueue is harmless.
+        The caller decides, from requeue_count, whether the retry budget is spent.
         """
+        from sqlalchemy import TIMESTAMP, literal
+
         activity = self._delivery_activity_at()
+        count = self._requeue_count()
+        idle_seconds = func.extract("epoch", literal(now, TIMESTAMP(timezone=True)) - activity)
         stmt = (
-            select(NotificationDelivery.id)
+            select(NotificationDelivery.id, count)
             .where(
                 NotificationDelivery.created_at >= now - lookback,
                 or_(
-                    and_(NotificationDelivery.status == "QUEUED", activity <= now - queued_after),
-                    and_(NotificationDelivery.status.in_(("SENDING", "RETRYING")), activity <= now - stale_after),
+                    and_(
+                        NotificationDelivery.status == "QUEUED",
+                        idle_seconds >= queued_after.total_seconds() * func.power(2, count),
+                    ),
+                    and_(
+                        NotificationDelivery.status.in_(("SENDING", "RETRYING")),
+                        idle_seconds >= stale_after.total_seconds(),
+                    ),
                 ),
             )
             .order_by(NotificationDelivery.created_at)
         )
-        return list((await self._db.execute(stmt)).scalars().all())
+        return [(row[0], int(row[1])) for row in (await self._db.execute(stmt)).all()]
 
     async def mark_requeued(self, delivery_ids: list[uuid.UUID], now: datetime) -> None:
-        """Stamp requeued_at so the next scan does not enqueue the same delivery again."""
+        """Stamp requeued_at and bump requeue_count so the next scan backs off."""
         if not delivery_ids:
             return
         from sqlalchemy import cast
@@ -933,8 +952,30 @@ class NotificationRepository:
             .where(NotificationDelivery.id.in_(delivery_ids))
             .values(
                 delivery_metadata=func.coalesce(NotificationDelivery.delivery_metadata, cast({}, JSONB)).op("||")(
-                    cast({"requeued_at": now.isoformat()}, JSONB)
+                    func.jsonb_build_object("requeued_at", now.isoformat(), "requeue_count", self._requeue_count() + 1)
                 )
+            )
+        )
+        await self._db.execute(stmt)
+
+    async def mark_requeue_exhausted(self, delivery_ids: list[uuid.UUID], now: datetime, reason: str) -> None:
+        """FAIL deliveries whose requeue budget is spent (only if still unsent)."""
+        if not delivery_ids:
+            return
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        stmt = (
+            update(NotificationDelivery)
+            .where(
+                NotificationDelivery.id.in_(delivery_ids),
+                NotificationDelivery.status.in_(("QUEUED", "SENDING", "RETRYING")),
+            )
+            .values(
+                status="FAILED",
+                delivery_metadata=func.coalesce(NotificationDelivery.delivery_metadata, cast({}, JSONB)).op("||")(
+                    func.jsonb_build_object("failure_reason", reason, "failed_at", now.isoformat())
+                ),
             )
         )
         await self._db.execute(stmt)

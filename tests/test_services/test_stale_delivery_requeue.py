@@ -27,8 +27,14 @@ async def patient_id():
     await engine.dispose()
 
 
-async def _add(patient_id, *, status, age, claimed_ago=None, template="DOSE_REMINDER_GROUPED") -> uuid.UUID:
+async def _add(
+    patient_id, *, status, age, claimed_ago=None, template="DOSE_REMINDER_GROUPED", requeue_count=None, requeued_ago=None
+) -> uuid.UUID:
     metadata = {}
+    if requeue_count is not None:
+        metadata["requeue_count"] = requeue_count
+    if requeued_ago is not None:
+        metadata["requeued_at"] = (NOW - requeued_ago).isoformat()
     if claimed_ago is not None:
         metadata["claimed_at"] = (NOW - claimed_ago).isoformat()
     async with AsyncSessionLocal() as db:
@@ -93,3 +99,51 @@ async def test_requeue_is_not_repeated_on_the_very_next_scan(patient_id):
 
     assert first == {str(delivery_id)}
     assert second == set()
+
+
+async def _row(delivery_id):
+    async with AsyncSessionLocal() as db:
+        return (await db.execute(select(NotificationDelivery).where(NotificationDelivery.id == delivery_id))).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_queued_requeue_backs_off_exponentially(patient_id):
+    """base=2 min: requeue after 2, then 4, then 8 minutes of no progress."""
+    first = await _add(patient_id, status="QUEUED", age=timedelta(minutes=30), requeue_count=0, requeued_ago=timedelta(minutes=2, seconds=5))
+    second_early = await _add(patient_id, status="QUEUED", age=timedelta(minutes=30), requeue_count=1, requeued_ago=timedelta(minutes=3))
+    second_due = await _add(patient_id, status="QUEUED", age=timedelta(minutes=30), requeue_count=1, requeued_ago=timedelta(minutes=4, seconds=5))
+    third_early = await _add(patient_id, status="QUEUED", age=timedelta(minutes=30), requeue_count=2, requeued_ago=timedelta(minutes=7))
+    third_due = await _add(patient_id, status="QUEUED", age=timedelta(minutes=30), requeue_count=2, requeued_ago=timedelta(minutes=8, seconds=5))
+
+    enqueued = await _scan(patient_id)
+
+    assert enqueued == {str(first), str(second_due), str(third_due)}
+    assert str(second_early) not in enqueued and str(third_early) not in enqueued
+    assert (await _row(first)).delivery_metadata["requeue_count"] == 1
+    assert (await _row(third_due)).delivery_metadata["requeue_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_delivery_is_failed_after_three_requeues_without_progress(patient_id):
+    exhausted = await _add(patient_id, status="QUEUED", age=timedelta(hours=1), requeue_count=3, requeued_ago=timedelta(minutes=20))
+    exhausted_sending = await _add(
+        patient_id, status="SENDING", age=timedelta(hours=1), claimed_ago=timedelta(minutes=30), requeue_count=3
+    )
+
+    enqueued = await _scan(patient_id)
+
+    assert enqueued == set(), "an exhausted delivery must not be enqueued again"
+    for delivery_id in (exhausted, exhausted_sending):
+        row = await _row(delivery_id)
+        assert row.status == "FAILED"
+        assert "requeue" in row.delivery_metadata["failure_reason"]
+
+
+@pytest.mark.asyncio
+async def test_stale_sending_requeue_counts_toward_the_cap(patient_id):
+    delivery_id = await _add(
+        patient_id, status="SENDING", age=timedelta(hours=1), claimed_ago=timedelta(minutes=30), requeue_count=2
+    )
+
+    assert await _scan(patient_id) == {str(delivery_id)}
+    assert (await _row(delivery_id)).delivery_metadata["requeue_count"] == 3

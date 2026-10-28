@@ -71,7 +71,7 @@ def test_every_task_has_an_explicit_queue():
     for name in ("agents.scan_due_doses", "agents.send_notification", "agents.send_caregiver_adherence_reports"):
         assert _queue_for(name) == "notifications"
     for name in ("agents.generate_schedule", "agents.autoschedule", "agents.scan_missed_doses", "agents.summarize_daily_adverse_events"):
-        assert _queue_for(name) == "default"
+        assert _queue_for(name) == "celery"
 
 
 def test_beat_entries_target_registered_tasks():
@@ -107,7 +107,7 @@ def test_review_queue_is_isolated_from_the_reminder_worker():
         if "review" in queues:
             assert queues == {"review"}, name
         else:
-            assert {"default", "notifications"} <= queues, name
+            assert {"celery", "notifications"} <= queues, name
 
 
 @pytest.mark.parametrize("service", ["worker-review"])

@@ -10,7 +10,8 @@ from src.core.logging_config import configure_logging
 
 settings = get_settings()
 
-QUEUE_DEFAULT = "default"
+# Celery's built-in default queue name: kept so messages already in Redis still drain.
+QUEUE_DEFAULT = "celery"
 QUEUE_NOTIFICATIONS = "notifications"
 QUEUE_REVIEW = "review"
 
@@ -42,7 +43,7 @@ celery_app.conf.update(
     # Queues (P-13). The review job (LLM, up to ~100 min) is isolated so it can
     # never occupy a slot that sends reminders. Every queue below MUST be
     # listed in a worker's -Q in docker-compose.yml, or its tasks are never run.
-    task_default_queue="default",
+    task_default_queue=QUEUE_DEFAULT,
     task_routes={
         "agents.scan_due_doses": {"queue": QUEUE_NOTIFICATIONS},
         "agents.send_notification": {"queue": QUEUE_NOTIFICATIONS},
