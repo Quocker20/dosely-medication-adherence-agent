@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
+from src.common.exceptions import AppException
 from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
@@ -376,6 +377,31 @@ async def chat_history(
     }, message="Chat history loaded")
 
 
+_AUDIO_READ_CHUNK = 64 * 1024
+
+
+async def _read_audio_limited(audio: UploadFile) -> bytes:
+    """Validate content type, then read the upload in chunks up to the configured cap."""
+    media_type = (audio.content_type or "").split(";", 1)[0].strip().lower()
+    if not media_type.startswith("audio/"):
+        raise AppException(
+            message="Unsupported media type: an audio file is required",
+            code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+    limit = get_settings().voice_max_upload_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await audio.read(_AUDIO_READ_CHUNK):
+        total += len(chunk)
+        if total > limit:
+            raise AppException(
+                message=f"Audio upload exceeds the {limit // (1024 * 1024) or 1} MB limit",
+                code=status.HTTP_413_CONTENT_TOO_LARGE,
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @chat_router.post(
     "/chat/voice",
     dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
@@ -390,7 +416,7 @@ async def chat_voice(
     conversation_id: uuid.UUID | None = Form(None, alias="conversationId"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
-    audio_bytes = await audio.read()
+    audio_bytes = await _read_audio_limited(audio)
 
     handle = set_actor_token(token)
     try:

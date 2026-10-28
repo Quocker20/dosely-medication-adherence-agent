@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.v1_router import v1_router
+from src.common.body_limit import VoiceBodyLimitMiddleware
 from src.common.exceptions import register_exception_handlers
 from src.common.middleware import RequestContextMiddleware
 from src.core.config import Settings, get_settings
@@ -61,6 +62,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     # Register Middleware
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(VoiceBodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
     # Speech (STT/TTS) — src/chatbot/clients/speech.py
+    # POST /chat/voice upload cap (SEC-08). Caddy's request_body max_size must stay
+    # a little above this so the proxy never rejects what the app would accept.
+    voice_max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     stt_model: str = "whisper-1"
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
