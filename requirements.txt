@@ -37,6 +37,7 @@ langdetect>=1.0.9
 ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+pytest-timeout>=2.3.0
 pypdf>=6.0.0  # test-only: verifies rendered PDF content/page count in test_prescription_pdf.py
 firebase-admin>=6.0.0
 httpx>=0.28.0

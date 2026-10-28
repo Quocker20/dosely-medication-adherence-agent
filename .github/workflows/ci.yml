@@ -128,9 +128,38 @@ jobs:
           -Dkotlin.compiler.execution.strategy=in-process
         working-directory: android
 
-  repository-diagnostics:
+  # Full backend suite against throwaway Postgres + Redis service containers
+  # (same images/ports as docker-compose.test.yml). Settings come from the
+  # committed .env.test; tests/conftest.py aborts unless DATABASE_URL is the
+  # local *_test database. Not yet blocking: tests/test_agents (chatbot) and a
+  # handful of stale service tests fail today -- see the audit remediation plan.
+  backend-tests:
     runs-on: self-hosted
     continue-on-error: true
+
+    services:
+      postgres-test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dosely_test
+          POSTGRES_PASSWORD: dosely_test
+          POSTGRES_DB: dosely_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U dosely_test -d dosely_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+      redis-test:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -149,9 +178,8 @@ jobs:
       - name: Report legacy lint debt
         run: ruff check src/ tests/
 
+      - name: Provision test database schema
+        run: python scripts/test_db_setup.py
+
       - name: Run full repository tests
         run: pytest tests/ -v --tb=short
-        env:
-          APP_ENV: test
-          OPENAI_API_KEY: test-key
-          RATE_LIMIT_ENABLED: "false"

@@ -1,0 +1,33 @@
+# Throwaway Postgres + Redis for the automated test suite (see `make test-up`).
+# Ports are offset from the dev stack (5432/6379) so a test run can never reach
+# a real database by accident; data lives in tmpfs and vanishes on `down`.
+name: dosely_test
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dosely_test
+      POSTGRES_PASSWORD: dosely_test
+      POSTGRES_DB: dosely_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dosely_test -d dosely_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

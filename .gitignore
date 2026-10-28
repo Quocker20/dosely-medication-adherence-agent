@@ -116,3 +116,4 @@ android/app/release/
 .env*
 !.env.example
 !*.env.example
+!.env.test

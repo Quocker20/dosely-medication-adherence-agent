@@ -24,7 +24,20 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "httpx",
+    "pytest-timeout",
+    "python-dotenv",
 ]
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+# A hung DB/Redis connection must fail the test, not stall the whole run.
+timeout = 120
+addopts = "-ra"
+markers = [
+    "integration: needs the docker-compose.test.yml Postgres/Redis (the default for tests/test_api)",
+]

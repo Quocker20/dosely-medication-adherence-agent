@@ -240,8 +240,21 @@ npm run dev
 
 ### 1. Automated Unit & Integration Tests
 ```bash
-# Run complete test suite (400+ unit and integration tests)
+# One-time: create a venv and install deps
+pip install -r requirements.txt
+
+# Start the throwaway test Postgres (:5433) + Redis (:6380), build the schema, run everything.
+# Settings come from the committed .env.test (dummy values); the suite refuses to run
+# unless DATABASE_URL is the local *_test database, so it can never touch a real DB.
+make test            # = make test-up test-db test-run
+
+# Without make (e.g. Windows):
+docker compose -f docker-compose.test.yml up -d --wait
+python scripts/test_db_setup.py
 pytest -q
+
+# Tear down the test containers
+make test-down
 
 # Run specific adherence & safety review tests
 pytest tests/test_api/test_adherence_reviews.py
