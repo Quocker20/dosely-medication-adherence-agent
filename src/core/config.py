@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -245,6 +245,18 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
     caregiver_report_interval_days: int = Field(default=7, ge=1, le=30)
+
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """CORS origins with surrounding whitespace stripped and blanks dropped."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _require_cors_origins_in_production(self) -> "Settings":
+        if self.app_env == "production" and not self.cors_origin_list:
+            raise ValueError("CORS_ORIGINS must list at least one explicit origin when APP_ENV=production")
+        return self
 
 
 @lru_cache

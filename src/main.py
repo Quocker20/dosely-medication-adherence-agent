@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from src.api.v1_router import v1_router
 from src.common.exceptions import register_exception_handlers
 from src.common.middleware import RequestContextMiddleware
-from src.core.config import get_settings
+from src.core.config import Settings, get_settings
 from src.core.firebase_app import init_firebase
 from src.core.redis import close_redis_connection
 from src.modules.caregivers.webhook_router import webhook_router
@@ -29,68 +29,86 @@ async def lifespan(app: FastAPI):
     print("Shutting down...")
 
 
-settings = get_settings()
-
-app = FastAPI(
-    title=settings.app_name,
-    description="Dosely Medication Adherence Core API",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# Register Middleware
-app.add_middleware(RequestContextMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Register Exception Handlers
-register_exception_handlers(app)
-
-# Register API v1 Router
-app.include_router(v1_router, prefix="/api/v1")
-
-# WebSocket handlers sit at the app root, not under /api/v1 — api-contract.md
-# registers the dashboard feed as /ws/dashboard. Registered before the static
-# mount below so the catch-all does not shadow it.
-app.include_router(dashboard_ws_router)
-app.include_router(webhook_router)
+CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+CORS_ALLOW_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "Accept",
+    "Accept-Language",
+    "Idempotency-Key",
+    "X-Request-ID",
+]
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "env": settings.app_env}
+def create_app(settings: Settings) -> FastAPI:
+    """Build the FastAPI app for ``settings`` (a factory so tests can vary the env)."""
+    production = settings.app_env == "production"
+    app = FastAPI(
+        title=settings.app_name,
+        description="Dosely Medication Adherence Core API",
+        version="1.0.0",
+        lifespan=lifespan,
+        # SEC-14: no public API schema/Swagger in production.
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
+    )
+
+    # Register Middleware
+    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=CORS_ALLOW_METHODS,
+        allow_headers=CORS_ALLOW_HEADERS,
+    )
+
+    # Register Exception Handlers
+    register_exception_handlers(app)
+
+    # Register API v1 Router
+    app.include_router(v1_router, prefix="/api/v1")
+
+    # WebSocket handlers sit at the app root, not under /api/v1 — api-contract.md
+    # registers the dashboard feed as /ws/dashboard. Registered before the static
+    # mount below so the catch-all does not shadow it.
+    app.include_router(dashboard_ws_router)
+    app.include_router(webhook_router)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    # File APK để tải trực tiếp (xem docs/android-app-testing.md). Bind-mount riêng
+    # ngoài image Docker nên cập nhật APK không cần build lại image.
+    if DOWNLOADS_DIR.is_dir():
+        app.mount("/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downloads")
+
+    # Portal bác sĩ đã build (npm run build trong web/) được serve ngay từ FastAPI.
+    # Lúc dev thì chạy `npm run dev` — Vite proxy /api sang cổng 8000.
+    # Mount sau cùng vì đây là catch-all "/" — mount trước nó sẽ bị che khuất.
+    if WEB_DIST.is_dir():
+        index_path = WEB_DIST / "index.html"
+
+        async def serve_portal_spa() -> FileResponse:
+            """Return the portal shell for client-side portal routes on refresh."""
+            return FileResponse(index_path)
+
+        # StaticFiles(html=True) only resolves index.html at the root or inside an
+        # existing directory. These explicit routes preserve deep links such as
+        # /doctor/patients, leaving API, WebSocket, and download routes untouched.
+        for portal_prefix in ("admin", "doctor", "patient", "login"):
+            app.add_api_route(f"/{portal_prefix}", serve_portal_spa, methods=["GET"], include_in_schema=False)
+            app.add_api_route(
+                f"/{portal_prefix}/{{rest:path}}",
+                serve_portal_spa,
+                methods=["GET"],
+                include_in_schema=False,
+            )
+
+        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="portal")
+    return app
 
 
-# File APK để tải trực tiếp (xem docs/android-app-testing.md). Bind-mount riêng
-# ngoài image Docker nên cập nhật APK không cần build lại image.
-if DOWNLOADS_DIR.is_dir():
-    app.mount("/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downloads")
-
-# Portal bác sĩ đã build (npm run build trong web/) được serve ngay từ FastAPI.
-# Lúc dev thì chạy `npm run dev` — Vite proxy /api sang cổng 8000.
-# Mount sau cùng vì đây là catch-all "/" — mount trước nó sẽ bị che khuất.
-if WEB_DIST.is_dir():
-    index_path = WEB_DIST / "index.html"
-
-    async def serve_portal_spa() -> FileResponse:
-        """Return the portal shell for client-side portal routes on refresh."""
-        return FileResponse(index_path)
-
-    # StaticFiles(html=True) only resolves index.html at the root or inside an
-    # existing directory. These explicit routes preserve deep links such as
-    # /doctor/patients, leaving API, WebSocket, and download routes untouched.
-    for portal_prefix in ("admin", "doctor", "patient", "login"):
-        app.add_api_route(f"/{portal_prefix}", serve_portal_spa, methods=["GET"], include_in_schema=False)
-        app.add_api_route(
-            f"/{portal_prefix}/{{rest:path}}",
-            serve_portal_spa,
-            methods=["GET"],
-            include_in_schema=False,
-        )
-
-    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="portal")
+app = create_app(get_settings())

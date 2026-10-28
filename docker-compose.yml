@@ -12,6 +12,8 @@ services:
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379/0
@@ -56,6 +58,8 @@ services:
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379/0
@@ -90,6 +94,8 @@ services:
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379/0
