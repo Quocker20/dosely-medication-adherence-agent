@@ -37,6 +37,7 @@ def load_catalog(path: Path) -> list[dict[str, str]]:
 
 async def seed(rows: list[dict[str, str]]) -> int:
     from sqlalchemy.dialects.postgresql import insert
+
     from src.core.database import AsyncSessionLocal
     from src.modules.prescriptions.models import Medication
 

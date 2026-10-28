@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from src.chatbot.clients.backend_client import BackendAPIError, get, post
 from src.core.security import get_actor_token, reset_actor_token, set_actor_token
-from src.modules.planning.core.backend_client import BackendAPIError, get, post
 
 
 def _mock_async_client(*, raises: Exception | None = None, response: MagicMock | None = None):
@@ -21,7 +21,7 @@ def _mock_async_client(*, raises: Exception | None = None, response: MagicMock |
     mock_ctx = MagicMock()
     mock_ctx.__aenter__.return_value = mock_client
     mock_ctx.__aexit__.return_value = False
-    return patch("src.modules.planning.core.backend_client.httpx.AsyncClient", return_value=mock_ctx)
+    return patch("src.chatbot.clients.backend_client.httpx.AsyncClient", return_value=mock_ctx)
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_calls_carry_the_actor_token_when_one_is_bound():
     handle = set_actor_token("patient-jwt-abc")
     try:
         with patch(
-            "src.modules.planning.core.backend_client.httpx.AsyncClient",
+            "src.chatbot.clients.backend_client.httpx.AsyncClient",
             return_value=mock_ctx,
         ):
             await get("/patients/p1/routine")

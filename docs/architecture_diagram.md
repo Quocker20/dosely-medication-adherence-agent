@@ -2,7 +2,7 @@
 
 > Redrawn from the real codebase (2026-08-29) — the previous version was generic
 > template content (Next.js frontend, Gemini LLM, no Redis/Celery/Android, a made-up
-> "Agent Flow" that didn't match `src/agents/graph.py`). See `docs/structure.md` for the
+> "Agent Flow" that didn't match `src/chatbot/graph.py`). See `docs/structure.md` for the
 > file-level directory map this diagram summarizes.
 
 ## System Overview
@@ -17,14 +17,14 @@ graph TB
 
     API --> DB[(PostgreSQL)]
     API --> Redis[(Redis<br/>rate-limit, cache, broker)]
-    API --> ChatGraph[Chat Graph<br/>src/agents/graph.py]
+    API --> ChatGraph[Chat Graph<br/>src/chatbot/graph.py]
 
     Redis --> Worker[Celery worker + beat]
-    Worker --> PlanGraph[Planning Graph<br/>src/agents/planning_graph.py]
+    Worker --> PlanGraph[Planning Graph<br/>src/chatbot/planning_graph.py]
     PlanGraph --> DB
 
     ChatGraph --> OpenAI[OpenAI<br/>ChatOpenAI via langchain_openai]
-    ChatGraph --> Tools[Agent Tools<br/>src/agents/tools]
+    ChatGraph --> Tools[Agent Tools<br/>src/chatbot/tools]
     Tools --> DB
     Tools --> RAG[Drug RAG<br/>src/rag_retrieval]
     RAG --> Chroma[(ChromaDB<br/>data/rag_dense_index_q1_q2)]
@@ -37,7 +37,7 @@ graph (`/chat`, `/chat/voice`, synchronous request/response) and the planning gr
 (schedule generation/reschedule, triggered async via Celery, polled via `agent_runs`).
 Only OpenAI is used as an LLM provider — no other vendor is wired into the code.
 
-## Chat Graph Flow (`src/agents/graph.py`)
+## Chat Graph Flow (`src/chatbot/graph.py`)
 
 ```mermaid
 graph TB
@@ -68,7 +68,7 @@ graph TB
 rule-based keyword layer that always wins, plus an LLM classifier (temperature 0, 3s
 timeout, fail-open) that can only add escalations, never override a rule-based block.
 
-## Planning Graph Flow (`src/agents/planning_graph.py`)
+## Planning Graph Flow (`src/chatbot/planning_graph.py`)
 
 ```mermaid
 graph LR
@@ -99,7 +99,7 @@ final schedule.
 | Database | PostgreSQL | Data persistence (async SQLAlchemy 2.0) |
 | Cache / broker | Redis | Rate-limiting, dashboard event pub/sub, Celery broker |
 | Async jobs | Celery (worker + beat) | Schedule generation/reschedule, missed-dose scans |
-| Chat agent | LangGraph (`src/agents/graph.py`) | Patient chat — safety-gated, tool-calling |
-| Planning agent | LangGraph (`src/agents/planning_graph.py`) | Deterministic-revalidated schedule computation |
-| LLM | OpenAI (`ChatOpenAI`, `src/modules/planning/core/llm.py`) | Only LLM provider wired into the code |
+| Chat agent | LangGraph (`src/chatbot/graph.py`) | Patient chat — safety-gated, tool-calling |
+| Planning agent | LangGraph (`src/chatbot/planning_graph.py`) | Deterministic-revalidated schedule computation |
+| LLM | OpenAI (`ChatOpenAI`, `src/chatbot/clients/llm.py`) | Only LLM provider wired into the code |
 | Vector store | ChromaDB (`data/rag_dense_index_q1_q2/`) | Drug-formulary RAG corpus (~11.6k chunks) |

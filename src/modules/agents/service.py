@@ -12,17 +12,22 @@ from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agents.audit import log_turn
-from src.agents.conversation_memory import load_working_memory, save_working_memory
-from src.agents.graph import agent
-from src.agents.patient_addressing import get_patient_address
-from src.agents.patient_presentation import patient_facing_text
-from src.agents.planning_graph import (
+from src.chatbot.audit import log_turn
+from src.chatbot.clients.speech import (
+    SpeechServiceError,
+    synthesize_speech,
+    transcribe_audio,
+)
+from src.chatbot.conversation_memory import load_working_memory, save_working_memory
+from src.chatbot.graph import agent
+from src.chatbot.patient_addressing import get_patient_address
+from src.chatbot.patient_presentation import patient_facing_text
+from src.chatbot.planning_graph import (
     planning_commit_graph,
     planning_draft_graph,
     planning_snapshot_graph,
 )
-from src.agents.tools.safety_tools import count_missed_dose_streak
+from src.chatbot.tools.safety_tools import count_missed_dose_streak
 from src.common.exceptions import (
     AppException,
     ConflictException,
@@ -61,11 +66,6 @@ from src.modules.agents.schemas import (
     VoiceChatResponse,
 )
 from src.modules.patients.repository import PatientRepository
-from src.modules.planning.core.speech import (
-    SpeechServiceError,
-    synthesize_speech,
-    transcribe_audio,
-)
 
 logger = logging.getLogger(__name__)
 

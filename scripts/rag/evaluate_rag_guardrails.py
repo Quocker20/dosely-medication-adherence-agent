@@ -9,8 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.agents.medication_policy import match_medication_decision  # noqa: E402
-from src.agents.nodes.grounding_validator_node import validate_grounded_answer  # noqa: E402
+from src.chatbot.medication_policy import match_medication_decision  # noqa: E402
+from src.chatbot.nodes.grounding_validator_node import validate_grounded_answer  # noqa: E402
 
 
 def main() -> None:

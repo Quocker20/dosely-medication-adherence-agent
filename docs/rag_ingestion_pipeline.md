@@ -99,8 +99,8 @@ ranking. Run the real-index evaluation with:
 ```
 
 **Status: wired into the live chatbot, not just an offline eval artifact.** The
-`search_drug_formulary` tool (`src/agents/tools/drug_rag_tools.py`) and
-`src/agents/nodes/drug_rag_node.py` load this same index at runtime via
+`search_drug_formulary` tool (`src/chatbot/tools/drug_rag_tools.py`) and
+`src/chatbot/nodes/drug_rag_node.py` load this same index at runtime via
 `src/rag_retrieval/service.py`/`safe_service.py` to answer real patient chat questions —
 see `docs/api-contract.md` (Slice 6) for how the
 guardrail/grounding layers wrap this retrieval before it reaches the patient.

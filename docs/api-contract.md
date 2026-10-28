@@ -109,7 +109,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 
 **Drug info lookup — not a separate endpoint.** The agent has two more capabilities reachable only through `POST /chat`/`/chat/voice`, both called by the LLM mid-conversation, neither with a dedicated HTTP route (not part of the request/response contract above, only of the agent's internal tool-calling loop):
 - `search_drug_info` — DB-backed lookup against the `medications` catalog (real implementation since commit `3cbd9bf`, not a stub).
-- `search_drug_formulary` — real hybrid RAG (dense + BM25, RRF-fused) over an OCR'd Dược thư Quốc gia corpus, with grounding/citation checks before the answer reaches the patient. Backed by a local (git-ignored) index at `data/rag_dense_index_q1_q2/` (~11.6k chunked records, `text-embedding-3-large`) and served through `src/rag_retrieval/service.py` + `src/agents/nodes/drug_rag_node.py`. See `docs/rag_ingestion_pipeline.md` for how the index was built.
+- `search_drug_formulary` — real hybrid RAG (dense + BM25, RRF-fused) over an OCR'd Dược thư Quốc gia corpus, with grounding/citation checks before the answer reaches the patient. Backed by a local (git-ignored) index at `data/rag_dense_index_q1_q2/` (~11.6k chunked records, `text-embedding-3-large`) and served through `src/rag_retrieval/service.py` + `src/chatbot/nodes/drug_rag_node.py`. See `docs/rag_ingestion_pipeline.md` for how the index was built.
 
 Do not build a client against a `rag_result`/citation shape for either tool — both are internal to the agent's tool loop and never surface a separate structured field in the chat response envelope.
 

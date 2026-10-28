@@ -8,7 +8,7 @@ This document defines the modular domain-driven architecture for the **Dosely** 
 
 ```
 src/
-├── agents/                 # 🧠 LangGraph Agent (chat graph)
+├── chatbot/                # 🧠 LangGraph chatbot (chat graph, planning graph, tools) + its HTTP clients (clients/: backend_client.py, llm.py, speech.py)
 │   ├── graph.py            # State graph (nodes + edges) — safety_guard first, then classify_intent + branches/ReAct loop
 │   ├── state.py            # State schema (TypedDict)
 │   ├── planning_graph.py   # A SEPARATE second LangGraph — schedule/reschedule pipeline, independent of the chat graph above
@@ -107,8 +107,6 @@ src/
 │   │   ├── service.py
 │   │   └── schemas.py
 │   │
-│   └── planning/           # 🧪 Shared clinical helpers for the agent layer
-│       └── core/           # backend_client.py, llm.py, speech.py (only these 3 exist — no clinical.py/timekit.py/prescription_validator.py)
 │
 ├── api/                    # 🌐 API Routing & Dependency Injection
 │   ├── deps.py             # Global FastAPI dependencies (get_db, get_current_user, RBAC)

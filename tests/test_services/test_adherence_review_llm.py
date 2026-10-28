@@ -2,7 +2,7 @@
 the prescribing-language reject-list, and the patient-message routing gate.
 
 No real LLM calls -- get_llm is patched the same way
-tests/test_agents/test_rescheduling_node.py mocks with_structured_output.
+tests/test_chatbot/test_rescheduling_node.py mocks with_structured_output.
 """
 import asyncio
 import uuid

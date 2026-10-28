@@ -26,7 +26,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.agents.medication_policy import MEDICATION_RULES, fold
+from src.chatbot.clients.llm import get_llm
+from src.chatbot.medication_policy import MEDICATION_RULES, fold
 from src.core.config import Settings
 from src.modules.adherence_review.enums import Action, Severity
 from src.modules.adherence_review.repository import (
@@ -34,7 +35,6 @@ from src.modules.adherence_review.repository import (
     SlotBreakdown,
     SymptomEvidence,
 )
-from src.modules.planning.core.llm import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ def _build_prompt(context: RemedyContext) -> str:
 def _contains_prescribing_language(text: str) -> bool:
     """Reject-list scan only -- deliberately NOT match_medication_decision.
 
-    match_medication_decision (src/agents/medication_policy.py) requires a
+    match_medication_decision (src/chatbot/medication_policy.py) requires a
     first-person marker ("tôi", "mình", ...) alongside a decision marker,
     because it classifies a PATIENT's own question ("tôi có nên tăng liều
     không"). A model-generated leak reads as a statement or instruction

@@ -171,7 +171,7 @@ def require_roles(*allowed_roles: str) -> Callable:
 # Actor token propagation
 # ---------------------------------------------------------------------------
 # The LangGraph agent runs in-process but reaches the backend over HTTP loopback
-# (src/modules/planning/core/backend_client.py). Those calls hit the same
+# (src/chatbot/clients/backend_client.py). Those calls hit the same
 # require_roles guards as any client, so they need a real caller identity — a
 # static service token would need a role outside ck_users_role and would be able
 # to write any patient's data, which is exactly what the HITL boundary forbids.

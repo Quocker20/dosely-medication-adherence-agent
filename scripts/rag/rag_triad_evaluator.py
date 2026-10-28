@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.agents.nodes.grounding_validator_node import validate_grounded_answer  # noqa: E402
+from src.chatbot.nodes.grounding_validator_node import validate_grounded_answer  # noqa: E402
 from src.rag_retrieval.safe_service import _GROUNDING_FALLBACK, _NO_DATA_REPLY  # noqa: E402
 from src.rag_retrieval.service import DrugRAG, fold  # noqa: E402
 

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from src.agents.medication_policy import match_medication_decision
-from src.agents.semantic_plan import SemanticStep
+from src.chatbot.medication_policy import match_medication_decision
+from src.chatbot.semantic_plan import SemanticStep
 
 CASES = json.loads(
     (Path(__file__).resolve().parents[2] / "eval" / "chatbot_full_golden_cases.json")

@@ -11,7 +11,7 @@ nhanh, nen KHONG nam trong tests/ / KHONG chay trong pytest CI. Chay thu cong:
 """
 import asyncio
 
-from src.agents.nodes.rescheduling_node import extract_meal_shift
+from src.chatbot.nodes.rescheduling_node import extract_meal_shift
 
 # Tat ca cau duoi day CUNG mot y: doi bua trua sang 14:00 (2 gio chieu).
 # Dien dat khac nhau ("an trua muon", "2h chieu", "14 gio", co dau/khong dau...)

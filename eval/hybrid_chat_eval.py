@@ -13,19 +13,19 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from src.agents.medication_policy import match_medication_decision
-from src.agents.nodes import current_medications_node as current_module
-from src.agents.nodes import drug_rag_node as drug_rag_module
-from src.agents.nodes import explain_my_medications_node as explain_module
-from src.agents.nodes import next_dose_node as next_dose_module
-from src.agents.nodes import today_schedule_node as today_schedule_module
-from src.agents.nodes.classify_intent_node import classify_intent_node
-from src.agents.nodes.output_guard_node import validate_patient_output
-from src.agents.nodes.scope_guard_node import scope_guard_node
-from src.agents.conversation_memory import _key as memory_key
-from src.agents.tool_authorization import WRITE_TOOL_INTENTS
-from src.agents.patient_presentation import patient_facing_text
-from src.agents.tools.safety_tools import match_severe_symptom_keyword
+from src.chatbot.conversation_memory import _key as memory_key
+from src.chatbot.medication_policy import match_medication_decision
+from src.chatbot.nodes import current_medications_node as current_module
+from src.chatbot.nodes import drug_rag_node as drug_rag_module
+from src.chatbot.nodes import explain_my_medications_node as explain_module
+from src.chatbot.nodes import next_dose_node as next_dose_module
+from src.chatbot.nodes import today_schedule_node as today_schedule_module
+from src.chatbot.nodes.classify_intent_node import classify_intent_node
+from src.chatbot.nodes.output_guard_node import validate_patient_output
+from src.chatbot.nodes.scope_guard_node import scope_guard_node
+from src.chatbot.patient_presentation import patient_facing_text
+from src.chatbot.tool_authorization import WRITE_TOOL_INTENTS
+from src.chatbot.tools.safety_tools import match_severe_symptom_keyword
 from src.rag_retrieval import SafeDrugRAG
 
 ROOT = Path(__file__).resolve().parents[1]

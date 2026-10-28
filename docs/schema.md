@@ -408,7 +408,7 @@ Tài liệu này định nghĩa cấu trúc chi tiết toàn bộ các Pydantic 
 
 ### 6.6 search_drug_info — tool nội bộ, KHÔNG phải HTTP schema
 * **Mục đích**: Tra cứu công dụng/hoạt chất thuốc, chỉ gọi được từ bên trong lượt hội thoại `POST /chat`/`/chat/voice` — LLM tự quyết định gọi tool này khi bệnh nhân hỏi về một loại thuốc. Không có route riêng, không nằm trong API contract Slice 8 (đã dời khỏi đó — xem api-contract.md §Slice 8), không nhận request body từ client.
-* **Module**: `src.agents.tools.drug_info_tools`
+* **Module**: `src.chatbot.tools.drug_info_tools`
 * **Input/Output thật của tool** (không phải Pydantic DTO, chỉ để tham khảo khi debug):
   * `query` (str): tên thuốc hoặc câu hỏi, LLM tự trích từ hội thoại.
   * Trả về (str): **STUB** — hiện luôn trả cố định "Tôi không tìm thấy thông tin đáng tin cậy về thuốc này. Bạn vui lòng hỏi bác sĩ hoặc dược sĩ." bất kể `query` là gì.

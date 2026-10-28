@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage
 
+from src.chatbot.clients.speech import SpeechServiceError
 from src.core.security import create_access_token
-from src.modules.planning.core.speech import SpeechServiceError
 
 PATIENT_ID = "11111111-1111-1111-1111-111111111111"
 OTHER_PATIENT_ID = "22222222-2222-2222-2222-222222222222"
@@ -29,7 +29,7 @@ def _patient_headers() -> dict[str, str]:
 
 def _agent_replying(text: str, intent: str = "general") -> AsyncMock:
     """Stand in for the compiled LangGraph agent. The graph itself is covered by
-    tests/test_agents/; here only the endpoint's contract is under test."""
+    tests/test_chatbot/; here only the endpoint's contract is under test."""
     return AsyncMock(
         return_value={"messages": [AIMessage(content=text)], "intent": intent, "escalated": False}
     )
