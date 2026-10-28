@@ -948,15 +948,22 @@ class ScheduledDoseRepository:
             )
         return grouped
 
-    async def get_statuses_in_window(
-        self, patient_id: uuid.UUID, start: datetime, end: datetime
-    ) -> list[str]:
-        """Statuses of a patient's doses whose current schedule falls in [start, end]."""
+    async def count_statuses_in_window(
+        self, patient_ids: list[uuid.UUID], start: datetime, end: datetime
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Per-patient dose counts by status for doses scheduled in [start, end]: one GROUP BY."""
+        if not patient_ids:
+            return {}
         result = await self._db.execute(
-            select(ScheduledDose.status).where(
-                ScheduledDose.patient_id == patient_id,
+            select(ScheduledDose.patient_id, ScheduledDose.status, func.count())
+            .where(
+                ScheduledDose.patient_id.in_(patient_ids),
                 ScheduledDose.current_scheduled_at >= start,
                 ScheduledDose.current_scheduled_at <= end,
             )
+            .group_by(ScheduledDose.patient_id, ScheduledDose.status)
         )
-        return list(result.scalars().all())
+        counts: dict[uuid.UUID, dict[str, int]] = {}
+        for patient_id, status, n in result.all():
+            counts.setdefault(patient_id, {})[status] = int(n)
+        return counts

@@ -2,7 +2,8 @@
 
 import logging
 import uuid
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -24,13 +25,17 @@ class AdherenceStats:
     rate: float
 
 
-def compute_adherence_stats(statuses: Iterable[str]) -> AdherenceStats:
-    values = list(statuses)
-    total = len(values)
-    taken = sum(1 for s in values if s == "TAKEN")
-    missed = sum(1 for s in values if s in ("MISSED", "SKIPPED"))
+def stats_from_counts(counts: Mapping[str, int]) -> AdherenceStats:
+    """Build stats from per-status dose counts (the shape a GROUP BY returns)."""
+    total = sum(counts.values())
+    taken = counts.get("TAKEN", 0)
+    missed = counts.get("MISSED", 0) + counts.get("SKIPPED", 0)
     rate = (taken / total * 100.0) if total > 0 else 100.0
     return AdherenceStats(total=total, taken=taken, missed=missed, rate=rate)
+
+
+def compute_adherence_stats(statuses: Iterable[str]) -> AdherenceStats:
+    return stats_from_counts(Counter(statuses))
 
 
 def build_report_body(interval_days: int, patient_name: str, stats: AdherenceStats) -> str:
@@ -76,11 +81,14 @@ class CaregiverReportService:
 
         delivery_ids: list[uuid.UUID] = []
         start_date = now - timedelta(days=interval_days)
+        # Two queries for the whole batch (audit P-08), not two per link and
+        # not one row per dose.
+        patient_ids = list({link.patient_id for link in claimed_links})
+        names = await self._patients.get_names_by_ids(patient_ids)
+        counts_by_patient = await self._doses.count_statuses_in_window(patient_ids, start_date, now)
         for link in claimed_links:
-            names = await self._patients.get_names_by_ids([link.patient_id])
             patient_name = names.get(link.patient_id) or "Người bệnh"
-            statuses = await self._doses.get_statuses_in_window(link.patient_id, start_date, now)
-            stats = compute_adherence_stats(statuses)
+            stats = stats_from_counts(counts_by_patient.get(link.patient_id, {}))
             body = build_report_body(interval_days, patient_name, stats)
 
             if self._db.in_transaction():

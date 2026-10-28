@@ -300,7 +300,9 @@ async def _execute_send_notification(delivery_id_str: str, *, final_attempt: boo
             return
 
         try:
-            success, dead_tokens = FCMService.send_push_notification(
+            # firebase_admin's send is blocking I/O: keep it off the event loop (P-08).
+            success, dead_tokens = await asyncio.to_thread(
+                FCMService.send_push_notification,
                 tokens=tokens,
                 title=delivery.title,
                 body=delivery.body,
