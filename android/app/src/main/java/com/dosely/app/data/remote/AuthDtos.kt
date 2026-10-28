@@ -8,7 +8,11 @@ data class ChangePasswordRequestDto(val currentPassword: String, val newPassword
 
 data class RefreshTokenRequestDto(val refreshToken: String)
 
-data class LogoutRequestDto(val refreshToken: String)
+data class LogoutRequestDto(
+    val refreshToken: String,
+    /** This device FCM token; the server deactivates it on logout. Null (omitted) when unknown. */
+    val fcmToken: String? = null,
+)
 
 data class UserDto(val id: String, val phone: String, val role: String, val status: String)
 

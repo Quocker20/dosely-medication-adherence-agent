@@ -24,6 +24,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -57,7 +58,10 @@ class BearerTokenInterceptor(
 }
 
 fun interface TokenRefreshGateway {
-    /** Returns null when the refresh response is unsuccessful or has no token data. */
+    /**
+     * Returns null when the server rejected the refresh token or sent no token data.
+     * Throws on transient failures (I/O, 5xx) so the caller keeps the session.
+     */
     fun refresh(refreshToken: String): AuthTokenResponseDto?
 }
 
@@ -65,8 +69,14 @@ class RetrofitTokenRefreshGateway(
     private val api: DoselyApiService,
 ) : TokenRefreshGateway {
     override fun refresh(refreshToken: String): AuthTokenResponseDto? = runBlocking {
-        val envelope = api.refreshToken(RefreshTokenRequestDto(refreshToken))
-        envelope.data?.takeIf { envelope.success }
+        try {
+            val envelope = api.refreshToken(RefreshTokenRequestDto(refreshToken))
+            envelope.data?.takeIf { envelope.success }
+        } catch (error: HttpException) {
+            // 401/403: the refresh token is dead -> null (session ends). Anything else
+            // (5xx, timeouts) is transient and propagates so the session is kept.
+            if (error.code() == 401 || error.code() == 403) null else throw error
+        }
     }
 }
 
@@ -108,7 +118,8 @@ class SessionAuthenticator(
             val refreshed = try {
                 refreshGateway.refresh(sessionBeforeRefresh.refreshToken)
             } catch (_: Exception) {
-                null
+                // Transient failure: keep the session; the next request retries the refresh.
+                return@synchronized null
             }
             if (refreshed == null || refreshed.user.id != sessionBeforeRefresh.patientId) {
                 sessionStore.clearIfCurrent(sessionBeforeRefresh)

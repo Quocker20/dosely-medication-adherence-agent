@@ -10,6 +10,7 @@ import com.dosely.app.data.remote.RefreshTokenRequestDto
 import com.dosely.app.data.remote.DoselyApiService
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import java.io.IOException
 import kotlinx.coroutines.flow.StateFlow
 import retrofit2.HttpException
 
@@ -17,6 +18,7 @@ class RemoteAuthRepositoryImpl @Inject constructor(
     private val api: DoselyApiService,
     private val sessionStore: SessionStore,
     private val readableCacheCleaner: PatientReadableCacheCleaner = NoOpPatientReadableCacheCleaner,
+    private val fcmTokenProvider: FcmTokenProvider = NoFcmTokenProvider,
 ) : AuthRepository {
 
     override val session: StateFlow<AuthSession?> = sessionStore.session
@@ -69,18 +71,27 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
-            sessionStore.clearIfCurrent(sessionBeforeRefresh)
+            // A rotated/revoked refresh token (401/403) ends the session. A network
+            // error or 5xx says nothing about the token, so keep it for a retry.
+            if (!error.isTransientRefreshFailure()) sessionStore.clearIfCurrent(sessionBeforeRefresh)
             throw error
         }
     }
 
+    private fun Exception.isTransientRefreshFailure(): Boolean =
+        this is IOException || (this is HttpException && (code() >= 500 || code() == 408 || code() == 429))
+
     override suspend fun logout() {
         var sessionBeingLoggedOut = sessionStore.session.value ?: return
+        val fcmToken = runCatching { fcmTokenProvider.currentToken() }.getOrNull()
         try {
             try {
-                api.logout(LogoutRequestDto(sessionBeingLoggedOut.refreshToken))
+                api.logout(LogoutRequestDto(sessionBeingLoggedOut.refreshToken, fcmToken))
                     .requireSuccess("đăng xuất")
             } catch (error: HttpException) {
+                // 403: the token belongs to someone else, nothing to revoke. The local
+                // session is cleared below regardless, so treat it as logged out.
+                if (error.code() == 403) return
                 if (error.code() != 401) throw error
 
                 // Logout needs both a valid access token and the refresh token
@@ -88,7 +99,7 @@ class RemoteAuthRepositoryImpl @Inject constructor(
                 // carries the already-rotated token in its body.
                 val renewed = refreshSession(sessionBeingLoggedOut)
                 sessionBeingLoggedOut = renewed
-                api.logout(LogoutRequestDto(renewed.refreshToken)).requireSuccess("đăng xuất")
+                api.logout(LogoutRequestDto(renewed.refreshToken, fcmToken)).requireSuccess("đăng xuất")
             }
         } finally {
             runCatching { readableCacheCleaner.clearReadableCache(sessionBeingLoggedOut.patientId) }
