@@ -5,7 +5,8 @@ page a doctor twice, nor double-count a dose) and the alert lifecycle a doctor
 drives from the portal.
 """
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
