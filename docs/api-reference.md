@@ -82,6 +82,18 @@ Response `data` (`AuthTokenResponse`):
 }
 ```
 
+**Login lockout (SEC-03).** Wrong PIN and unknown phone return the same generic `401` (`"Invalid phone number or password"`), so the response never reveals whether an account exists. After **5 consecutive failures within 15 minutes** for a phone number, login for that phone is blocked with **`429`**; each repeat within 24 h escalates the block: 15 min, then 1 h, then 24 h. A successful login resets the failure counter. The fifth failing attempt itself already returns the `429`. Body:
+```json
+{
+  "success": false,
+  "code": 429,
+  "message": "Bạn đã nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.",
+  "data": null,
+  "errors": { "retry_after_seconds": 900 }
+}
+```
+`message` is Vietnamese and safe to show verbatim ("... sau X phút." below one hour, "... sau X giờ." from one hour). While locked, even the correct PIN is refused, and `retry_after_seconds` is the time left. A separate per-IP limit (5 login attempts per 60 s) still returns `429` with its own generic message. Failed logins are written to `audit_logs` (`action: LOGIN_FAILED`, never the PIN). If Redis is down the lockout (and rate limiting) fail open.
+
 ### POST /auth/change-password
 Auth required. Sets `password_changed_at = now()`. Also clears `need_onboarding` for non-PATIENT roles only (DOCTOR/ADMIN/CAREGIVER) — a PATIENT's `need_onboarding` stays true until they finish onboarding via `POST /patients/me/profile` or a non-empty `PUT /patients/{id}/routine`.
 
@@ -103,14 +115,23 @@ Request body:
 ```
 Response `data`: same shape as `AuthTokenResponse` above.
 
+**Rotation (SEC-19).** Every refresh returns a **new** `refresh_token`; the one that was sent is revoked. The client MUST store the new refresh token from every refresh response and discard the old one. Refresh tokens belonging to one login form a family.
+
+**Reuse detection.** Presenting an already-rotated refresh token is treated as possible theft: the whole family (that login session) is revoked and the call returns `401` (`"Refresh token reuse detected. Please log in again."`), so the user has to log in again. Exception: if the same token is presented again **within 30 s** of its rotation (`REFRESH_REUSE_GRACE_SECONDS`) — a client retrying after a lost response, or two tabs racing — the server returns `200` with a fresh pair and revokes nothing; the client should keep the newest pair it receives. Web should single-flight refreshes; Android should refresh from the OkHttp authenticator under a lock. Logout and PIN change revoke tokens without the reuse penalty (plain `401`).
+
 ### POST /auth/logout
 Auth required.
 
 Request body:
 ```json
-{ "refresh_token": "eyJhbGciOi..." }
+{ "refresh_token": "eyJhbGciOi...", "fcm_token": "<this device's FCM token, optional>" }
 ```
+- `refresh_token` must belong to the authenticated user (SEC-05). If it belongs to someone else the call returns `403` and nothing is revoked. An unknown/already-revoked token is a no-op `200` (logout is idempotent).
+- `fcm_token` (optional, max 255 chars; SEC-20): when sent, that device token is deactivated (`user_devices.is_active = false`) for the caller, so the next person to sign in on that device does not inherit the previous user's pushes. Old clients that omit it keep working. Registering the same FCM token later with `POST /auth/device-token` still upserts it to the registering user and reactivates it.
+
 Response `data`: `null`.
+
+> Access tokens stay stateless (JWT, 30 min): logout/PIN change do not invalidate an already-issued access token before it expires. Known and accepted limitation (SEC-05).
 
 ---
 
@@ -544,6 +565,19 @@ Response `data` (`AgentRunStatusResponse`):
 
 > Newest addition — voice/text conversational agent (LangGraph), wired to the same agent tools as dose actions / SOS.
 
+### Chat rate limits (SEC-10)
+`POST /chat` and `POST /chat/voice` share two per-user limits: 20 requests/minute and **200 requests per rolling 24 h** (`CHAT_DAILY_LIMIT`, text + voice combined). Exceeding either returns `429`; `errors.retry_after_seconds` is the time left in the window. The daily-limit body is
+```json
+{
+  "success": false,
+  "code": 429,
+  "message": "Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
+  "data": null,
+  "errors": { "retry_after_seconds": 54321 }
+}
+```
+Its `message` can be shown to the patient directly; the per-minute `429` carries a generic English message — clients should show their own "slow down" text for it.
+
 ### POST /chat
 Text chat with the AI agent.
 
@@ -681,6 +715,11 @@ Request body (`TriggerSosRequest`):
   "metadata": { "lat": 10.762622, "lng": 106.660172 }
 }
 ```
+Limits (SEC-09):
+- `message`: longer than 500 characters is **truncated** to 500 (ending in `…`), never rejected — the agent builds it from reason + evidence and a genuine alert must not be refused.
+- `metadata`: JSON-serialized size at most **4096 bytes**, otherwise `422`. The agent sends about 40 bytes; its evidence text travels in `message`.
+- Soft rate limit: if the patient already raised **5 alerts in the last 60 s**, a further call does **not** create another alert and does **not** error — it returns `201` with the most recent open (or acknowledged) alert, as if it were the new one. An `Idempotency-Key` replay always returns that key's own alert.
+
 Response `data` (`AlertDetailResponse`):
 ```json
 {
@@ -704,7 +743,7 @@ Response `data`: `PageResponse<AlertDetailResponse>`.
 No body. Assigns the acknowledging doctor. Response `data`: `AlertDetailResponse` (`status: "ACKNOWLEDGED"`).
 
 ### POST /alerts/{alert_id}/resolve — role: DOCTOR
-Request body:
+Request body (`resolution_note`: 1-1000 chars, else `422`):
 ```json
 { "resolution_note": "Contacted patient by phone, stable now." }
 ```
@@ -720,7 +759,27 @@ The design contract (`docs/api-contract.md`, Slice 8) also specifies OCR/RAG/das
 - `GET /ocr-jobs/{ocr_job_id}`
 - `GET /dashboard/patients`
 - `GET /dashboard/patients/{patient_id}`
-- `WS /ws/dashboard`, `STREAM /ws/dashboard/events`
+- `STREAM /ws/dashboard/events` (not a separate route; the events are the `/ws/dashboard` frames)
+
+---
+
+## 10a. WebSocket feeds (`/ws/dashboard`, `/ws/patient`) — protocol (SEC-07, P-04)
+
+Both sockets are at the app root (not under `/api/v1`). **The access token is no longer accepted in the query string** (`?token=` is ignored; a client that sends nothing else is disconnected). Authentication is the first message:
+
+1. Connect to `/ws/dashboard` (DOCTOR/ADMIN) or `/ws/patient` (PATIENT) with no query string.
+2. Within **5 seconds** send one text frame: `{"type": "auth", "token": "<access_token>"}`.
+3. On success the server replies `{"type": "auth_ok", "expires_in": <seconds until the token expires>}` and then streams event frames (unchanged `WebSocketEventStream` envelope: `event_type`, `timestamp`, `data`). Event frames have `event_type`; control frames have `type` — clients must tolerate both.
+4. Failure closes the socket:
+   | Code | Meaning | Client action |
+   | --- | --- | --- |
+   | `4401` | missing/invalid/expired token, wrong token type, non-JSON first frame, auth timeout, or token expired mid-session | refresh the access token, reconnect, send `auth` again |
+   | `4403` | token is valid but the role may not use this feed, or a re-auth frame carried a different user | do not retry with the same identity |
+   | `1009` | client frame larger than 8192 characters | fix the client |
+5. The server closes with `4401` when the access token expires. To avoid a reconnect, send a new `{"type": "auth", "token": "<new access token of the SAME user>"}` before expiry; the server answers with another `auth_ok`.
+6. Optional keep-alive: `{"type": "ping"}` is answered with `{"type": "pong"}`.
+
+The DOCTOR scope check (prescription relationship) now opens a short database session per event instead of holding one for the socket's lifetime, so idle sockets no longer pin pool connections.
 
 ---
 
