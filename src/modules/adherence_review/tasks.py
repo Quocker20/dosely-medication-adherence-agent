@@ -47,6 +47,15 @@ async def _execute_adherence_review_scan() -> None:
         logger.info("Adherence review scan for %s: %s", review_date, stats)
 
 
-@celery_app.task(name="adherence_review.scan")
+# Worst case ~100 min (300 LLM calls x 20 s). Own limits and queue (P-13). Not
+# acks_late: a late-acked task running past Redis's 1 h visibility timeout would
+# be redelivered and run twice concurrently.
+@celery_app.task(
+    name="adherence_review.scan",
+    soft_time_limit=6000,
+    time_limit=6600,
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def scan_adherence_review_task() -> None:
     asyncio.run(_execute_adherence_review_scan())

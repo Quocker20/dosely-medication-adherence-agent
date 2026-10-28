@@ -188,3 +188,28 @@ def test_the_celery_task_retries_transient_errors_three_times_then_marks_final_a
 
     assert result.successful()
     assert calls == [False, False, False, True]
+
+
+@pytest.mark.asyncio
+async def test_soft_time_limit_mid_send_leaves_the_delivery_reclaimable(patient_id):
+    """P-13: SoftTimeLimitExceeded must not strand the delivery. It stays SENDING,
+    and once the claim is older than the stale threshold the next worker takes it."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    delivery_id = await _add(patient_id)
+
+    with patch(FCM, side_effect=SoftTimeLimitExceeded()):
+        with pytest.raises(SoftTimeLimitExceeded):
+            await _execute_send_notification(str(delivery_id))
+    assert await _status(delivery_id) == "SENDING"
+
+    # Pretend the claim happened 15 minutes ago (older than the 10 min threshold).
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            delivery = (await db.execute(select(NotificationDelivery).where(NotificationDelivery.id == delivery_id))).scalar_one()
+            delivery.delivery_metadata = {"claimed_at": (datetime.now(UTC) - timedelta(minutes=15)).isoformat()}
+
+    with patch(FCM, return_value=(True, [])) as fcm:
+        await _execute_send_notification(str(delivery_id))
+    fcm.assert_called_once()
+    assert await _status(delivery_id) == "SENT"

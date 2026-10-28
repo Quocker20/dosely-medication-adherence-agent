@@ -76,12 +76,17 @@ services:
       retries: 5
 
   # 3. Celery Worker Service (Xử lý bất đồng bộ cho OCR, RAG & AI Agent)
+  # P-13: consumes the reminder queues ONLY. Queues are explicit (-Q): a task
+  # routed to a queue that no worker lists is never run (see task_routes in
+  # src/core/celery_app.py). The nightly adherence review (up to ~100 min) has
+  # its own worker below so it can never hold a slot that sends reminders.
+  # --concurrency is explicit rather than nproc forks, to bound RAM on the VPS.
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dosely_worker
-    command: celery -A src.core.celery_app worker --loglevel=info
+    command: celery -A src.core.celery_app worker --loglevel=info -Q default,notifications --concurrency=2 -n main@%h
     env_file:
       - .env
     environment:
@@ -107,7 +112,43 @@ services:
     # was running fine. `inspect ping` is the real liveness signal: it round-trips
     # through the broker, so it fails exactly when the worker cannot take work.
     healthcheck:
-      test: [ "CMD", "celery", "-A", "src.core.celery_app", "inspect", "ping" ]
+      test: [ "CMD-SHELL", "celery -A src.core.celery_app inspect ping -d main@$$HOSTNAME" ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+
+  # 3b. Review worker (P-13): only the "review" queue, one job at a time. The
+  # job is LLM-bound and slow (soft limit 6000 s), so it gets its own process
+  # instead of a slot in the reminder worker. Costs one extra Python process
+  # (~200 MB) on the 3.8 GB VPS; chosen over a single shared worker because a
+  # reminder worker with concurrency 2 would lose half its capacity for up to
+  # 100 minutes every night.
+  worker-review:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dosely_worker_review
+    command: celery -A src.core.celery_app worker --loglevel=info -Q review --concurrency=1 -n review@%h
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "celery -A src.core.celery_app inspect ping -d review@$$HOSTNAME" ]
       interval: 30s
       timeout: 15s
       retries: 3
