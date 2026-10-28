@@ -144,3 +144,9 @@ def test_dockerfile_installs_only_runtime_requirements_and_ci_installs_dev():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "pip install -r requirements.txt" not in ci
     assert "requirements-dev.txt" in ci
+
+
+def test_compose_files_have_no_obsolete_version_key():
+    for name in ("docker-compose.yml", "docker-compose.test.yml"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert not any(line.startswith("version:") for line in text.splitlines()), name

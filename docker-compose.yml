@@ -1,4 +1,3 @@
-version: "3.8"
 
 services:
   # 0. One-shot schema migration (O-20). backend/worker/beat start only after it

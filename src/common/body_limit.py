@@ -56,25 +56,38 @@ class VoiceBodyLimitMiddleware:
                 return
 
         received = 0
+        exceeded = False
         response_started = False
+        replaced = False
 
         async def limited_receive() -> Message:
-            nonlocal received
+            nonlocal received, exceeded
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > max_body:
+                    exceeded = True
                     raise _BodyTooLargeError
             return message
 
-        async def tracking_send(message: Message) -> None:
-            nonlocal response_started
+        async def guarded_send(message: Message) -> None:
+            nonlocal response_started, replaced
+            if exceeded:
+                # The framework swallows the aborted body read and answers with
+                # its own 400 ("error parsing the body"). Once the cap has been
+                # hit the only truthful answer is 413, so drop whatever the app
+                # says and send ours exactly once.
+                if not response_started and not replaced:
+                    replaced = True
+                    await _too_large_response(limit)(scope, receive, send)
+                return
             if message["type"] == "http.response.start":
                 response_started = True
             await send(message)
 
         try:
-            await self.app(scope, limited_receive, tracking_send)
+            await self.app(scope, limited_receive, guarded_send)
         except _BodyTooLargeError:
-            if not response_started:
-                await _too_large_response(limit)(scope, receive, send)
+            pass
+        if exceeded and not response_started and not replaced:
+            await _too_large_response(limit)(scope, receive, send)
