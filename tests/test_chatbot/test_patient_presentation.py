@@ -5,7 +5,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from src.chatbot.patient_presentation import patient_facing_text
-from src.modules.agents.service import ChatService
+from src.modules.agents.chat_service import ChatService
 
 
 def test_patient_facing_text_removes_internal_markers_but_keeps_layout():
@@ -33,10 +33,10 @@ async def test_chat_api_boundary_scrubs_citations_from_any_graph_branch():
     )
     with (
         patch(
-            "src.modules.agents.service.get_patient_address",
+            "src.modules.agents.chat_service.get_patient_address",
             new=AsyncMock(return_value="bạn"),
         ),
-        patch("src.modules.agents.service.agent.ainvoke", new=invoke),
+        patch("src.modules.agents.chat_service.agent.ainvoke", new=invoke),
     ):
         response, _ = await ChatService()._run_agent("Paracetamol có tác dụng gì?", "patient-123", date(2026, 8, 29))
 

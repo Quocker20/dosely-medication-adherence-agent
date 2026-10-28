@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from src.modules.agents.service import MissedDoseScanService
+from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
 
 PATIENT_ID = uuid.uuid4()
 CRITICAL_DOSE_ID = uuid.uuid4()

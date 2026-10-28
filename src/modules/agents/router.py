@@ -12,7 +12,9 @@ from src.core.config import get_settings
 from src.core.rate_limit import rate_limit_by_user
 from src.core.response import success_response
 from src.core.security import create_access_token, reset_actor_token, set_actor_token
+from src.modules.agents.chat_service import ChatService
 from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
+from src.modules.agents.scheduling_service import SchedulingService
 from src.modules.agents.schemas import (
     CancelRoutineOverrideRequest,
     ChatRequest,
@@ -21,7 +23,6 @@ from src.modules.agents.schemas import (
     RescheduleRequest,
     RoutineAnchor,
 )
-from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 

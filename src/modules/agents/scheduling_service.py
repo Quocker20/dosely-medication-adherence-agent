@@ -1,4 +1,3 @@
-import base64
 import logging
 import time as time_module
 import uuid
@@ -7,67 +6,45 @@ from enum import StrEnum
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from fastapi import status
-from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.chatbot.audit import log_turn
-from src.chatbot.clients.speech import (
-    SpeechServiceError,
-    synthesize_speech,
-    transcribe_audio,
-)
-from src.chatbot.conversation_memory import load_working_memory, save_working_memory
-from src.chatbot.graph import agent
-from src.chatbot.patient_addressing import get_patient_address
-from src.chatbot.patient_presentation import patient_facing_text
 from src.chatbot.planning_graph import (
     planning_commit_graph,
     planning_draft_graph,
     planning_snapshot_graph,
 )
-from src.chatbot.tools.safety_tools import count_missed_dose_streak
 from src.common.exceptions import (
-    AppException,
     ConflictException,
     ForbiddenException,
     NotFoundException,
     ValidationException,
 )
-from src.common.schemas import PageResponse
-from src.core.cache import build_cache_key, cached_model, invalidate_prefix
+from src.core.cache import invalidate_prefix
 from src.core.celery_app import celery_app
 from src.core.config import get_settings
 from src.core.redis import publish_dashboard_event
-from src.modules.adherence.repository import AlertRepository
 from src.modules.agents.grouping import schedule_rows_hmac
 from src.modules.agents.planner import PlanningNeedsReviewError
 from src.modules.agents.repository import (
     AgentRunRepository,
-    ChatMemoryRepository,
     ScheduledDoseRepository,
-    generate_conversation_title,
 )
 from src.modules.agents.schemas import (
     ActiveScheduleResponse,
     AgentRunAsyncResponse,
     AgentRunStatusResponse,
     CancelRoutineOverrideRequest,
-    ChatConversationDetailResponse,
-    ChatConversationListItem,
-    ChatMessageItem,
-    ChatResponse,
     GenerateScheduleRequest,
     NextDoseResponse,
     RecentRoutineOverrideResponse,
     ReportRoutineDeviationRequest,
     RescheduleRequest,
-    VoiceChatResponse,
 )
 from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)
+
 
 _GRAPH_VERSION = "planning-langgraph-v2"
 _GENERATE_TASK_NAME = "agents.generate_schedule"
@@ -108,7 +85,7 @@ class SchedulingService:
     @staticmethod
     def _dispatch_generate(run_id: uuid.UUID, patient_id: uuid.UUID, is_reschedule: bool) -> None:
         """Fire the Celery task by name rather than importing tasks.py — the
-        worker process registers it separately, and this keeps service.py
+        worker process registers it separately, and this keeps this module
         free of a dependency on the Celery task decorator."""
         celery_app.send_task(
             _GENERATE_TASK_NAME,
@@ -696,367 +673,3 @@ class SchedulingService:
             "output_hash": empty_hash,
             "candidate_source": terminal_source,
         }
-
-
-_MISSED_DOSE_TRIGGERED_BY_TYPE = "MISSED_DOSES"
-_MISSED_DOSE_ALERT_TYPE = "RED_ALERT"
-_MISSED_DOSE_ALERT_SEVERITY = "HIGH"
-
-
-class MissedDoseScanService:
-    """Celery-Beat-driven periodic scan (see tasks.py:scan_missed_doses_task).
-    Trigger 1 of the Red Alert safety mechanism (cong_viec.md §4.1) — pure
-    code, no LLM. Runs outside any authenticated HTTP request (there is no
-    single patient's bearer token for a scan touching every patient), so it
-    writes through AlertRepository directly rather than POST /patients/{id}/sos
-    (the path chat-detected alerts use, which runs under the caller's own
-    token — see safety_tools.py's _send_alert).
-
-    The MISSED-flip half below covers every dose regardless of
-    PrescriptionItem.is_critical — that's the state machine keeping
-    scheduled_doses accurate, and narrowing it would leave non-critical
-    overdue doses PENDING forever, retroactively actionable via
-    apply_dose_action_cas. Only the streak-alert half is narrowed to
-    critical doses (docs/graded-adherence-implementation.md Stage 2): a
-    missed vitamin no longer pages a doctor identically to a missed
-    anticoagulant. The general (any-medication) missed-dose-streak alert
-    that used to run here is retired — the nightly graded-adherence review
-    (Stage 3+) covers non-critical adherence trends instead."""
-
-    def __init__(
-        self,
-        db: AsyncSession,
-        scheduled_dose_repository: ScheduledDoseRepository,
-        alert_repository: AlertRepository,
-    ) -> None:
-        self._db = db
-        self._dose_repo = scheduled_dose_repository
-        self._alert_repo = alert_repository
-
-    async def run_scan(self) -> None:
-        settings = get_settings()
-        threshold = settings.missed_dose_alert_threshold
-        now = datetime.now(UTC)
-        cutoff = now - timedelta(minutes=settings.missed_dose_overdue_minutes)
-
-        async with self._db.begin():
-            affected = await self._dose_repo.mark_overdue_pending_as_missed(cutoff)
-        if not affected:
-            return
-
-        # Keep each patient's most-recently-missed CRITICAL dose id (for the
-        # alert's triggered_by_id / idempotency key) — a single scan can flip
-        # several overdue doses per patient at once, and a non-critical flip
-        # must never become the tracked "last missed dose" for a critical
-        # streak alert.
-        last_dose_by_patient: dict[uuid.UUID, tuple[uuid.UUID, datetime]] = {}
-        for patient_id, dose_id, scheduled_at, is_critical in affected:
-            if not is_critical:
-                continue
-            prev = last_dose_by_patient.get(patient_id)
-            if prev is None or scheduled_at > prev[1]:
-                last_dose_by_patient[patient_id] = (dose_id, scheduled_at)
-
-        patient_ids = list(last_dose_by_patient)
-        if not patient_ids:
-            # No critical dose was newly missed this tick for anyone — no
-            # patient's critical streak could have changed since the last
-            # scan, so there is nothing to recheck.
-            return
-        async with self._db.begin():
-            streaks = await self._dose_repo.get_recent_critical_dose_statuses(
-                patient_ids, lookback=threshold, before=now
-            )
-
-        for patient_id in patient_ids:
-            doses = streaks.get(patient_id, [])
-            if len(doses) < threshold or count_missed_dose_streak(doses) < threshold:
-                continue
-            last_dose_id, last_scheduled_at = last_dose_by_patient[patient_id]
-            idempotency_key = f"missed-dose-streak:{patient_id}:{last_dose_id}"
-            # A once-daily critical drug means "3+ consecutive" spans several
-            # days, not one afternoon — name the span so the message doesn't
-            # imply same-day urgency it may not have.
-            span_days = max(1, (now.date() - last_scheduled_at.date()).days + 1)
-            msg = (
-                f"{threshold}+ liều thuốc quan trọng liên tiếp bị bỏ lỡ/quá giờ "
-                f"(trong {span_days} ngày gần đây)."
-            )
-            created_deliveries: list[uuid.UUID] = []
-            try:
-                async with self._db.begin():
-                    alert = await self._alert_repo.create_alert(
-                        patient_id=patient_id,
-                        triggered_by_type=_MISSED_DOSE_TRIGGERED_BY_TYPE,
-                        triggered_by_id=last_dose_id,
-                        alert_type=_MISSED_DOSE_ALERT_TYPE,
-                        severity=_MISSED_DOSE_ALERT_SEVERITY,
-                        message=msg,
-                        idempotency_key=idempotency_key,
-                    )
-                    from sqlalchemy import select
-
-                    from src.modules.adherence.repository import NotificationRepository
-                    from src.modules.caregivers.repository import CaregiverRepository
-                    from src.modules.patients.models import PatientProfile
-
-                    cg_repo = CaregiverRepository(self._db)
-                    links = await cg_repo.list_deliverable_for_patient(patient_id)
-                    if links:
-                        p_stmt = select(PatientProfile.name).where(PatientProfile.user_id == patient_id)
-                        patient_name = (await self._db.execute(p_stmt)).scalar_one_or_none() or "Người bệnh"
-                        cg_body = f"Cảnh báo bỏ lỡ thuốc - {patient_name}:\n{msg}"
-                        notif_repo = NotificationRepository(self._db)
-                        for link in links:
-                            deliv = await notif_repo.create_caregiver_delivery(
-                                caregiver_link_id=link.id,
-                                template_code="CG_MISSED_DOSE",
-                                title=f"Cảnh báo: {patient_name}",
-                                body=cg_body,
-                                metadata={"alert_id": str(alert.id)},
-                                idempotency_key=f"cg_missed:{alert.id}:{link.id}",
-                            )
-                            created_deliveries.append(deliv.id)
-            except IntegrityError:
-                # Idempotent replay: this streak already raised an alert
-                # (still OPEN/unresolved) on a prior scan tick.
-                logger.info(
-                    "Missed-dose alert already exists for patient %s (idempotent replay)",
-                    patient_id,
-                )
-                continue
-
-            if created_deliveries:
-                try:
-                    from src.modules.agents.tasks import send_notification_task
-
-                    for d_id in created_deliveries:
-                        send_notification_task.delay(str(d_id))
-                except Exception as exc:
-                    logger.warning("Failed to queue caregiver notification task: %s", exc)
-
-
-class ChatService:
-    """Patient-facing conversational agent (FR-3.2), text and voice.
-
-    Stateless and DB-free: the LangGraph agent reaches persistence through its
-    own tools over the backend HTTP API, so this service only orchestrates
-    transcribe -> agent -> synthesize and never touches AsyncSession.
-    """
-
-    def __init__(self, db: AsyncSession | None = None, memory_repository: ChatMemoryRepository | None = None) -> None:
-        self._db = db
-        self._memory = memory_repository
-
-    async def handle_text_chat(
-        self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
-    ) -> ChatResponse:
-        response_text, conversation_id = await self._run_agent(
-            message, patient_id, client_date, client_datetime, conversation_id
-        )
-        return ChatResponse(response=response_text, conversationId=conversation_id)
-
-    async def list_conversations(
-        self,
-        actor: dict,
-        page: int = 1,
-        size: int = 20,
-    ) -> PageResponse[ChatConversationListItem]:
-        patient_id = uuid.UUID(str(actor["sub"]))
-        cache_key = build_cache_key(
-            "chat:conversations:list",
-            actor=actor,
-            params={"page": page, "size": size},
-        )
-        ttl = get_settings().cache_ttl_chat_seconds
-
-        async def _load() -> PageResponse[ChatConversationListItem]:
-            if self._db is None or self._memory is None:
-                return PageResponse(
-                    content=[],
-                    page_no=page,
-                    page_size=size,
-                    total_elements=0,
-                    total_pages=0,
-                    last=True,
-                )
-            rows, total = await self._memory.list_conversations(patient_id, page=page, size=size)
-            items = [ChatConversationListItem.model_validate(r) for r in rows]
-            total_pages = (total + size - 1) // size if total > 0 else 0
-            return PageResponse(
-                content=items,
-                page_no=page,
-                page_size=size,
-                total_elements=total,
-                total_pages=total_pages,
-                last=page >= total_pages if total_pages > 0 else True,
-            )
-
-        return await cached_model(cache_key, ttl, PageResponse[ChatConversationListItem], _load)
-
-    async def get_conversation_detail(
-        self,
-        actor: dict,
-        conversation_id: uuid.UUID,
-        limit: int = 50,
-        before: str | None = None,
-    ) -> ChatConversationDetailResponse:
-        patient_id = uuid.UUID(str(actor["sub"]))
-        cache_key = build_cache_key(
-            "chat:conversations:detail",
-            actor=actor,
-            params={"conversation_id": str(conversation_id), "limit": limit, "before": before},
-        )
-        ttl = get_settings().cache_ttl_chat_seconds
-
-        async def _load() -> ChatConversationDetailResponse:
-            if self._db is None or self._memory is None:
-                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
-            try:
-                conv = await self._memory.get_conversation(patient_id, conversation_id)
-            except PermissionError as exc:
-                raise ForbiddenException(message="Không có quyền truy cập cuộc trò chuyện này") from exc
-
-            if conv is None:
-                raise NotFoundException(message="Không tìm thấy cuộc trò chuyện")
-
-            messages, has_more, next_cursor = await self._memory.get_messages_paginated(
-                conversation_id=conversation_id,
-                limit=limit,
-                before=before,
-            )
-            msg_items = [
-                ChatMessageItem(
-                    id=m.id,
-                    role=m.role,
-                    content=m.content,
-                    intent=m.intent,
-                    created_at=m.created_at,
-                )
-                for m in messages
-            ]
-            preview = messages[-1].content if messages else None
-            title = conv.summary or (generate_conversation_title(preview) if preview else "Cuộc trò chuyện mới")
-            return ChatConversationDetailResponse(
-                id=conv.id,
-                title=title,
-                created_at=conv.created_at,
-                updated_at=conv.updated_at,
-                messages=msg_items,
-                has_more=has_more,
-                next_cursor=next_cursor,
-            )
-
-        return await cached_model(cache_key, ttl, ChatConversationDetailResponse, _load)
-
-    async def handle_voice_chat(
-        self,
-        audio_bytes: bytes,
-        filename: str,
-        patient_id: str,
-        client_date=None,
-        client_datetime=None,
-        conversation_id=None,
-    ) -> VoiceChatResponse:
-        try:
-            transcript = await transcribe_audio(audio_bytes, filename=filename)
-        except SpeechServiceError as e:
-            raise AppException(message=str(e), code=status.HTTP_502_BAD_GATEWAY) from e
-
-        if not transcript:
-            raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
-
-        response_text, conversation_id = await self._run_agent(
-            transcript, patient_id, client_date, client_datetime, conversation_id
-        )
-
-        audio_base64 = None
-        try:
-            audio_reply = await synthesize_speech(response_text)
-            audio_base64 = base64.b64encode(audio_reply).decode("ascii")
-        except SpeechServiceError:
-            # fail-open: a broken TTS vendor must not cost the patient the
-            # text answer they already have.
-            logger.warning("TTS failed, returning text-only reply")
-
-        return VoiceChatResponse(
-            transcript=transcript, response=response_text, audio_base64=audio_base64, conversationId=conversation_id
-        )
-
-    async def _run_agent(
-        self, message: str, patient_id: str, client_date=None, client_datetime=None, conversation_id=None
-    ) -> tuple[str, uuid.UUID]:
-        persistence_available = self._db is not None and self._memory is not None
-        actual_conv_id: uuid.UUID
-        if self._db is not None and self._memory is not None:
-            try:
-                async with self._db.begin():
-                    conversation = await self._memory.get_or_create(uuid.UUID(str(patient_id)), conversation_id)
-                    actual_conv_id = conversation.id
-                    history_rows = await self._memory.recent_messages(actual_conv_id, limit=10)
-            except PermissionError as exc:
-                raise ForbiddenException(message=str(exc)) from exc
-            except Exception:  # memory outage must not make medication chat unavailable
-                logger.warning("Durable chat memory unavailable; using turn-local memory", exc_info=True)
-                actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
-                history_rows = []
-                persistence_available = False
-        else:  # isolated unit/eval mode; production DI always supplies persistence
-            actual_conv_id = uuid.UUID(str(conversation_id)) if conversation_id else uuid.uuid4()
-            history_rows = []
-        working = await load_working_memory(str(patient_id), str(actual_conv_id)) if persistence_available else {}
-        history = [
-            HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
-            for row in history_rows
-        ]
-        reference_date = client_date or (client_datetime.date() if client_datetime is not None else date.today())
-        patient_address = await get_patient_address(patient_id, reference_date)
-        result = await agent.ainvoke(
-            {
-                "messages": history + [HumanMessage(content=message)],
-                "patient_id": patient_id,
-                "conversation_id": str(actual_conv_id),
-                "patient_address": patient_address,
-                # Server is the source of truth for relative date phrases.
-                "client_date": reference_date.isoformat(),
-                "client_datetime": client_datetime.isoformat() if client_datetime else None,
-                "memory_context": working,
-            }
-        )
-        # Sources and citation ids remain available to the grounding/audit
-        # pipeline. They are removed exactly once at the API presentation
-        # boundary so no ReAct/tool fallback can leak "[Nguồn N]" to patients.
-        response_text = patient_facing_text(result["messages"][-1].content)
-        if persistence_available:
-            async with self._db.begin():
-                await self._memory.append_exchange(actual_conv_id, message, response_text, result.get("intent"))
-            await invalidate_prefix("chat:conversations")
-        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
-        if metadata.get("resolved_medication"):
-            working["current_medication"] = metadata["resolved_medication"]
-        if metadata.get("adverse_event_id"):
-            # Redis only keeps a short-lived pointer. Clinical symptom data
-            # remains in PostgreSQL and is never copied wholesale into prompts.
-            working["last_adverse_event_id"] = metadata["adverse_event_id"]
-            working["last_adverse_event_at"] = metadata.get("adverse_event_reported_at")
-            working["has_unreviewed_adverse_event"] = metadata.get("adverse_event_review_status") != "REVIEWED"
-        if "pending_adverse_event" in metadata:
-            working["pending_adverse_event"] = metadata["pending_adverse_event"]
-        elif metadata.get("clear_pending_adverse_event"):
-            working.pop("pending_adverse_event", None)
-        elif result.get("intent") == "report_adverse_event" and working.get("pending_adverse_event"):
-            working.pop("pending_adverse_event", None)
-        if "pending_schedule_request" in metadata:
-            working["pending_schedule_request"] = metadata["pending_schedule_request"]
-        elif metadata.get("clear_pending_schedule_request"):
-            working.pop("pending_schedule_request", None)
-        working["last_intent"] = result.get("intent")
-        if persistence_available:
-            await save_working_memory(str(patient_id), str(actual_conv_id), working)
-        log_turn(
-            patient_id=patient_id,
-            intent=result.get("intent"),
-            escalated=bool(result.get("escalated")),
-            response_length=len(response_text),
-        )
-        return response_text, actual_conv_id

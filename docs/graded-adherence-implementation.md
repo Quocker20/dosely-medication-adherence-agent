@@ -263,7 +263,7 @@ Doctor-set only, and items are DRAFT-locked — no new authorization logic.
 
 ### 2.3 · Narrow the missed-dose scanner
 
-In `src/modules/agents/service.py`:
+In `src/modules/agents/scheduling_service.py`:
 
 - **Keep** `mark_overdue_pending_as_missed` (line 512) at its 15-minute
   cadence, untouched. Without it doses sit `PENDING` forever, and

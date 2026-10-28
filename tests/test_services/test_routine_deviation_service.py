@@ -26,11 +26,11 @@ from src.common.exceptions import (
     ValidationException,
 )
 from src.core.config import get_settings
+from src.modules.agents.scheduling_service import SchedulingService
 from src.modules.agents.schemas import (
     CancelRoutineOverrideRequest,
     ReportRoutineDeviationRequest,
 )
-from src.modules.agents.service import SchedulingService
 
 PATIENT_TZ = "Asia/Ho_Chi_Minh"
 

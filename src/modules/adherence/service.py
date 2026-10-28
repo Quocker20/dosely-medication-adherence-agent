@@ -40,8 +40,8 @@ from src.modules.adherence.schemas import (
 )
 from src.modules.admin.repository import AuditLogRepository
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.scheduling_service import SchedulingService
 from src.modules.agents.schemas import ReportRoutineDeviationRequest
-from src.modules.agents.service import SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)

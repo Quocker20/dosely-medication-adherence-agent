@@ -139,7 +139,7 @@ async def test_chat_creates_conversation_and_sets_summary(client):
         "messages": [AsyncMock(content="Thuốc uống sau ăn nhé")],
         "intent": "MEDICATION_QUERY",
     }
-    with patch("src.modules.agents.service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
+    with patch("src.modules.agents.chat_service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
         response = await client.post(
             "/api/v1/chat",
             json={"message": "Tôi nên uống thuốc trước hay sau ăn?"},
@@ -294,7 +294,7 @@ async def test_chat_cache_and_invalidation(client):
             "messages": [AsyncMock(content="Câu trả lời mới")],
             "intent": "GENERAL_INQUIRY",
         }
-        with patch("src.modules.agents.service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
+        with patch("src.modules.agents.chat_service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
             post_res = await client.post(
                 "/api/v1/chat",
                 json={"message": "Câu hỏi đầu tiên"},

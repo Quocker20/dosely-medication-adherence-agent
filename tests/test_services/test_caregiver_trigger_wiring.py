@@ -9,9 +9,9 @@ from src.core.database import AsyncSessionLocal, engine
 from src.core.security import hash_password
 from src.modules.adherence.models import Alert, NotificationDelivery
 from src.modules.adherence.repository import AlertRepository
+from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
 from src.modules.agents.models import ScheduledDose
 from src.modules.agents.repository import ScheduledDoseRepository
-from src.modules.agents.service import MissedDoseScanService
 from src.modules.agents.tasks import _execute_send_caregiver_adherence_reports
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository

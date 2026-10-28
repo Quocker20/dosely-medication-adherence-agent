@@ -8,7 +8,7 @@ distinguishable from a button press. api-contract.md still has no dedicated
 endpoint for code-initiated alerts; sharing the SOS route is the agreed interim
 (the call runs under the patient's own token, so RBAC is unchanged).
 
-Trigger 1 (missed-dose streak) is wired: src/modules/agents/service.py's
+Trigger 1 (missed-dose streak) is wired: src/modules/agents/missed_dose_scan_service.py's
 MissedDoseScanService calls count_missed_dose_streak below on a Celery Beat
 schedule (settings.missed_dose_scan_interval_minutes). It writes alerts via
 AlertRepository directly rather than through trigger_red_alert/_send_alert —

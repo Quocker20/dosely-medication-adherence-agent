@@ -43,7 +43,7 @@ async def test_dev_chat_is_404_outside_development_even_with_flag(client, dev_ch
 @pytest.mark.asyncio
 async def test_dev_chat_answers_for_the_configured_patient(client, dev_chat_enabled):
     handle_text_chat = AsyncMock(return_value=ChatResponse(response="Xin chào"))
-    with patch("src.modules.agents.service.ChatService.handle_text_chat", new=handle_text_chat):
+    with patch("src.modules.agents.chat_service.ChatService.handle_text_chat", new=handle_text_chat):
         response = await client.post(URL, json={"message": "Xin chào"})
 
     assert response.status_code == 200

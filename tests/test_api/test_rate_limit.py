@@ -72,7 +72,7 @@ async def test_chat_rate_limit_counts_by_user(client, monkeypatch):
     with (
         patch("src.core.rate_limit.get_redis_client", new=AsyncMock(return_value=redis)),
         patch(
-            "src.modules.agents.service.ChatService.handle_text_chat",
+            "src.modules.agents.chat_service.ChatService.handle_text_chat",
             new=AsyncMock(return_value=reply),
         ),
     ):

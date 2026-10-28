@@ -31,11 +31,11 @@ from src.modules.adherence.fcm_service import FCMService
 from src.modules.adherence.models import SuspectedAdverseEvent
 from src.modules.adherence.notification_service import DOSE_REMINDER_TEMPLATE_CODE, NotificationDispatchService
 from src.modules.adherence.repository import AlertRepository, NotificationRepository
+from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
-from src.modules.agents.service import (
+from src.modules.agents.scheduling_service import (
     AgentRunLeaseBusyError,
     AutoscheduleOutcome,
-    MissedDoseScanService,
     SchedulingService,
 )
 

@@ -40,7 +40,7 @@ async def test_chat_rejects_non_patient_role(client):
 async def test_chat_uses_authenticated_patient_and_ignores_legacy_client_id(client):
     handle_text_chat = AsyncMock(return_value=ChatResponse(response="Phản hồi an toàn"))
     with patch(
-        "src.modules.agents.service.ChatService.handle_text_chat",
+        "src.modules.agents.chat_service.ChatService.handle_text_chat",
         new=handle_text_chat,
     ):
         response = await client.post(
@@ -76,7 +76,7 @@ async def test_chat_voice_uses_authenticated_patient_without_form_patient_id(cli
         )
     )
     with patch(
-        "src.modules.agents.service.ChatService.handle_voice_chat",
+        "src.modules.agents.chat_service.ChatService.handle_voice_chat",
         new=handle_voice_chat,
     ):
         response = await client.post(

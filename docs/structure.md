@@ -90,7 +90,7 @@ src/
 │   │   ├── grouping.py     # Groups ScheduleRow entries for notification batching
 │   │   ├── repository.py
 │   │   ├── router.py
-│   │   ├── service.py      # SchedulingService + ChatService
+│   │   ├── scheduling_service.py / missed_dose_scan_service.py / chat_service.py   # SchedulingService, MissedDoseScanService, ChatService (split from the former service.py)
 │   │   ├── tasks.py        # Celery async tasks for deterministic schedule generation
 │   │   └── schemas.py
 │   │

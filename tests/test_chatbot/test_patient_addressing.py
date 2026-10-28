@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 
 from src.chatbot.clients.backend_client import BackendAPIError
 from src.chatbot.patient_addressing import get_patient_address, resolve_patient_address
-from src.modules.agents.service import ChatService
+from src.modules.agents.chat_service import ChatService
 
 
 @pytest.mark.parametrize(
@@ -71,8 +71,8 @@ async def test_chat_loads_address_once_and_puts_only_vocative_in_agent_state():
         }
     )
     with (
-        patch("src.modules.agents.service.get_patient_address", new=address_get),
-        patch("src.modules.agents.service.agent.ainvoke", new=invoke),
+        patch("src.modules.agents.chat_service.get_patient_address", new=address_get),
+        patch("src.modules.agents.chat_service.agent.ainvoke", new=invoke),
     ):
         response, _ = await ChatService()._run_agent("Xin chào", "patient-123", date(2026, 8, 29))
 
