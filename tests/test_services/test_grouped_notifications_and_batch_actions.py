@@ -246,7 +246,7 @@ class TestNotificationDispatchService:
         mock_dose_repo.get_due_dose_groups.return_value = dose_groups
 
         mock_notif_repo = AsyncMock()
-        mock_notif_repo.get_delivery_by_idempotency_key.return_value = None
+        mock_notif_repo.get_deliveries_by_idempotency_keys.return_value = {}
 
         fake_delivery = SimpleNamespace(
             id=uuid.uuid4(),

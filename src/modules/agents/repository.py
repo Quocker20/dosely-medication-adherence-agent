@@ -896,21 +896,31 @@ class ScheduledDoseRepository:
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped
 
-    async def get_due_dose_groups(self, cutoff: datetime) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
-        """Fetch all PENDING doses due at or before cutoff, grouped by
+    async def get_due_dose_groups(
+        self, cutoff: datetime, *, not_before: datetime | None = None
+    ) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
+        """Fetch PENDING doses due in [not_before, cutoff], grouped by
         (patient_id, current_scheduled_at). Each group contains the individual
         scheduled doses with medication display name and dosage snapshot,
-        ready for consolidating into a single push notification delivery."""
+        ready for consolidating into a single push notification delivery.
+
+        not_before (audit P-02) keeps the scan from re-reading every overdue
+        dose in the table each minute. Callers must pass a bound no tighter
+        than missed_dose_overdue_minutes: anything older is the missed-dose
+        scan's job, so nothing reminder-worthy is skipped."""
+        conditions = [
+            ScheduledDose.status == "PENDING",
+            ScheduledDose.current_scheduled_at <= cutoff,
+        ]
+        if not_before is not None:
+            conditions.append(ScheduledDose.current_scheduled_at >= not_before)
         stmt = (
             select(ScheduledDose, PrescriptionItem.display_name)
             .join(
                 PrescriptionItem,
                 ScheduledDose.prescription_item_id == PrescriptionItem.id,
             )
-            .where(
-                ScheduledDose.status == "PENDING",
-                ScheduledDose.current_scheduled_at <= cutoff,
-            )
+            .where(*conditions)
             .order_by(
                 ScheduledDose.patient_id,
                 ScheduledDose.current_scheduled_at,

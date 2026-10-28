@@ -1,11 +1,13 @@
 """Notification dispatch service for consolidated dose reminders."""
 import hashlib
 import logging
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import get_settings
 from src.modules.adherence.models import NotificationDelivery
 from src.modules.adherence.repository import NotificationRepository
 from src.modules.agents.repository import ScheduledDoseRepository
@@ -112,27 +114,32 @@ class NotificationDispatchService:
     ) -> list[NotificationDelivery]:
         """Scan all PENDING doses due at or before cutoff, group by (patient_id, current_scheduled_at),
         and persist consolidated notification deliveries with junction items."""
-        grouped = await self._dose_repo.get_due_dose_groups(cutoff)
+        # Doses overdue by more than missed_dose_overdue_minutes belong to the
+        # missed-dose scan (audit P-02); never look further back than that.
+        not_before = cutoff - timedelta(minutes=get_settings().missed_dose_overdue_minutes)
+        grouped = await self._dose_repo.get_due_dose_groups(cutoff, not_before=not_before)
         new_deliveries: list[NotificationDelivery] = []
         final_deliveries: list[NotificationDelivery] = []
 
-        # 1. Tạo các bản ghi delivery
+        # 1. Build every group's idempotency key, then look them all up in one query.
+        prepared: list[tuple[uuid.UUID, datetime, list[dict[str, Any]], list[uuid.UUID], str]] = []
         for (patient_id, scheduled_at), doses in grouped.items():
             dose_ids = [d["scheduled_dose_id"] for d in doses]
-            title, body = self.format_notification_text(scheduled_at, doses)
             sorted_dose_ids_str = ",".join(sorted(str(d_id) for d_id in dose_ids))
             doses_hash = hashlib.sha256(sorted_dose_ids_str.encode("utf-8")).hexdigest()[:16]
-            idempotency_key = (
-                f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{doses_hash}"
-            )
+            idempotency_key = f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{doses_hash}"
+            prepared.append((patient_id, scheduled_at, doses, dose_ids, idempotency_key))
+        existing_by_key = await self._notif_repo.get_deliveries_by_idempotency_keys(
+            [key for *_, key in prepared]
+        )
 
-            existing = await self._notif_repo.get_delivery_by_idempotency_key(
-                idempotency_key
-            )
+        for patient_id, scheduled_at, doses, dose_ids, idempotency_key in prepared:
+            existing = existing_by_key.get(idempotency_key)
             if existing is not None:
                 final_deliveries.append(existing)
                 continue
 
+            title, body = self.format_notification_text(scheduled_at, doses)
             delivery, created = await self._notif_repo.create_grouped_delivery(
                 recipient_user_id=patient_id,
                 channel="APP_NOTIFICATION",

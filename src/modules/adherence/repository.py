@@ -868,6 +868,16 @@ class NotificationRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_deliveries_by_idempotency_keys(
+        self, idempotency_keys: list[str]
+    ) -> dict[str, NotificationDelivery]:
+        """Batched form of get_delivery_by_idempotency_key: one IN query (audit P-02)."""
+        if not idempotency_keys:
+            return {}
+        stmt = select(NotificationDelivery).where(NotificationDelivery.idempotency_key.in_(idempotency_keys))
+        result = await self._db.execute(stmt)
+        return {d.idempotency_key: d for d in result.scalars().all() if d.idempotency_key}
+
     async def get_active_fcm_tokens(self, user_id: uuid.UUID) -> list[str]:
         stmt = select(UserDevice.fcm_token).where(
             UserDevice.user_id == user_id,
