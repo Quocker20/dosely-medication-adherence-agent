@@ -8,20 +8,14 @@ from src.core.security import get_actor_token, reset_actor_token, set_actor_toke
 
 
 def _mock_async_client(*, raises: Exception | None = None, response: MagicMock | None = None):
-    """Patch httpx.AsyncClient so `async with AsyncClient(...) as client` yields
-    a client whose .get/.post either raises or returns `response`."""
+    """Patch the shared client getter so .request either raises or returns
+    `response`."""
     mock_client = AsyncMock()
     if raises is not None:
-        mock_client.get.side_effect = raises
-        mock_client.post.side_effect = raises
+        mock_client.request.side_effect = raises
     else:
-        mock_client.get.return_value = response
-        mock_client.post.return_value = response
-
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__.return_value = mock_client
-    mock_ctx.__aexit__.return_value = False
-    return patch("src.chatbot.clients.backend_client.httpx.AsyncClient", return_value=mock_ctx)
+        mock_client.request.return_value = response
+    return patch("src.chatbot.clients.backend_client._get_client", return_value=mock_client)
 
 
 @pytest.mark.asyncio
@@ -122,22 +116,19 @@ async def test_calls_carry_the_actor_token_when_one_is_bound():
     same require_roles guards as any client. Calls must travel as the patient
     whose turn is being served, not as a privileged service account."""
     mock_client = AsyncMock()
-    mock_client.get.return_value = MagicMock(is_error=False, **{"json.return_value": {}})
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__.return_value = mock_client
-    mock_ctx.__aexit__.return_value = False
+    mock_client.request.return_value = MagicMock(is_error=False, **{"json.return_value": {}})
 
     handle = set_actor_token("patient-jwt-abc")
     try:
         with patch(
-            "src.chatbot.clients.backend_client.httpx.AsyncClient",
-            return_value=mock_ctx,
+            "src.chatbot.clients.backend_client._get_client",
+            return_value=mock_client,
         ):
             await get("/patients/p1/routine")
     finally:
         reset_actor_token(handle)
 
-    headers = mock_client.get.call_args.kwargs["headers"]
+    headers = mock_client.request.call_args.kwargs["headers"]
     assert headers["Authorization"] == "Bearer patient-jwt-abc"
 
 
@@ -147,3 +138,31 @@ async def test_actor_token_does_not_leak_past_reset():
     handle = set_actor_token("patient-jwt-abc")
     reset_actor_token(handle)
     assert get_actor_token() is None
+
+
+@pytest.mark.asyncio
+async def test_shared_client_is_reused_and_closed():
+    """P-10: one AsyncClient serves every call on a loop; close_client()
+    shuts it and the next call lazily builds a fresh one."""
+    from src.chatbot.clients import backend_client
+
+    await backend_client.close_client()
+    first = backend_client._get_client()
+    assert backend_client._get_client() is first
+    await backend_client.close_client()
+    assert first.is_closed
+    second = backend_client._get_client()
+    assert second is not first
+    await backend_client.close_client()
+
+
+@pytest.mark.asyncio
+async def test_per_request_headers_still_apply_with_shared_client():
+    mock_client = AsyncMock()
+    mock_client.request.return_value = MagicMock(is_error=False, **{"json.return_value": {}})
+    with patch("src.chatbot.clients.backend_client._get_client", return_value=mock_client):
+        await post("/x", json={"a": 1}, headers={"Idempotency-Key": "k1"})
+    kwargs = mock_client.request.call_args.kwargs
+    assert kwargs["headers"]["Idempotency-Key"] == "k1"
+    assert kwargs["headers"]["Content-Type"] == "application/json"
+    assert kwargs["json"] == {"a": 1}

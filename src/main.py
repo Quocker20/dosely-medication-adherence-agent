@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.v1_router import v1_router
+from src.chatbot.clients.backend_client import close_client as close_backend_client
 from src.common.body_limit import VoiceBodyLimitMiddleware
 from src.common.exceptions import register_exception_handlers
 from src.common.middleware import RequestContextMiddleware
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
     # P-09: warm the shared RAG index off the event loop; fail-soft.
     await asyncio.to_thread(warm_up_rag)
     yield
+    await close_backend_client()
     await close_redis_connection()
     logger.info("Shutting down...")
 
