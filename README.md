@@ -184,6 +184,8 @@ alembic upgrade head
 python scripts/db/seed_medications.py
 ```
 
+> **Deployment note (P-14):** search relies on the `pg_trgm` extension and the trigram GIN indexes created by migration `0002` (`idx_patient_profiles_name_trgm`, `idx_users_phone_trgm`, `idx_medications_name_trgm`). The database role running migrations must be allowed to `CREATE EXTENSION pg_trgm` (or a superuser must create it beforehand); without them search still works but degrades to sequential scans.
+
 #### 5. Launch FastAPI Backend Server
 ```bash
 uvicorn src.main:app --reload --port 8000
