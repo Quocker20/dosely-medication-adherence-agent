@@ -14,7 +14,6 @@ import httpx
 from src.core.config import get_settings
 from src.core.security import get_actor_token
 
-
 logger = logging.getLogger(__name__)
 
 # SEC-23: the only text a patient may see for a backend/connection failure.
@@ -80,10 +79,10 @@ def _error_detail(resp: httpx.Response) -> str:
     try:
         body = resp.json()
     except ValueError:
-        return resp.text
+        return GENERIC_BACKEND_ERROR
     if isinstance(body, dict) and isinstance(body.get("message"), str):
         return body["message"]
-    return resp.text
+    return GENERIC_BACKEND_ERROR
 
 
 # P-10: one shared client (connection pooling / keep-alive) per event loop.
@@ -126,7 +125,7 @@ async def _request(method: str, path: str, **kwargs: Any) -> Any:
         logger.warning(
             "Backend %s %s failed: %s", method, _safe_path(path), type(e).__name__
         )
-        raise BackendAPIError(503, f"Không kết nối được tới backend: {e}") from e
+        raise BackendAPIError(503, GENERIC_BACKEND_ERROR) from e
     if resp.is_error:
         logger.warning(
             "Backend %s %s returned %s", method, _safe_path(path), resp.status_code

@@ -167,7 +167,12 @@ class ChatService:
         try:
             transcript = await transcribe_audio(audio_bytes, filename=filename)
         except SpeechServiceError as e:
-            raise AppException(message=str(e), code=status.HTTP_502_BAD_GATEWAY) from e
+            # SEC-23: vendor/exception text stays in the log, not the response.
+            logger.warning("Speech transcription failed: %s", type(e.__cause__ or e).__name__)
+            raise AppException(
+                message="Hệ thống tạm thời chưa phản hồi, bạn vui lòng thử lại sau.",
+                code=status.HTTP_502_BAD_GATEWAY,
+            ) from e
 
         if not transcript:
             raise ValidationException(message="Không nhận được nội dung giọng nói, vui lòng nói lại.")
