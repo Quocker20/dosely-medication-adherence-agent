@@ -181,4 +181,8 @@ async def test_pagination(seeded):
 @pytest.mark.asyncio
 async def test_admin_unscoped_sees_all(seeded):
     rows, total = await _list(None, size=100)
-    assert total == 6 and "Xa Outsider" in _names(rows)
+    # The shared DB may hold patients left by other tests: pin only that every
+    # seeded patient (incl. the other doctor's) is visible to an unscoped admin.
+    assert total >= 6
+    assert {"An Alpha", "Binh Beta", "Chi Gamma", "Dung Delta", "Em Epsilon",
+            "Xa Outsider"} <= set(_names(rows))

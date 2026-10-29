@@ -137,7 +137,19 @@ class DrugRAG:
                 collection = chroma.get_collection(collection_name)
         self.collection = collection
         self.embedding_model = embedding_model
-        if client is None:
+        # Built lazily: name inference / lexical paths need no API key.
+        self._client = client
+        self._documents: dict[str, str] | None = None
+        self._metadatas: dict[str, dict[str, Any]] | None = None
+        self._drug_names: dict[str, str] | None = None
+        self._unique_drug_tokens: dict[str, tuple[str, str]] | None = None
+        # P-09: (normalized, display, fold(display)) computed once at load
+        # instead of re-folding every heading on every infer_drug call.
+        self._folded_drug_names: list[tuple[str, str, str]] = []
+
+    @property
+    def client(self) -> OpenAI:
+        if self._client is None:
             settings = get_settings()
             client_kwargs: dict[str, Any] = {
                 "api_key": settings.openai_api_key or None,
@@ -146,15 +158,12 @@ class DrugRAG:
             }
             if settings.openai_base_url:
                 client_kwargs["base_url"] = settings.openai_base_url
-            client = OpenAI(**client_kwargs)
-        self.client = client
-        self._documents: dict[str, str] | None = None
-        self._metadatas: dict[str, dict[str, Any]] | None = None
-        self._drug_names: dict[str, str] | None = None
-        self._unique_drug_tokens: dict[str, tuple[str, str]] | None = None
-        # P-09: (normalized, display, fold(display)) computed once at load
-        # instead of re-folding every heading on every infer_drug call.
-        self._folded_drug_names: list[tuple[str, str, str]] = []
+            self._client = OpenAI(**client_kwargs)
+        return self._client
+
+    @client.setter
+    def client(self, value: OpenAI) -> None:
+        self._client = value
 
     def warm_up(self) -> None:
         """Eagerly build the lexical tables (called at app startup)."""

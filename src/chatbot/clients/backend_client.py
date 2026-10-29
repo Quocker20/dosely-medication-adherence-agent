@@ -90,11 +90,33 @@ _client: httpx.AsyncClient | None = None
 _client_loop: asyncio.AbstractEventLoop | None = None
 
 
+def _discard_client(
+    client: httpx.AsyncClient | None, loop: asyncio.AbstractEventLoop | None
+) -> None:
+    """Best-effort close of a client we are replacing. Never raises.
+
+    Its loop may already be closed (then only dropping the reference is
+    possible); a still-running loop gets the aclose scheduled on it.
+    """
+    if client is None or client.is_closed:
+        return
+    try:
+        if loop is not None and loop.is_running():
+            if loop is asyncio.get_running_loop():
+                task = loop.create_task(client.aclose())
+                task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            else:
+                asyncio.run_coroutine_threadsafe(client.aclose(), loop)
+    except Exception:  # noqa: BLE001 — replacing the client must not fail a request
+        logger.debug("Closing the replaced backend HTTP client failed", exc_info=True)
+
+
 def _get_client() -> httpx.AsyncClient:
     global _client, _client_loop
     loop = asyncio.get_running_loop()
     if _client is None or _client.is_closed or _client_loop is not loop:
         # A client bound to another (e.g. finished) loop cannot be reused.
+        _discard_client(_client, _client_loop)
         settings = get_settings()
         _client = httpx.AsyncClient(
             base_url=settings.api_base_url, timeout=settings.api_timeout_seconds

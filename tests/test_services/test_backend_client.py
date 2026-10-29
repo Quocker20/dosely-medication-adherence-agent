@@ -215,3 +215,38 @@ async def test_voice_transcription_failure_returns_generic_message():
     assert ei.value.code == 502
     assert ei.value.message == GENERIC_BACKEND_ERROR
     assert "sk-secret" not in ei.value.message and "openai" not in ei.value.message
+
+
+def test_new_event_loop_gets_new_client_and_closes_old_one():
+    """The client bound to a finished loop is replaced (best-effort close),
+    without raising or leaking a ResourceWarning."""
+    import asyncio
+    import warnings
+
+    from src.chatbot.clients import backend_client as bc
+
+    closed: list[httpx.AsyncClient] = []
+
+    async def first():
+        return bc._get_client()
+
+    async def second():
+        return bc._get_client()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ResourceWarning)
+        c1 = asyncio.run(first())
+        orig = httpx.AsyncClient.aclose
+
+        async def spy(self):
+            closed.append(self)
+            await orig(self)
+
+        httpx.AsyncClient.aclose = spy
+        try:
+            c2 = asyncio.run(second())
+        finally:
+            httpx.AsyncClient.aclose = orig
+        assert c2 is not c1
+        assert closed == []  # old loop is closed: reference dropped, no error
+        bc._client, bc._client_loop = None, None

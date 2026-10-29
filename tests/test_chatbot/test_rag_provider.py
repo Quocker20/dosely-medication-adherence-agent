@@ -104,3 +104,26 @@ def test_folded_names_computed_once(monkeypatch):
     # Per query: the query is folded; the headings are not re-folded.
     assert len(calls) - after_load <= 3 * 2
     assert fold("Đ") == "d"
+
+
+def test_shared_rag_infers_drug_without_api_key(monkeypatch):
+    """Name inference must not need OPENAI_API_KEY; only embed/generate do."""
+    import src.rag_retrieval.service as svc
+    from src.core.config import get_settings
+
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    get_settings.cache_clear()
+
+    def _boom(**_kw):
+        raise RuntimeError("OpenAI client built eagerly")
+
+    monkeypatch.setattr(svc, "OpenAI", _boom)
+    try:
+        monkeypatch.setattr(provider, "DrugRAG", lambda: DrugRAG(collection=_Collection()))
+        rag = provider.get_drug_rag()
+        assert rag is provider.get_drug_rag()
+        assert rag.infer_drug("Paracetamol")[0] == "paracetamol"
+        with pytest.raises(RuntimeError):
+            _ = rag.client  # only embedding/generation touch the client
+    finally:
+        get_settings.cache_clear()
