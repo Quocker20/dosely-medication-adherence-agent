@@ -203,3 +203,28 @@ Chờ chỉ thị / bạn cần kiểm khi triển khai:
 2. `worker-review` tốn thêm khoảng 200 MB RAM trên VPS 3,8 GB. Nếu thiếu RAM, có thể gộp về một worker nhận cả ba queue (nhắc thuốc sẽ dùng chung slot với job review chạy lâu).
 3. Nếu sau này lập lịch chạy quá 180 giây, cần nâng giới hạn của `generate_schedule`.
 4. Cron theo múi giờ từng bệnh nhân vẫn chưa làm (giới hạn đã biết, theo O-04).
+
+### Mảng 6: hiệu năng còn lại và SEC-23 (P-05, P-06, P-07, P-09, P-10, P-14, SEC-23) — đã push
+
+Quyết định tự đưa ra:
+- P-05: engine chính có `pool_pre_ping`, `pool_recycle`, kích thước pool theo cấu hình. Thêm tuỳ chọn tắt statement cache của asyncpg (mặc định tắt tuỳ chọn, tức vẫn dùng cache) cho trường hợp DB nằm sau pgbouncer ở chế độ transaction (Supabase cổng 6543).
+- P-06: danh sách bệnh nhân dashboard dùng subquery tổng hợp sẵn (số liều, số cảnh báo) rồi join một lần, thay cho subquery tương quan. Giữ nguyên cửa sổ tính và ngữ nghĩa lọc; có bộ test đặc tả (thứ tự, bộ lọc, phân trang, đếm) viết trước khi sửa.
+- P-07: xóa cache bằng phiên bản hóa key. `invalidate_prefix` tăng bộ đếm phiên bản nên key cũ không còn truy cập được; TTL vẫn áp dụng, key phiên bản hết hạn sau 2 ngày; Redis lỗi thì cho qua.
+- P-09: một instance `DrugRAG` dùng chung (`src/rag_retrieval/provider.py`) thay cho 6 factory `lru_cache`; tên thuốc đã chuẩn hoá được tính sẵn một lần; warm-up khi khởi động theo kiểu fail-soft (thiếu index chỉ ghi cảnh báo). Client OpenAI của `DrugRAG` tạo lười, nên nhận diện tên thuốc vẫn chạy khi không có `OPENAI_API_KEY`.
+- P-10: một `httpx.AsyncClient` dùng chung cho mỗi event loop, đóng khi tắt app; khi đổi loop (Celery `asyncio.run`) client cũ được đóng nếu loop cũ còn chạy, ngược lại chỉ bỏ tham chiếu.
+- SEC-23: lỗi kết nối backend và phản hồi lỗi không phải JSON trả câu tiếng Việt chung; chi tiết chỉ ghi log (phương thức, đường dẫn che UUID, mã trạng thái hoặc tên lớp lỗi). Lỗi chuyển giọng nói trả câu chung với mã 502. Giữ nguyên lỗi 422 của FastAPI.
+- P-14: thêm ghi chú vào README: cần extension `pg_trgm` và các index trigram từ migration 0002. Không thêm cảnh báo lúc khởi động.
+- Test `test_admin_unscoped_sees_all` sửa để chịu được bệnh nhân còn sót từ test khác (kiểm tổng ≥ 6 và đủ 6 tên đã tạo).
+
+Kết quả: backend 943 pass (374 + 569), 16 fail (đúng 16 test chatbot đã biết: test_graph 9, test_medication_mapping 3, test_safety_guard_node 2, test_scheduled_drug_info_node 1, test_scope_guard_node 1), `ruff` 0 lỗi.
+
+Chờ chỉ thị:
+1. Thông báo lỗi từ backend (trường `message`) vẫn được hiển thị cho bệnh nhân vì giả định đó là chữ dành cho người dùng (ví dụ lỗi kiểm tra dữ liệu). Xác nhận giúp.
+2. Còn hai chỗ nội suy `{e}` và `{exc}` vào văn bản bệnh nhân hoặc LLM nhìn thấy: `src/chatbot/tools/safety_tools.py` và `src/chatbot/nodes/rescheduling_node.py`. Thuộc phạm vi chatbot nên chưa sửa.
+
+## Tổng kết đợt triển khai SEC, P, O
+
+- Đã triển khai: toàn bộ mã SEC, P, O có quyết định (trừ SEC-01, SEC-02, SEC-21 theo quyết định bỏ, và P-12, O-05, O-07, O-15, O-17 theo quyết định bỏ qua).
+- Hoãn có chủ đích: CSP (SEC-12), kiểm hash APK trong app (SEC-11, vì app mở link bằng trình duyệt), cron theo múi giờ từng bệnh nhân (O-04), đường mở khóa đăng nhập cho bác sĩ hoặc admin (SEC-03).
+- Chưa rà soát, chưa sửa: nhóm chatbot (CHAT), RAG và đồng bộ tri thức (RAG, SYNC, RAGX), adherence (ADH), web UI/UX, Android UI/UX.
+- Ghi chú ngoài phạm vi: `.git/hooks/pre-push` và `post-merge` gọi các script đã bị xoá (`scripts/log_antigravity.py`, `scripts/submit_log.py`), nên mỗi lần push in lỗi nhưng không chặn push.
