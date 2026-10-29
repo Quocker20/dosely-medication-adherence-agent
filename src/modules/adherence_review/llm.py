@@ -22,19 +22,19 @@ import logging
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import FrozenSet, List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.agents.medication_policy import MEDICATION_RULES, fold
+from src.chatbot.clients.llm import get_llm
+from src.chatbot.medication_policy import MEDICATION_RULES, fold
 from src.core.config import Settings
+from src.modules.adherence_review.enums import Action, Severity
 from src.modules.adherence_review.repository import (
     MedicationBreakdown,
     SlotBreakdown,
     SymptomEvidence,
 )
-from src.modules.adherence_review.enums import Action, Severity
-from src.modules.planning.core.llm import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +60,8 @@ class RemedyAnalysis(BaseModel):
 
     remedy_class: RemedyClass
     confidence: Literal["high", "medium", "low"]
-    reasoning_doctor: Optional[str] = Field(default=None, max_length=600)
-    message_patient: Optional[str] = Field(default=None, max_length=240)
+    reasoning_doctor: str | None = Field(default=None, max_length=600)
+    message_patient: str | None = Field(default=None, max_length=240)
 
 
 # Public (not module-private): Stage 6's orchestrator reuses this exact same
@@ -86,10 +86,10 @@ class RemedyContext:
     severity: Severity
     skipped_count: int
     missed_count: int
-    trend_delta: Optional[float]
-    slot_breakdown: List[SlotBreakdown]
-    medication_breakdown: List[MedicationBreakdown]
-    symptom_evidence: List[SymptomEvidence]
+    trend_delta: float | None
+    slot_breakdown: list[SlotBreakdown]
+    medication_breakdown: list[MedicationBreakdown]
+    symptom_evidence: list[SymptomEvidence]
 
 
 _SYSTEM_PROMPT = """Bạn phân tích số liệu tuân thủ uống thuốc của MỘT bệnh nhân trong cửa sổ thời gian gần đây để phân loại nguyên nhân nhiều khả năng nhất. Đây là bước hỗ trợ bác sĩ, không phải tư vấn trực tiếp cho bệnh nhân.
@@ -121,7 +121,7 @@ CHỌN ĐÚNG MỘT NHÓM NGUYÊN NHÂN:
 
 
 def _build_prompt(context: RemedyContext) -> str:
-    lines: List[str] = [
+    lines: list[str] = [
         f"Mức độ nghiêm trọng đã xác định trước (KHÔNG thay đổi, chỉ dùng làm bối cảnh): {context.severity.value}",
         f"Số liều chủ động bỏ qua (SKIPPED): {context.skipped_count}",
         f"Số liều quên/quá giờ (MISSED): {context.missed_count}",
@@ -150,7 +150,7 @@ def _build_prompt(context: RemedyContext) -> str:
 def _contains_prescribing_language(text: str) -> bool:
     """Reject-list scan only -- deliberately NOT match_medication_decision.
 
-    match_medication_decision (src/agents/medication_policy.py) requires a
+    match_medication_decision (src/chatbot/medication_policy.py) requires a
     first-person marker ("tôi", "mình", ...) alongside a decision marker,
     because it classifies a PATIENT's own question ("tôi có nên tăng liều
     không"). A model-generated leak reads as a statement or instruction
@@ -165,7 +165,7 @@ def _contains_prescribing_language(text: str) -> bool:
 
 
 def enforce_patient_message_gate(
-    analysis: RemedyAnalysis, actions: FrozenSet[Action]
+    analysis: RemedyAnalysis, actions: frozenset[Action]
 ) -> RemedyAnalysis:
     """Patient-facing text survives only if tonight's rule-decided actions
     (resolve_action's output, computed independently in service.py) actually

@@ -1,11 +1,6 @@
-# ADHE REMIND — Backend Architecture & Project Structure Guide
+# Dosely — Backend Architecture & Project Structure Guide
 
-> Note: "ADHE REMIND" only survives today as the internal `app_name` default in
-> `src/core/config.py:16` (asserted by `tests/test_api/test_core.py:18`). The actual
-> product/repo name everywhere else (README, package names, Docker container names) is
-> **Dosely**.
-
-This document defines the modular domain-driven architecture for the **ADHE REMIND** medication adherence platform backend.
+This document defines the modular domain-driven architecture for the **Dosely** medication adherence platform backend.
 
 ---
 
@@ -13,7 +8,7 @@ This document defines the modular domain-driven architecture for the **ADHE REMI
 
 ```
 src/
-├── agents/                 # 🧠 LangGraph Agent (chat graph)
+├── chatbot/                # 🧠 LangGraph chatbot (chat graph, planning graph, tools) + its HTTP clients (clients/: backend_client.py, llm.py, speech.py)
 │   ├── graph.py            # State graph (nodes + edges) — safety_guard first, then classify_intent + branches/ReAct loop
 │   ├── state.py            # State schema (TypedDict)
 │   ├── planning_graph.py   # A SEPARATE second LangGraph — schedule/reschedule pipeline, independent of the chat graph above
@@ -95,7 +90,7 @@ src/
 │   │   ├── grouping.py     # Groups ScheduleRow entries for notification batching
 │   │   ├── repository.py
 │   │   ├── router.py
-│   │   ├── service.py      # SchedulingService + ChatService
+│   │   ├── scheduling_service.py / missed_dose_scan_service.py / chat_service.py   # SchedulingService, MissedDoseScanService, ChatService (split from the former service.py)
 │   │   ├── tasks.py        # Celery async tasks for deterministic schedule generation
 │   │   └── schemas.py
 │   │
@@ -112,8 +107,6 @@ src/
 │   │   ├── service.py
 │   │   └── schemas.py
 │   │
-│   └── planning/           # 🧪 Shared clinical helpers for the agent layer
-│       └── core/           # backend_client.py, llm.py, speech.py (only these 3 exist — no clinical.py/timekit.py/prescription_validator.py)
 │
 ├── api/                    # 🌐 API Routing & Dependency Injection
 │   ├── deps.py             # Global FastAPI dependencies (get_db, get_current_user, RBAC)

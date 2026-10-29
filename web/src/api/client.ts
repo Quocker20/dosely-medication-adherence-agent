@@ -108,9 +108,14 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
 }
 
 /**
- * Một lần refresh dùng chung cho mọi request đang chờ. Không có single-flight
- * thì 4 call song song cùng dính 401 sẽ bắn 4 lần /auth/refresh, và refresh
- * token xoay vòng khiến 3 trong số đó tự huỷ phiên vừa cấp.
+ * Một lần refresh dùng chung cho mọi request đang chờ. Refresh token xoay vòng:
+ * mỗi /auth/refresh trả cặp token MỚI và token cũ chỉ còn dùng lại được trong
+ * thời gian ân hạn ngắn. Không có single-flight thì 4 call song song cùng dính
+ * 401 sẽ bắn 4 lần refresh. Token mới được ghi (setSession -> localStorage) ngay
+ * trước khi các request chờ được retry.
+ *
+ * Chỉ 401 từ /auth/refresh mới nghĩa là phiên đã mất (đăng xuất); lỗi mạng hay
+ * 5xx giữ nguyên phiên để lần sau thử lại.
  */
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -126,15 +131,15 @@ async function refreshSession(): Promise<boolean> {
           body: { refresh_token: session.refreshToken },
           anonymous: true,
         });
-        if (!response.ok) {
+        if (response.status === 401) {
           setSession(null);
           return false;
         }
+        if (!response.ok) return false;
         const tokens = await unwrap<AuthTokenResponse>(response);
         setSession(sessionFromTokens(tokens));
         return true;
       } catch {
-        setSession(null);
         return false;
       } finally {
         refreshInFlight = null;
@@ -145,18 +150,33 @@ async function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  let response = await rawRequest(path, options);
+/** Ép refresh phiên (dùng cho WebSocket); trả access token mới hoặc null. */
+export async function refreshAccessToken(): Promise<string | null> {
+  const ok = await refreshSession();
+  return ok ? (getSession()?.accessToken ?? null) : null;
+}
 
-  if (response.status === 401 && !options.anonymous && getSession()) {
+/**
+ * Gửi request; nếu 401 thì refresh (single-flight) rồi thử lại một lần. Nếu token
+ * đã bị request khác xoay trong lúc chờ thì chỉ cần thử lại với token mới.
+ */
+async function sendWithRefresh(path: string, options: RequestOptions): Promise<Response> {
+  const usedToken = options.accessToken ?? getSession()?.accessToken;
+  const response = await rawRequest(path, options);
+  if (response.status !== 401 || options.anonymous || !getSession()) return response;
+
+  const rotatedMeanwhile = options.accessToken === undefined && getSession()?.accessToken !== usedToken;
+  if (!rotatedMeanwhile) {
     const refreshed = await refreshSession();
     if (!refreshed) {
       throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại");
     }
-    response = await rawRequest(path, options);
   }
+  return rawRequest(path, options);
+}
 
-  return unwrap<T>(response);
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return unwrap<T>(await sendWithRefresh(path, options));
 }
 
 /**
@@ -167,15 +187,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
  * gọi lại unwrap để tái dùng logic đọc message/errors).
  */
 export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
-  let response = await rawRequest(path, options);
-
-  if (response.status === 401 && !options.anonymous && getSession()) {
-    const refreshed = await refreshSession();
-    if (!refreshed) {
-      throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại");
-    }
-    response = await rawRequest(path, options);
-  }
+  const response = await sendWithRefresh(path, options);
 
   if (!response.ok) {
     await unwrap(response); // luôn throw ApiError với message từ envelope lỗi

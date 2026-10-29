@@ -1,11 +1,50 @@
-from unittest.mock import AsyncMock
+"""Test configuration.
+
+Environment bootstrap (O-12): the suite runs against the throwaway Postgres +
+Redis from docker-compose.test.yml, never a developer's or production's
+database. ``.env.test`` is force-loaded BEFORE anything under ``src`` is
+imported (Settings is cached on first use), overriding the shell and ignoring
+any local ``.env``. ``pytest_configure`` then aborts the whole session unless
+DATABASE_URL points at the test database.
+"""
+
+import os
+from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
+from dotenv import dotenv_values
 
-from src.core.config import get_settings
-from src.main import app
+ENV_TEST_PATH = Path(__file__).resolve().parent.parent / ".env.test"
+
+for _key, _value in dotenv_values(ENV_TEST_PATH).items():
+    if _value is not None:
+        os.environ[_key] = _value
+
+# src.main only mounts /downloads when the directory exists, and downloads/ is
+# gitignored, so a clean checkout would 500 on /api/v1/app/latest-version
+# (url_for("downloads")). Create it before the app is imported.
+(ENV_TEST_PATH.parent / "downloads").mkdir(exist_ok=True)
+
+from unittest.mock import AsyncMock  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from src.core.config import Settings, get_settings  # noqa: E402
+from tests.db_guard import UnsafeTestDatabaseError, assert_test_database  # noqa: E402
+
+# A developer's real .env (possibly pointing at Supabase) must not leak in:
+# only .env.test and explicit process env feed Settings during tests.
+Settings.model_config["env_file"] = None
+
+from src.main import app  # noqa: E402
+
+
+def pytest_configure(config):
+    try:
+        assert_test_database(get_settings().database_url)
+    except UnsafeTestDatabaseError as exc:
+        pytest.exit(str(exc), returncode=3)
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, api, waitForAgentRun } from "../../../api";
+import { connectSessionRealtime } from "../../../api/realtime";
 import type {
   ActiveSchedule,
   AdherenceLog,
@@ -146,18 +147,19 @@ export default function PatientDetailPage({ patientId, accessToken, onBack, onPr
   }, [refresh]);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = import.meta.env.VITE_WS_HOST || window.location.host;
-    const socket = new WebSocket(`${protocol}//${wsHost}/ws/dashboard?token=${encodeURIComponent(accessToken)}`);
-    socket.onopen = () => { refresh().catch(() => {}); };
-    socket.onmessage = (event) => {
-      try {
-        const frame = JSON.parse(event.data) as { data?: { patient_id?: string } };
-        if (frame.data?.patient_id === patientId) refresh().catch(() => {});
-      } catch { /* Invalid realtime frame is safely ignored. */ }
-    };
-    return () => socket.close();
-  }, [accessToken, patientId, refresh]);
+    return connectSessionRealtime(
+      "/ws/dashboard",
+      {
+        onReady: () => { refresh().catch(() => {}); },
+        onEvent: (frame) => {
+          const data = frame.data as { patient_id?: string } | undefined;
+          if (data?.patient_id === patientId) refresh().catch(() => {});
+        },
+      },
+      accessToken,
+    );
+    // accessToken chỉ là dự phòng khi chưa có phiên; token đổi không được tái kết nối.
+  }, [patientId, refresh]);
 
   const activePrescriptions = useMemo(
     () => prescriptions.filter((prescription) => prescription.status === "APPROVED"),

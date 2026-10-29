@@ -1,16 +1,18 @@
 import logging
-import math
 import uuid
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
-from typing import Any, AsyncIterator, Dict, Optional
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import ValidationError
 
 from src.common.exceptions import NotFoundException
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model
 from src.core.config import get_settings
+from src.core.database import AsyncSessionLocal
 from src.core.redis import subscribe_dashboard_events
 from src.modules.adherence.schemas import AlertDetailResponse
 from src.modules.dashboard.repository import DashboardRepository
@@ -25,6 +27,18 @@ from src.modules.dashboard.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def short_dashboard_repository() -> AsyncIterator[DashboardRepository]:
+    """A DashboardRepository on its own short-lived session (P-04).
+
+    A WebSocket can stay open for hours; holding one AsyncSession (and its
+    pooled connection) for that whole time exhausts the pool. Callers open this
+    per check and release the connection immediately afterwards.
+    """
+    async with AsyncSessionLocal() as db:
+        yield DashboardRepository(db)
 
 
 def _adherence_rate(taken: int, total: int) -> float:
@@ -57,7 +71,7 @@ class DashboardService:
         self._repo = dashboard_repository
 
     @staticmethod
-    def _scope_doctor_id(actor_payload: dict) -> Optional[uuid.UUID]:
+    def _scope_doctor_id(actor_payload: dict) -> uuid.UUID | None:
         """None for ADMIN (unscoped), the doctor's own id otherwise."""
         if actor_payload.get("role") == "ADMIN":
             return None
@@ -66,7 +80,7 @@ class DashboardService:
     @staticmethod
     def _window_start() -> datetime:
         settings = get_settings()
-        return datetime.now(dt_timezone.utc) - timedelta(
+        return datetime.now(UTC) - timedelta(
             days=settings.dashboard_adherence_window_days
         )
 
@@ -75,9 +89,9 @@ class DashboardService:
         actor_payload: dict,
         page: int = 1,
         size: int = 10,
-        alert_status: Optional[str] = None,
-        adherence_band: Optional[str] = None,
-        search: Optional[str] = None,
+        alert_status: str | None = None,
+        adherence_band: str | None = None,
+        search: str | None = None,
     ) -> PageResponse[DashboardPatientListResponse]:
         """Roster page, most-alerting patients first. A doctor with no
         prescriptions gets an empty page rather than a 403 — same list-style
@@ -113,7 +127,7 @@ class DashboardService:
                 search=search,
             )
 
-            total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+            total_pages = page_count(total_count, size)
             last = page >= total_pages if total_pages > 0 else True
 
             content = [
@@ -216,7 +230,7 @@ class DashboardEventService:
     """
 
     @staticmethod
-    async def stream() -> AsyncIterator[Dict[str, Any]]:
+    async def stream() -> AsyncIterator[dict[str, Any]]:
         """Frames for one connected client, in arrival order.
 
         Each frame is validated against WebSocketEventStream on the way out, so
@@ -239,7 +253,7 @@ class DashboardEventService:
             yield frame.model_dump(mode="json")
 
     @staticmethod
-    async def stream_patient(patient_id: uuid.UUID) -> AsyncIterator[Dict[str, Any]]:
+    async def stream_patient(patient_id: uuid.UUID) -> AsyncIterator[dict[str, Any]]:
         """Yield only minimal realtime frames belonging to one patient.
 
         The underlying Redis channel is shared with the doctor dashboard, but
@@ -257,8 +271,10 @@ class DashboardEventService:
     @staticmethod
     async def stream_for_dashboard_actor(
         actor_payload: dict,
-        dashboard_repository: DashboardRepository,
-    ) -> AsyncIterator[Dict[str, Any]]:
+        repository_scope: Callable[
+            [], AbstractAsyncContextManager[DashboardRepository]
+        ] = short_dashboard_repository,
+    ) -> AsyncIterator[dict[str, Any]]:
         """Yield dashboard frames within the receiving actor's care scope.
 
         Redis fan-out is intentionally shared, so authorization cannot stop at
@@ -280,5 +296,10 @@ class DashboardEventService:
                 patient_id = uuid.UUID(str(raw_patient_id))
             except (TypeError, ValueError):
                 continue
-            if await dashboard_repository.get_patient_identity(patient_id, doctor_id=doctor_id):
+            # P-04: one short session per frame, never one per socket lifetime.
+            async with repository_scope() as repository:
+                in_scope = await repository.get_patient_identity(
+                    patient_id, doctor_id=doctor_id
+                )
+            if in_scope:
                 yield frame

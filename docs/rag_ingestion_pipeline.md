@@ -17,7 +17,7 @@ OCR sidecar theo trang
 Chạy pipeline:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_drug_rag_corpus.py
+.\.venv\Scripts\python.exe scripts\rag\build_drug_rag_corpus.py
 ```
 
 Đầu ra mặc định nằm tại `data/rag_corpus`. Không sửa `raw_pages.jsonl`; mọi
@@ -59,7 +59,7 @@ Sau khi có vector index, chạy bộ eval và bổ sung câu hỏi ground-truth
 đối chiếu PDF:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_rag_corpus.py
+.\.venv\Scripts\python.exe scripts\rag\evaluate_rag_corpus.py
 ```
 ## Retrieval and grounded answers
 
@@ -73,20 +73,20 @@ and resumable state file. Review groups are never included automatically.
 Build or resume the dense index:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\build_dense_index.py --batch-size 64
+.\.venv\Scripts\python.exe .\scripts\rag\build_dense_index.py --batch-size 64
 ```
 
 Retrieve only:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\query_drug_rag.py `
+.\.venv\Scripts\python.exe .\scripts\rag\query_drug_rag.py `
   "PAS tương tác với diphenhydramin như thế nào?" --retrieve-only
 ```
 
 Generate a grounded answer with numbered sources:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\query_drug_rag.py `
+.\.venv\Scripts\python.exe .\scripts\rag\query_drug_rag.py `
   "PAS tương tác với diphenhydramin như thế nào?"
 ```
 
@@ -95,12 +95,12 @@ reciprocal-rank fusion. Drug and taxonomy-section metadata filters run before
 ranking. Run the real-index evaluation with:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\evaluate_rag_retrieval.py
+.\.venv\Scripts\python.exe .\scripts\rag\evaluate_rag_retrieval.py
 ```
 
 **Status: wired into the live chatbot, not just an offline eval artifact.** The
-`search_drug_formulary` tool (`src/agents/tools/drug_rag_tools.py`) and
-`src/agents/nodes/drug_rag_node.py` load this same index at runtime via
+`search_drug_formulary` tool (`src/chatbot/tools/drug_rag_tools.py`) and
+`src/chatbot/nodes/drug_rag_node.py` load this same index at runtime via
 `src/rag_retrieval/service.py`/`safe_service.py` to answer real patient chat questions —
 see `docs/api-contract.md` (Slice 6) for how the
 guardrail/grounding layers wrap this retrieval before it reaches the patient.

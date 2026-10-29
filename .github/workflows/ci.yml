@@ -22,21 +22,21 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Lint chatbot changes
         run: >-
           ruff check --select E4,E7,E9,F,I
-          src/agents
+          src/chatbot
           src/modules/agents
-          tests/test_agents
+          tests/test_chatbot
           tests/test_eval
           tests/test_api/test_chat_auth.py
 
       - name: Run chatbot and golden-set tests
         run: >-
           pytest
-          tests/test_agents
+          tests/test_chatbot
           tests/test_eval
           tests/test_api/test_chat_auth.py
           -v --tb=short
@@ -128,9 +128,57 @@ jobs:
           -Dkotlin.compiler.execution.strategy=in-process
         working-directory: android
 
-  repository-diagnostics:
+  # Blocking: the whole of src/ and tests/ is ruff-clean (O-11); keep it that way.
+  lint:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install "ruff==0.17.3"  # keep in sync with requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check src/ tests/
+
+  # Full backend suite against throwaway Postgres + Redis service containers
+  # (same images/ports as docker-compose.test.yml). Settings come from the
+  # committed .env.test; tests/conftest.py aborts unless DATABASE_URL is the
+  # local *_test database. Not yet blocking: tests/test_chatbot (chatbot) and a
+  # handful of stale service tests fail today -- see the audit remediation plan.
+  backend-tests:
     runs-on: self-hosted
     continue-on-error: true
+
+    services:
+      postgres-test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dosely_test
+          POSTGRES_PASSWORD: dosely_test
+          POSTGRES_DB: dosely_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U dosely_test -d dosely_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+      redis-test:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -144,14 +192,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
-      - name: Report legacy lint debt
-        run: ruff check src/ tests/
+      - name: Provision test database schema
+        run: python scripts/db/test_db_setup.py
 
       - name: Run full repository tests
         run: pytest tests/ -v --tb=short
-        env:
-          APP_ENV: test
-          OPENAI_API_KEY: test-key
-          RATE_LIMIT_ENABLED: "false"

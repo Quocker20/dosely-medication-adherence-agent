@@ -1,8 +1,10 @@
+import asyncio
 import re
+import uuid
+from collections.abc import Callable
 from contextvars import ContextVar
 from contextvars import Token as ContextToken
-from datetime import datetime, timedelta, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -41,13 +43,13 @@ def validate_phone_number(phone: str) -> str:
     return clean_phone
 
 
-def _get_peppered_bytes(plain_password: str, pepper: Optional[str] = None) -> bytes:
+def _get_peppered_bytes(plain_password: str, pepper: str | None = None) -> bytes:
     """Combine input password with system pepper into bytes for hashing."""
     pep = pepper if pepper is not None else settings.password_pepper
     return (plain_password + pep).encode("utf-8")
 
 
-def hash_password(plain_password: str, pepper: Optional[str] = None) -> str:
+def hash_password(plain_password: str, pepper: str | None = None) -> str:
     """Hash password using bcrypt (with auto-generated unique salt) and global system pepper."""
     peppered_bytes = _get_peppered_bytes(plain_password, pepper)
     salt = bcrypt.gensalt()
@@ -56,7 +58,7 @@ def hash_password(plain_password: str, pepper: Optional[str] = None) -> str:
 
 
 def verify_password(
-    plain_password: str, hashed_password: str, pepper: Optional[str] = None
+    plain_password: str, hashed_password: str, pepper: str | None = None
 ) -> bool:
     """Verify plain password + pepper against stored bcrypt hash."""
     try:
@@ -66,15 +68,32 @@ def verify_password(
         return False
 
 
+async def hash_password_async(
+    plain_password: str, pepper: str | None = None
+) -> str:
+    """hash_password on a worker thread: bcrypt is ~100+ ms of CPU and would
+    otherwise stall every other request on the event loop (P-03)."""
+    return await asyncio.to_thread(hash_password, plain_password, pepper)
+
+
+async def verify_password_async(
+    plain_password: str, hashed_password: str, pepper: str | None = None
+) -> bool:
+    """verify_password on a worker thread (P-03)."""
+    return await asyncio.to_thread(
+        verify_password, plain_password, hashed_password, pepper
+    )
+
+
 def create_access_token(
     user_id: str,
     role: str,
     phone_number: str,
-    expires_delta: Optional[timedelta] = None,
-    additional_claims: Optional[dict] = None,
+    expires_delta: timedelta | None = None,
+    additional_claims: dict | None = None,
 ) -> str:
     """Generate JWT Access Token for authenticated user."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
@@ -86,6 +105,9 @@ def create_access_token(
         "type": "access",
         "iat": now,
         "exp": expire,
+        # Random token id: iat/exp are whole seconds, so without it two tokens
+        # for one user issued in the same second would be identical.
+        "jti": uuid.uuid4().hex,
     }
     if additional_claims:
         payload.update(additional_claims)
@@ -97,10 +119,10 @@ def create_access_token(
 
 def create_refresh_token(
     user_id: str,
-    expires_delta: Optional[timedelta] = None,
+    expires_delta: timedelta | None = None,
 ) -> str:
     """Generate JWT Refresh Token."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + (
         expires_delta or timedelta(days=settings.refresh_token_expire_days)
     )
@@ -110,6 +132,9 @@ def create_refresh_token(
         "type": "refresh",
         "iat": now,
         "exp": expire,
+        # Unique per token: refresh_tokens.token_hash is a unique key over a
+        # hash of this string, so same-second issuance must not collide.
+        "jti": uuid.uuid4().hex,
     }
 
     return jwt.encode(
@@ -133,7 +158,7 @@ def decode_token(token: str) -> dict:
 
 
 async def get_current_user_payload(
-    token: Optional[str] = Depends(oauth2_scheme),
+    token: str | None = Depends(oauth2_scheme),
 ) -> dict:
     """Dependency retrieving and validating token payload."""
     if not token:
@@ -164,7 +189,7 @@ def require_roles(*allowed_roles: str) -> Callable:
 # Actor token propagation
 # ---------------------------------------------------------------------------
 # The LangGraph agent runs in-process but reaches the backend over HTTP loopback
-# (src/modules/planning/core/backend_client.py). Those calls hit the same
+# (src/chatbot/clients/backend_client.py). Those calls hit the same
 # require_roles guards as any client, so they need a real caller identity — a
 # static service token would need a role outside ck_users_role and would be able
 # to write any patient's data, which is exactly what the HITL boundary forbids.
@@ -174,10 +199,10 @@ def require_roles(*allowed_roles: str) -> Callable:
 # history and in the LLM prompt, where the model could echo it back in a reply.
 # A ContextVar keeps the credential out of the model's reach entirely while
 # staying automatically scoped to the request task.
-_actor_token: ContextVar[Optional[str]] = ContextVar("actor_token", default=None)
+_actor_token: ContextVar[str | None] = ContextVar("actor_token", default=None)
 
 
-def set_actor_token(token: Optional[str]) -> ContextToken:
+def set_actor_token(token: str | None) -> ContextToken:
     """Bind the caller's bearer token for the current async context. Returns a
     reset handle the caller MUST pass to reset_actor_token() when done."""
     return _actor_token.set(token)
@@ -189,7 +214,7 @@ def reset_actor_token(handle: ContextToken) -> None:
     _actor_token.reset(handle)
 
 
-def get_actor_token() -> Optional[str]:
+def get_actor_token() -> str | None:
     """Bearer token of the caller whose request is currently being served, or
     None outside a request (e.g. a Celery worker)."""
     return _actor_token.get()

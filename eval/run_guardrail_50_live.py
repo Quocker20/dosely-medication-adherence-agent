@@ -6,7 +6,7 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage
 
-from src.agents.graph import agent
+from src.chatbot.graph import agent
 
 ROOT = Path(__file__).resolve().parents[1]
 

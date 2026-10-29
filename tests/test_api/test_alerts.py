@@ -5,7 +5,8 @@ page a doctor twice, nor double-count a dose) and the alert lifecycle a doctor
 drives from the portal.
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -135,7 +136,7 @@ async def _create_patient(phone: str = PATIENT_PHONE, name: str = "Bệnh nhân 
 async def _create_dose(patient_id: uuid.UUID, doctor_id: uuid.UUID, when=None) -> uuid.UUID:
     """A scheduled dose reachable by the adherence endpoints, built through the
     real chain (prescription -> item -> dose) so FKs and scoping behave."""
-    when = when or (datetime.now(timezone.utc) - timedelta(minutes=30))
+    when = when or (datetime.now(UTC) - timedelta(minutes=30))
     async with AsyncSessionLocal() as db:
         async with db.begin():
             med = (
@@ -244,7 +245,7 @@ async def test_dose_action_before_scheduled_time_is_rejected(client):
     dose_id = await _create_dose(
         patient_id,
         doctor_id,
-        when=datetime.now(timezone.utc) + timedelta(minutes=30),
+        when=datetime.now(UTC) + timedelta(minutes=30),
     )
     headers = {**await _login(client, PATIENT_PHONE), **_idem("dose-too-early-1")}
 
@@ -340,14 +341,7 @@ async def test_adherence_summary_counts_the_recorded_dose(client):
         headers={**headers, **_idem("summary-1")},
     )
 
-    today = date.today()
-    response = await client.get(
-        f"/api/v1/patients/{patient_id}/adherence",
-        params={"from": today.isoformat(), "to": today.isoformat()},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    summary = response.json()["data"]
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["adherence_rate"] == 100.0
@@ -365,10 +359,15 @@ async def test_adherence_logs_are_paginated(client):
         headers={**headers, **_idem("logs-1")},
     )
 
-    today = date.today()
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence/logs",
-        params={"from": today.isoformat(), "to": today.isoformat(), "page": 1, "size": 10},
+        params={
+            "from": (today - timedelta(days=1)).isoformat(),
+            "to": (today + timedelta(days=1)).isoformat(),
+            "page": 1,
+            "size": 10,
+        },
         headers=headers,
     )
     assert response.status_code == 200
@@ -739,6 +738,89 @@ async def test_sos_for_another_patient_is_rejected(client):
     assert response.status_code in (403, 404)
 
 
+# SEC-09: payload caps + soft per-patient limit -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sos_long_message_is_truncated_not_rejected(client):
+    """The agent puts reason + evidence in `message`; a genuine alert must never
+    be refused for being verbose, only bounded."""
+    patient_id = await _create_patient()
+    headers = {**await _login(client, PATIENT_PHONE), **_idem("sos-long-1")}
+    response = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "đau " * 1000},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    assert len(response.json()["data"]["message"]) <= 500
+
+
+@pytest.mark.asyncio
+async def test_sos_metadata_over_4kb_is_rejected_but_agent_metadata_fits(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    big = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "x", "metadata": {"blob": "a" * 5000}},
+        headers={**headers, **_idem("sos-meta-big")},
+    )
+    assert big.status_code == 422
+    ok = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "x", "metadata": {"source": "agent_auto_detect"}},
+        headers={**headers, **_idem("sos-meta-ok")},
+    )
+    assert ok.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_resolution_note_over_1000_chars_is_rejected(client):
+    doctor_id = await _create_doctor()
+    patient_id = await _create_patient()
+    alert_id = await _raise_alert(client, patient_id, "sos-note-1")
+    headers = await _login(client, DOCTOR_PHONE)
+    response = await client.post(
+        f"/api/v1/alerts/{alert_id}/resolve",
+        json={"resolution_note": "n" * 1001},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert doctor_id
+
+
+@pytest.mark.asyncio
+async def test_sos_soft_limit_returns_latest_open_alert_instead_of_error(client):
+    patient_id = await _create_patient()
+    headers = await _login(client, PATIENT_PHONE)
+    ids = []
+    for i in range(5):
+        r = await client.post(
+            f"/api/v1/patients/{patient_id}/sos",
+            json={"message": f"cứu {i}"},
+            headers={**headers, **_idem(f"sos-flood-{i}")},
+        )
+        assert r.status_code == 201
+        ids.append(r.json()["data"]["id"])
+    assert len(set(ids)) == 5
+
+    over = await client.post(
+        f"/api/v1/patients/{patient_id}/sos",
+        json={"message": "lại nữa"},
+        headers={**headers, **_idem("sos-flood-6")},
+    )
+    assert over.status_code == 201
+    assert over.json()["data"]["id"] == ids[-1]
+
+    async with AsyncSessionLocal() as db:
+        count = len(
+            (await db.execute(select(Alert).where(Alert.patient_id == patient_id)))
+            .scalars()
+            .all()
+        )
+    assert count == 5
+
+
 # ---------------------------------------------------------------------------
 # GET /alerts, acknowledge, resolve
 # ---------------------------------------------------------------------------
@@ -865,10 +947,12 @@ async def _create_doses_at(
     a catalogue entry here would only collide with _create_dose on the
     (source_name, source_record_key) unique index.
     """
-    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    today = datetime.now(timezone.utc).astimezone(vn_tz).date()
-    today_start = datetime.combine(today, time.min, tzinfo=vn_tz).astimezone(timezone.utc)
-    today_end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=vn_tz).astimezone(timezone.utc)
+    # Doses sit at now + offset with no clamping to "today": clamping made the
+    # fixture depend on the time of day (late in the VN day every future dose
+    # collapsed onto the same instant and hit uq_scheduled_doses_item_original).
+    # Offsets are all under a day, so _summary_around_now's yesterday..tomorrow
+    # range contains them whenever the test runs.
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -888,13 +972,9 @@ async def _create_doses_at(
             db.add(item)
             await db.flush()
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             for status, offset in doses:
-                raw_at = now + offset
-                if offset < timedelta(0):
-                    at = max(today_start + timedelta(seconds=1), min(raw_at, now - timedelta(seconds=1)))
-                else:
-                    at = min(today_end - timedelta(seconds=1), max(raw_at, now + timedelta(seconds=1)))
+                at = now + offset
                 db.add(
                     ScheduledDose(
                         prescription_item_id=item.id,
@@ -907,11 +987,16 @@ async def _create_doses_at(
                 )
 
 
-async def _summary_today(client, patient_id: uuid.UUID, headers: dict) -> dict:
-    today = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+async def _summary_around_now(client, patient_id: uuid.UUID, headers: dict) -> dict:
+    """Summary over yesterday..tomorrow (patient-local), wide enough to hold
+    every dose _create_doses_at places within a day of now."""
+    today = datetime.now(UTC).astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     response = await client.get(
         f"/api/v1/patients/{patient_id}/adherence",
-        params={"from": today.isoformat(), "to": today.isoformat()},
+        params={
+            "from": (today - timedelta(days=1)).isoformat(),
+            "to": (today + timedelta(days=1)).isoformat(),
+        },
         headers=headers,
     )
     assert response.status_code == 200
@@ -936,7 +1021,7 @@ async def test_summary_excludes_doses_not_yet_due_today(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["adherence_rate"] == 100.0
@@ -956,7 +1041,7 @@ async def test_summary_counts_overdue_pending_as_missed(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 2
     assert summary["taken_doses"] == 1
     assert summary["missed_doses"] == 1
@@ -978,7 +1063,7 @@ async def test_summary_ignores_pending_dose_still_within_grace(client):
     )
     headers = await _login(client, PATIENT_PHONE)
 
-    summary = await _summary_today(client, patient_id, headers)
+    summary = await _summary_around_now(client, patient_id, headers)
     assert summary["total_doses"] == 1
     assert summary["taken_doses"] == 1
     assert summary["missed_doses"] == 0

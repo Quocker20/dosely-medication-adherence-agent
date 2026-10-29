@@ -90,6 +90,21 @@ class SessionAuthenticatorTest {
     }
 
     @Test
+    fun `transient refresh failure keeps the session so the next request can retry`() {
+        server.enqueue(MockResponse().setResponseCode(401))
+        val original = testSession()
+        val store = SessionStore(FakeSessionPersistence(original))
+        val client = authenticatedClient(store) { throw java.io.IOException("network down") }
+
+        client.newCall(Request.Builder().url(server.url("api/v1/patients/patient-1/routine")).build())
+            .execute()
+            .use { assertEquals(401, it.code) }
+
+        assertEquals(original, store.session.value)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
     fun `login is never decorated or refreshed`() {
         server.enqueue(MockResponse().setResponseCode(401))
         val store = SessionStore(FakeSessionPersistence(testSession()))

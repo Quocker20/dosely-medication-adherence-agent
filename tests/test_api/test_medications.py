@@ -5,6 +5,12 @@ import pytest_asyncio
 from sqlalchemy import delete
 
 from src.core.database import AsyncSessionLocal, engine
+from src.core.security import hash_password
+from src.modules.admin.models import DoctorProfile
+from src.modules.admin.repository import DoctorRepository
+from src.modules.auth.models import User
+from src.modules.auth.repository import AuthRepository
+from src.modules.prescriptions.models import Medication
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -18,12 +24,6 @@ async def _dispose_engine_pool():
     """
     yield
     await engine.dispose()
-from src.core.security import hash_password
-from src.modules.admin.models import DoctorProfile
-from src.modules.admin.repository import DoctorRepository
-from src.modules.auth.models import User
-from src.modules.auth.repository import AuthRepository
-from src.modules.prescriptions.models import Medication
 
 
 async def _create_doctor(phone: str, pin: str, name: str, license_no: str) -> uuid.UUID:
@@ -103,6 +103,14 @@ async def test_medication_list_and_detail_returns_active_only(client):
         assert list_response.status_code == 200
         content = list_response.json()["data"]["content"]
         assert any(item["id"] == str(med_id) for item in content)
+
+        # SEC-24: "%" / "_" are literals, so they must not match the medication.
+        for wildcard in ("%%", "Zzz%Paracetamol", "ZzzTest_aracetamol"):
+            wild = await client.get(
+                "/api/v1/medications", params={"search": wildcard}, headers=headers
+            )
+            assert wild.status_code == 200
+            assert all(item["id"] != str(med_id) for item in wild.json()["data"]["content"]), wildcard
 
         detail_response = await client.get(f"/api/v1/medications/{med_id}", headers=headers)
         assert detail_response.status_code == 200

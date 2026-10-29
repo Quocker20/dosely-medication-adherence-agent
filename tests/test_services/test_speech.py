@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.modules.planning.core.speech import SpeechServiceError, synthesize_speech, transcribe_audio
+from src.chatbot.clients.speech import SpeechServiceError, synthesize_speech, transcribe_audio
 
 
 def _mock_client():
-    patcher = patch("src.modules.planning.core.speech.AsyncOpenAI")
+    patcher = patch("src.chatbot.clients.speech.AsyncOpenAI")
     mock_cls = patcher.start()
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance

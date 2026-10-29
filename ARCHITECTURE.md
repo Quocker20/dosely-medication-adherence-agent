@@ -17,8 +17,8 @@ tính, mô hình **modular monolith**: một FastAPI backend (`src/`, tổ chứ
 vertical-slice module trong `src/modules/*`) phục vụ hai client — **Web Portal**
 (`web/`, React + Vite, 3 khu vực theo role: doctor/patient/admin trong cùng 1
 SPA) và **App bệnh nhân** (`android/`, Kotlin/Compose) — cộng hai LangGraph
-riêng biệt: **Chat Agent** (`src/agents/graph.py`, trả lời bệnh nhân qua
-`/chat`) và **Planning Agent** (`src/agents/planning_graph.py`, sinh lịch uống
+riêng biệt: **Chat Agent** (`src/chatbot/graph.py`, trả lời bệnh nhân qua
+`/chat`) và **Planning Agent** (`src/chatbot/planning_graph.py`, sinh lịch uống
 thuốc từ đơn đã được bác sĩ duyệt). Nguyên tắc cốt lõi: **AI chỉ đề xuất,
 validator bằng code xác định luôn là cổng cuối cùng trước khi persist** — xem
 "Ràng buộc bất di bất dịch" trong CLAUDE.md.
@@ -47,11 +47,11 @@ graph TB
     subgraph Backend["src/ — FastAPI (:8000, prefix /api/v1)"]
         API["api/v1_router.py\n+ src/modules/*/router.py"]
         Auth["modules/auth/\nJWT + PIN login + RBAC"]
-        ChatGraph["agents/graph.py\nChat Agent (LangGraph)"]
-        PlanGraph["agents/planning_graph.py\nPlanning Agent (LangGraph, tách biệt)"]
-        Validator["modules/agents/planner.py +\nagents/prescription_consistency.py\n(code xác định, KHÔNG phải LLM)"]
-        MedPolicy["agents/medication_policy.py\nchặn dose-change/stop/prescribe qua chat"]
-        LLM[modules/planning/core/llm.py]
+        ChatGraph["chatbot/graph.py\nChat Agent (LangGraph)"]
+        PlanGraph["chatbot/planning_graph.py\nPlanning Agent (LangGraph, tách biệt)"]
+        Validator["modules/agents/planner.py +\nchatbot/prescription_consistency.py\n(code xác định, KHÔNG phải LLM)"]
+        MedPolicy["chatbot/medication_policy.py\nchặn dose-change/stop/prescribe qua chat"]
+        LLM[chatbot/clients/llm.py]
         RAG["rag_retrieval/ + rag_ingestion/\nDrug formulary RAG"]
     end
 
@@ -140,7 +140,7 @@ graph TB
   `/chat`, `/chat/voice`), Adherence Logging & Safety Alerts, Realtime Events
   (`/ws/dashboard`, `/ws/patient`).
 
-### 4. Chat Agent (`src/agents/graph.py`, LangGraph)
+### 4. Chat Agent (`src/chatbot/graph.py`, LangGraph)
 - **Vai trò:** trả lời chat bệnh nhân qua `/chat`/`/chat/voice` — **không phải
   free-form chatbot**, luôn qua `safety_guard_node` trước tiên (mọi lượt),
   sau đó `classify_intent_node` rẽ vào node chuyên biệt (`rescheduling`,
@@ -149,14 +149,14 @@ graph TB
 - **Guardrail nhiều lớp**:
   - Lớp 1+3: `safety_guard_node` — rule keyword (luôn thắng) + LLM classifier
     bổ sung (không được phủ quyết rule).
-  - Lớp 2: `agents/medication_policy.py` — chặn xác định (không LLM) các yêu
+  - Lớp 2: `chatbot/medication_policy.py` — chặn xác định (không LLM) các yêu
     cầu đổi liều/ngừng thuốc/kê đơn/phối hợp thuốc qua chat.
   - Lớp 4: `rag_retrieval/input_guardrail.py` + `language_guardrail.py` — bắt
     buộc có tên thuốc trước khi retrieval, chặn ngôn ngữ ngoài whitelist.
-  - Lớp 5: `agents/nodes/grounding_validator_node.py` — bắt buộc citation,
+  - Lớp 5: `chatbot/nodes/grounding_validator_node.py` — bắt buộc citation,
     chặn số liệu không có trong nguồn, chặn prompt injection.
 
-### 5. Planning Agent (`src/agents/planning_graph.py`, LangGraph — tách biệt
+### 5. Planning Agent (`src/chatbot/planning_graph.py`, LangGraph — tách biệt
 với Chat Agent)
 - **Trigger:** Celery task (`src/modules/agents/tasks.py`), không phải HTTP
   request trực tiếp — web/app gọi `POST /patients/{id}/schedules/generate`
@@ -178,12 +178,12 @@ với Chat Agent)
     `MissingRoutineAnchorError`, `ScheduleConstraintError`,
     `InvalidPrescriptionTimingError`, `FrequencyGuardrailError`), không tự
     tạo lịch.
-  - Rescheduling **chỉ dời giờ**: `src/agents/nodes/rescheduling_node.py` chỉ
+  - Rescheduling **chỉ dời giờ**: `src/chatbot/nodes/rescheduling_node.py` chỉ
     trích xuất intent có cấu trúc rồi gọi tool `reschedule_remaining_doses`,
     không tự tính giờ tại chỗ (việc tính giờ luôn qua pipeline trên).
 
 ### 6. Deterministic Validator (`src/modules/agents/planner.py` +
-`src/agents/prescription_consistency.py`)
+`src/chatbot/prescription_consistency.py`)
 - **Vai trò:** cổng kiểm tra cuối cùng bằng code (không LLM) trước khi bất kỳ
   lịch nào được persist — "Deterministic core, AI-assisted planning".
 - `planner.py`: `validate_prescription_inputs()`, `validate_frequency_guardrails()`,
@@ -207,7 +207,7 @@ với Chat Agent)
 - Migration bằng Alembic (`alembic/versions/`, baseline `0001` tới các slice
   sau, xem `docs/structure.md`).
 
-### 8. LLM Service (`src/modules/planning/core/llm.py`)
+### 8. LLM Service (`src/chatbot/clients/llm.py`)
 - `get_llm(...)` — wrapper `ChatOpenAI` (`langchain_openai`). **Chỉ dùng
   OpenAI**, không có provider nào khác được wire vào code (không Gemini).
   Dùng bởi cả Chat Agent (mục 4) và bước `planning_generate_candidate_node`
@@ -219,7 +219,7 @@ với Chat Agent)
   offline OCR + chunk + embed Dược thư Quốc gia (`docs/rag_ingestion_pipeline.md`) ra index thật tại `data/rag_dense_index_q1_q2/` (~11.6k
   đoạn, `text-embedding-3-large`, giữ local, không commit vào git).
 - Retrieval thật: hybrid dense + BM25 (RRF-fused), qua tool
-  `search_drug_formulary` + `src/agents/nodes/drug_rag_node.py`, được
+  `search_drug_formulary` + `src/chatbot/nodes/drug_rag_node.py`, được
   Chat Agent gọi khi bệnh nhân hỏi về thuốc — luôn qua Lớp 4/5 guardrail ở
   mục 4. **Chỉ tra cứu, không chẩn đoán hoặc tự tạo liều.**
 
@@ -230,7 +230,7 @@ với Chat Agent)
 Bác sĩ (web/, doctor portal) → POST /prescriptions (DRAFT, atomic với items)
              → POST /prescriptions/{id}/approve (APPROVED)
              → POST /patients/{id}/schedules/generate → 202 + agent_run_id
-                  → Celery task → src/agents/planning_graph.py chạy Planning Agent
+                  → Celery task → src/chatbot/planning_graph.py chạy Planning Agent
                   → planning_lock_and_revalidate_node gọi planner.py
                   → planning_persist_node ghi scheduled_doses
              → GET /agent-runs/{agent_run_id} (poll trạng thái)
@@ -303,7 +303,7 @@ Các
 | Rủi ro | Kiểm soát hiện có |
 |---|---|
 | Agent tự sửa phác đồ | Không tool nào ghi `prescriptions`/`prescription_items`; `planner.py` + `prescription_consistency.py` chặn trước persist |
-| Agent tự kê đơn/đổi liều/ngừng thuốc qua chat | `agents/medication_policy.py` — chặn xác định bằng code, không phải prompt |
+| Agent tự kê đơn/đổi liều/ngừng thuốc qua chat | `chatbot/medication_policy.py` — chặn xác định bằng code, không phải prompt |
 | Agent bịa lịch khi thiếu dữ liệu | `planning_input_gate_node`/`planning_lock_and_revalidate_node` raise `PlanningNeedsReviewError`, không tự đoán |
 | Agent tự đánh dấu đã uống thuốc (prompt injection) | ⚠️ **Chưa được chặn** — `record_dose_action` hiện LÀ tool LLM thật (đổi quyết định có chủ đích so với plan gốc, xem `docs/cong_viec.md` §2.3). Rủi ro injection vẫn còn nguyên, chưa có mitigation thay thế |
 | Sửa đơn sau khi duyệt | State machine `Prescription`: `DRAFT → APPROVED\|CANCELLED`, item chỉ sửa được khi còn `DRAFT` |
@@ -328,7 +328,7 @@ dịch, CLAUDE.md) áp dụng ngay cả với code hiện tại.
 | Database | PostgreSQL managed trên Supabase (không tự host) | Giảm gánh vận hành DB, có sẵn backup/scaling cơ bản cho giai đoạn demo |
 | Async jobs | Celery + Redis (worker + beat riêng biệt) | Tách xử lý nền (nhắc thuốc, tính lịch) khỏi request/response chính |
 | Drug RAG | Dense (embedding) + BM25 hybrid, RRF-fused, tự host trên ChromaDB | Không phụ thuộc vector DB SaaS; kiểm soát được nguồn/citation cho tra cứu y tế |
-| Android client | Native Kotlin + Compose (không React Native/Flutter) | Theo `docs/Android_Compose_System_Design_Skills.md` + skill `android-development` |
+| Android client | Native Kotlin + Compose (không React Native/Flutter) | Theo skill `android-development` |
 | Web client | React + Vite (không Next.js) | `web/` build tĩnh, FastAPI mount trực tiếp — không cần Node server riêng khi deploy |
 | Reverse proxy | Caddy | Tự động cấp/gia hạn HTTPS (Let's Encrypt) không cần cấu hình thủ công |
 

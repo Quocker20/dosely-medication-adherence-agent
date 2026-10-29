@@ -1,4 +1,5 @@
 import uuid
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -101,7 +102,7 @@ async def test_create_caregiver_link_duplicate_returns_409(client):
 @pytest.mark.asyncio
 async def test_create_caregiver_link_for_other_patient_returns_403(client):
     patient_id = await _create_patient(PATIENT_PHONE)
-    other_patient_id = await _create_patient(OTHER_PATIENT_PHONE)
+    await _create_patient(OTHER_PATIENT_PHONE)
     headers = await _login(client, OTHER_PATIENT_PHONE)
 
     response = await client.post(

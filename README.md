@@ -181,8 +181,10 @@ alembic stamp 0001_baseline
 alembic upgrade head
 
 # Seed initial formulary medications (66 core active substances)
-python scripts/seed_medications.py
+python scripts/db/seed_medications.py
 ```
+
+> **Deployment note (P-14):** search relies on the `pg_trgm` extension and the trigram GIN indexes created by migration `0002` (`idx_patient_profiles_name_trgm`, `idx_users_phone_trgm`, `idx_medications_name_trgm`). The database role running migrations must be allowed to `CREATE EXTENSION pg_trgm` (or a superuser must create it beforehand); without them search still works but degrades to sequential scans.
 
 #### 5. Launch FastAPI Backend Server
 ```bash
@@ -219,7 +221,7 @@ npm run dev
 4. Click **Run (`Shift + F10`)** to compile and launch the application.
 
 > **Network Note:** The Android emulator reaches the host backend via `http://10.0.2.2:8000/api/v1/`.  
-> **Demo Account:** Phone: `0900000000` | PIN: `123456`.
+> **Demo Account:** see the seed instructions (`scripts/db/`); credentials are not published in this README.
 
 ---
 
@@ -240,8 +242,21 @@ npm run dev
 
 ### 1. Automated Unit & Integration Tests
 ```bash
-# Run complete test suite (400+ unit and integration tests)
+# One-time: create a venv and install deps
+pip install -r requirements-dev.txt
+
+# Start the throwaway test Postgres (:5433) + Redis (:6380), build the schema, run everything.
+# Settings come from the committed .env.test (dummy values); the suite refuses to run
+# unless DATABASE_URL is the local *_test database, so it can never touch a real DB.
+make test            # = make test-up test-db test-run
+
+# Without make (e.g. Windows):
+docker compose -f docker-compose.test.yml up -d --wait
+python scripts/db/test_db_setup.py
 pytest -q
+
+# Tear down the test containers
+make test-down
 
 # Run specific adherence & safety review tests
 pytest tests/test_api/test_adherence_reviews.py
@@ -270,8 +285,8 @@ python eval/hybrid_chat_eval.py
 curl -X POST "http://localhost:8000/api/v1/auth/login" \
      -H "Content-Type: application/json" \
      -d '{
-       "phone": "0900000000",
-       "password": "123456"
+       "phone": "<seeded phone>",
+       "password": "<6-digit PIN>"
      }'
 ```
 

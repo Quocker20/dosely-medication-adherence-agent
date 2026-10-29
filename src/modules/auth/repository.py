@@ -1,13 +1,11 @@
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.auth.models import RefreshToken, User, UserDevice
 
@@ -22,13 +20,13 @@ class AuthRepository:
 
     # ── SQL: User operations ──
 
-    async def get_user_by_phone(self, phone: str) -> Optional[User]:
+    async def get_user_by_phone(self, phone: str) -> User | None:
         """Fetch user by phone number."""
         stmt = select(User).where(User.phone == phone)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_user_by_id(self, user_id: uuid.UUID) -> Optional[User]:
+    async def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
         """Fetch user by ID."""
         stmt = select(User).where(User.id == user_id)
         result = await self._db.execute(stmt)
@@ -63,7 +61,7 @@ class AuthRepository:
         the app between changing the PIN and finishing onboarding still routes
         them back to it on the next launch.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         values: dict = {
             "hashed_password": hashed_password,
             "password_changed_at": now,
@@ -93,7 +91,7 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id, User.need_onboarding.is_(True))
-            .values(need_onboarding=False, updated_at=datetime.now(timezone.utc))
+            .values(need_onboarding=False, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -102,7 +100,7 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id)
-            .values(last_login_at=datetime.now(timezone.utc))
+            .values(last_login_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -111,14 +109,14 @@ class AuthRepository:
         stmt = (
             update(User)
             .where(User.id == user_id)
-            .values(status=status, updated_at=datetime.now(timezone.utc))
+            .values(status=status, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
     async def upsert_user_device(
-        self, user_id: uuid.UUID, fcm_token: str, device_name: Optional[str] = None
+        self, user_id: uuid.UUID, fcm_token: str, device_name: str | None = None
     ) -> None:
-        """Upsert an FCM token for the user. If token already exists (for any user), 
+        """Upsert an FCM token for the user. If token already exists (for any user),
         reassign it to the current user and update device_name/active status."""
         stmt = (
             pg_insert(UserDevice)
@@ -134,9 +132,19 @@ class AuthRepository:
                     "user_id": user_id,
                     "device_name": device_name,
                     "is_active": True,
-                    "updated_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(UTC),
                 },
             )
+        )
+        await self._db.execute(stmt)
+
+    async def deactivate_user_device(self, user_id: uuid.UUID, fcm_token: str) -> None:
+        """Stop pushing to one of the user's devices (logout). Scoped to the
+        user so presenting another account's token deactivates nothing."""
+        stmt = (
+            update(UserDevice)
+            .where(UserDevice.user_id == user_id, UserDevice.fcm_token == fcm_token)
+            .values(is_active=False, updated_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -147,12 +155,16 @@ class AuthRepository:
         user_id: uuid.UUID,
         token_hash: str,
         expires_at: datetime,
-        device_info: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        device_info: str | None = None,
+        ip_address: str | None = None,
+        family_id: uuid.UUID | None = None,
     ) -> RefreshToken:
-        """Persist a new refresh token record."""
+        """Persist a new refresh token record. A new login starts a new family;
+        a rotation passes the parent's family_id (SEC-19)."""
+        token_id = uuid.uuid4()
         record = RefreshToken(
-            id=uuid.uuid4(),
+            id=token_id,
+            family_id=family_id or token_id,
             user_id=user_id,
             token_hash=token_hash,
             device_info=device_info,
@@ -165,12 +177,59 @@ class AuthRepository:
 
     async def get_refresh_token_by_hash(
         self, token_hash: str
-    ) -> Optional[RefreshToken]:
+    ) -> RefreshToken | None:
         """Find active (non-revoked) refresh token by hash."""
         stmt = select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
             RefreshToken.revoked_at.is_(None),
         )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_refresh_token_for_update(
+        self, token_hash: str
+    ) -> RefreshToken | None:
+        """Lock and return a refresh token row in any state (SEC-19).
+
+        FOR UPDATE serialises concurrent refreshes of the same token, so the
+        loser observes the winner's rotation instead of racing it.
+        """
+        stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.token_hash == token_hash)
+            .with_for_update()
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def mark_rotated(
+        self, token_id: uuid.UUID, replaced_by_id: uuid.UUID, now: datetime
+    ) -> None:
+        """Revoke a token because it was exchanged for a new one."""
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.id == token_id)
+            .values(revoked_at=now, rotated_at=now, replaced_by_id=replaced_by_id)
+        )
+        await self._db.execute(stmt)
+
+    async def revoke_family(self, family_id: uuid.UUID) -> None:
+        """Revoke every live token of a login session."""
+        stmt = (
+            update(RefreshToken)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
+        await self._db.execute(stmt)
+
+    async def get_refresh_token_any_state(
+        self, token_hash: str
+    ) -> RefreshToken | None:
+        """Find a refresh token by hash whether or not it is revoked."""
+        stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -182,7 +241,7 @@ class AuthRepository:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked_at.is_(None),
             )
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 
@@ -194,7 +253,7 @@ class AuthRepository:
                 RefreshToken.user_id == user_id,
                 RefreshToken.revoked_at.is_(None),
             )
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(UTC))
         )
         await self._db.execute(stmt)
 

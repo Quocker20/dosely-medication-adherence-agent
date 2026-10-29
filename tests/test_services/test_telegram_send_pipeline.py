@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -61,7 +62,7 @@ async def test_send_telegram_notification_success(monkeypatch):
                 link_code="ABC888",
             )
             # Bind caregiver
-            await CaregiverRepository(db).bind_by_code("ABC888", 777777, datetime.now(timezone.utc))
+            await CaregiverRepository(db).bind_by_code("ABC888", 777777, datetime.now(UTC))
             link_id = link.id
 
             delivery = await NotificationRepository(db).create_caregiver_delivery(
@@ -138,7 +139,7 @@ async def test_send_telegram_notification_blocked_marks_cg_blocked(monkeypatch):
                 relationship="Con gái",
                 link_code="ABC555",
             )
-            await CaregiverRepository(db).bind_by_code("ABC555", 666666, datetime.now(timezone.utc))
+            await CaregiverRepository(db).bind_by_code("ABC555", 666666, datetime.now(UTC))
             link_id = link.id
 
             delivery = await NotificationRepository(db).create_caregiver_delivery(
@@ -176,7 +177,7 @@ async def test_send_telegram_notification_rate_limit_raises_and_sets_retrying(mo
                 relationship="Con gái",
                 link_code="ABC444",
             )
-            await CaregiverRepository(db).bind_by_code("ABC444", 444444, datetime.now(timezone.utc))
+            await CaregiverRepository(db).bind_by_code("ABC444", 444444, datetime.now(UTC))
             link_id = link.id
 
             delivery = await NotificationRepository(db).create_caregiver_delivery(

@@ -1,3 +1,19 @@
 dosely.duckdns.org {
+	# SEC-12: security headers on every response.
+	# Content-Security-Policy is deliberately NOT set yet: the portal SPA has to
+	# be audited first (inline styles/scripts, WebSocket origin) or it breaks.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Must stay above VOICE_MAX_UPLOAD_BYTES (10 MB default) + multipart overhead.
+	request_body {
+		max_size 12MB
+	}
+
 	reverse_proxy backend:8000
 }

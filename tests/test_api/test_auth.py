@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 
 import pytest
@@ -6,6 +5,11 @@ import pytest_asyncio
 from sqlalchemy import delete, select
 
 from src.core.database import AsyncSessionLocal, engine
+from src.core.security import hash_password
+from src.modules.admin.models import DoctorProfile
+from src.modules.admin.repository import DoctorRepository
+from src.modules.auth.models import User
+from src.modules.auth.repository import AuthRepository
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -15,13 +19,6 @@ async def _dispose_engine_pool():
     reused under the next one."""
     yield
     await engine.dispose()
-
-
-from src.core.security import hash_password
-from src.modules.admin.models import DoctorProfile
-from src.modules.admin.repository import DoctorRepository
-from src.modules.auth.models import User
-from src.modules.auth.repository import AuthRepository
 
 
 async def _create_doctor(phone: str, pin: str, name: str, license_no: str) -> uuid.UUID:
@@ -146,13 +143,6 @@ async def test_patient_change_password_does_not_clear_need_onboarding(client):
         )
         assert response.status_code == 200
 
-        # create_refresh_token's JWT truncates iat/exp to whole seconds with
-        # no jti, so a same-user re-login within the same second produces an
-        # identical token -> identical refresh_tokens.token_hash -> unique
-        # violation. Pre-existing issue, unrelated to need_onboarding; sidestep
-        # it here rather than fold an unrelated fix into this change.
-        await asyncio.sleep(1.1)
-
         # Simulate closing the app right after the PIN change, before
         # touching onboarding, then relaunching.
         relogin_body = await _login(client, patient_phone, "999999")
@@ -160,6 +150,29 @@ async def test_patient_change_password_does_not_clear_need_onboarding(client):
         assert relogin_body["need_onboarding"] is True
     finally:
         await _cleanup([doctor_id], [patient_phone])
+
+
+@pytest.mark.asyncio
+async def test_two_refresh_tokens_for_same_user_in_same_second_both_persist(client):
+    """Regression: refresh tokens were deterministic per (user, second), so a
+    second login/refresh in the same second hit the token_hash unique key."""
+    phone = "+84900600005"
+    user_id = await _create_doctor(phone, "555555", "Dr Auth E", "LIC-AUTH-E")
+    try:
+        first = await _login(client, phone, "555555")
+        second = await _login(client, phone, "555555")
+        assert first["refresh_token"] != second["refresh_token"]
+
+        async with AsyncSessionLocal() as db:
+            repo = AuthRepository(db)
+            for body in (first, second):
+                stored = await repo.get_refresh_token_by_hash(
+                    AuthRepository.hash_token(body["refresh_token"])
+                )
+                assert stored is not None
+                assert stored.user_id == user_id
+    finally:
+        await _cleanup([user_id], [])
 
 
 @pytest.mark.asyncio
@@ -247,3 +260,128 @@ async def test_routine_update_clears_need_onboarding_but_empty_put_does_not(clie
         assert user.need_onboarding is False
     finally:
         await _cleanup([doctor_id], [patient_phone])
+
+
+@pytest.mark.asyncio
+async def test_login_verifies_pin_without_open_transaction():
+    """P-03: bcrypt must not run while a DB transaction is open."""
+    from unittest.mock import patch
+
+    from src.core.security import verify_password_async
+    from src.modules.auth.service import AuthService
+
+    phone = "+84900600555"
+    user_id = await _create_doctor(phone, "123456", "Dr Txn", "LIC-AUTH-TXN")
+    states: list[bool] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            service = AuthService(db=db, repository=AuthRepository(db))
+
+            async def spy(*args, **kwargs):
+                states.append(db.in_transaction())
+                return await verify_password_async(*args, **kwargs)
+
+            with patch("src.modules.auth.service.verify_password_async", new=spy):
+                result = await service.login(phone, "123456")
+        assert result.user.id == user_id
+        assert states == [False]
+    finally:
+        await _cleanup([user_id], [])
+
+
+@pytest.mark.asyncio
+async def test_logout_rejects_refresh_token_of_another_user(client):
+    """SEC-05: A cannot revoke B's refresh token."""
+    a_id = await _create_doctor("+84900600601", "111111", "Dr A", "LIC-LOGOUT-A")
+    b_id = await _create_doctor("+84900600602", "222222", "Dr B", "LIC-LOGOUT-B")
+    try:
+        a = await _login(client, "+84900600601", "111111")
+        b = await _login(client, "+84900600602", "222222")
+        headers_a = {"Authorization": f"Bearer {a['access_token']}"}
+
+        response = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": b["refresh_token"]},
+            headers=headers_a,
+        )
+        assert response.status_code == 403
+
+        # B's token must still work.
+        refreshed = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": b["refresh_token"]}
+        )
+        assert refreshed.status_code == 200
+
+        # A can log out with its own token.
+        own = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"]},
+            headers=headers_a,
+        )
+        assert own.status_code == 200
+        again = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": a["refresh_token"]}
+        )
+        assert again.status_code == 401
+    finally:
+        await _cleanup([a_id, b_id], [])
+
+
+@pytest.mark.asyncio
+async def test_logout_deactivates_device_token_and_login_reactivates_for_new_user(client):
+    """SEC-20: logout with fcm_token stops pushes; registering the same token
+    from another account still upserts it to that account."""
+    from src.modules.auth.models import UserDevice
+
+    a_id = await _create_doctor("+84900600611", "111111", "Dr A", "LIC-FCM-A")
+    b_id = await _create_doctor("+84900600612", "222222", "Dr B", "LIC-FCM-B")
+    token = "fcm-token-sec20-test"
+    try:
+        a = await _login(client, "+84900600611", "111111")
+        headers_a = {"Authorization": f"Bearer {a['access_token']}"}
+        reg = await client.post(
+            "/api/v1/auth/device-token", json={"fcm_token": token}, headers=headers_a
+        )
+        assert reg.status_code == 200
+
+        out = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"], "fcm_token": token},
+            headers=headers_a,
+        )
+        assert out.status_code == 200
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is False and device.user_id == a_id
+
+        b = await _login(client, "+84900600612", "222222")
+        headers_b = {"Authorization": f"Bearer {b['access_token']}"}
+        await client.post(
+            "/api/v1/auth/device-token", json={"fcm_token": token}, headers=headers_b
+        )
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is True and device.user_id == b_id
+
+        # B logging out with a token that is not B's... A's logout must not
+        # deactivate B's device.
+        again = await client.post(
+            "/api/v1/auth/logout",
+            json={"refresh_token": a["refresh_token"], "fcm_token": token},
+            headers=headers_a,
+        )
+        assert again.status_code == 200
+        async with AsyncSessionLocal() as db:
+            device = (
+                await db.execute(select(UserDevice).where(UserDevice.fcm_token == token))
+            ).scalar_one()
+        assert device.is_active is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                await db.execute(delete(UserDevice).where(UserDevice.fcm_token == token))
+        await _cleanup([a_id, b_id], [])

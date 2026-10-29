@@ -28,9 +28,9 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 ### APP RELEASE METADATA
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
 | :--- | :--- | :--- | :--- | :--- |
-| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`) |
+| GET | /app/latest-version | Public | None | 200 OK / LatestAppVersionResponse (`versionCode`, `versionName`, `downloadUrl`, `sha256`) |
 
-`downloadUrl` is generated from the server's own `/downloads/{apk_filename}` static mount. Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
+`downloadUrl` is `ANDROID_DOWNLOAD_BASE_URL` (HTTPS, configured) + `/downloads/{apk_filename}`; it is never derived from the request Host. `sha256` is the hex SHA-256 of the APK on disk (cached by mtime; `null` if the file is missing). Android only compares `versionCode` against its installed build and opens this URL after the user explicitly selects **Cập nhật**; it does not download or install an APK automatically.
 
 ### SLICE 1: AUTHENTICATION
 | HTTP Method | Endpoint Path | Auth Constraints | Request Payload | Expected Response |
@@ -38,7 +38,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 | POST | /auth/login | Public | LoginRequest | 200 OK / AuthTokenResponse |
 | POST | /auth/change-password | Required (Authenticated) | ChangePasswordRequest | 200 OK / MessageResponse |
 | POST | /auth/refresh | Public | RefreshTokenRequest | 200 OK / AuthTokenResponse |
-| POST | /auth/logout | Required (Authenticated) | LogoutRequest | 200 OK / MessageResponse |
+| POST | /auth/logout | Required (Authenticated) | LogoutRequest (`refresh_token`, optional `fcm_token`; token must belong to the caller, else 403) | 200 OK / MessageResponse |
 | POST | /auth/device-token | Required (Authenticated) | DeviceTokenRequest | 200 OK / MessageResponse |
 
 ### SLICE 2: ADMIN & DOCTOR MANAGEMENT
@@ -109,7 +109,7 @@ All list-retrieval endpoints utilizing pagination must return data wrapped insid
 
 **Drug info lookup — not a separate endpoint.** The agent has two more capabilities reachable only through `POST /chat`/`/chat/voice`, both called by the LLM mid-conversation, neither with a dedicated HTTP route (not part of the request/response contract above, only of the agent's internal tool-calling loop):
 - `search_drug_info` — DB-backed lookup against the `medications` catalog (real implementation since commit `3cbd9bf`, not a stub).
-- `search_drug_formulary` — real hybrid RAG (dense + BM25, RRF-fused) over an OCR'd Dược thư Quốc gia corpus, with grounding/citation checks before the answer reaches the patient. Backed by a local (git-ignored) index at `data/rag_dense_index_q1_q2/` (~11.6k chunked records, `text-embedding-3-large`) and served through `src/rag_retrieval/service.py` + `src/agents/nodes/drug_rag_node.py`. See `docs/rag_ingestion_pipeline.md` for how the index was built.
+- `search_drug_formulary` — real hybrid RAG (dense + BM25, RRF-fused) over an OCR'd Dược thư Quốc gia corpus, with grounding/citation checks before the answer reaches the patient. Backed by a local (git-ignored) index at `data/rag_dense_index_q1_q2/` (~11.6k chunked records, `text-embedding-3-large`) and served through `src/rag_retrieval/service.py` + `src/chatbot/nodes/drug_rag_node.py`. See `docs/rag_ingestion_pipeline.md` for how the index was built.
 
 Do not build a client against a `rag_result`/citation shape for either tool — both are internal to the agent's tool loop and never surface a separate structured field in the chat response envelope.
 
@@ -140,16 +140,16 @@ Backend-only slice — no agent involvement (readers just consume adherence/aler
 | :--- | :--- | :--- | :--- | :--- |
 | GET | /dashboard/patients | Required (DOCTOR/ADMIN) | Query Params (page, size, alertStatus, search) | 200 OK / PageResponse[DashboardPatientListResponse] |
 | GET | /dashboard/patients/{patient_id} | Required (DOCTOR/ADMIN) | Path Param (patient_id: UUID) | 200 OK / DashboardPatientDetailResponse |
-| WS | /ws/dashboard | Required (DOCTOR/ADMIN) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of WebSocketEventStream frames |
-| WS | /ws/patient | Required (PATIENT) via `?token=<access_token>` | Query Param (token) | Socket accepted, then a stream of the patient's own events (identifiers/status only — client reloads authoritative data via REST) |
+| WS | /ws/dashboard | Required (DOCTOR/ADMIN) via first message `{"type":"auth","token":<access_token>}` within 5 s | First WS text frame | `{"type":"auth_ok"}`, then a stream of WebSocketEventStream frames; close 4401/4403 on failure |
+| WS | /ws/patient | Required (PATIENT) via first message `{"type":"auth","token":<access_token>}` within 5 s | First WS text frame | `{"type":"auth_ok"}`, then a stream of the patient's own events (identifiers/status only — client reloads authoritative data via REST) |
 
 **Scope.** A doctor sees only patients they have written at least one prescription for; an ADMIN sees all. The roster returns an empty page for an out-of-scope caller rather than 403, and `/dashboard/patients/{id}` returns **404** for both "no such patient" and "not your patient" — a distinct status would confirm which UUIDs exist. Rows are ordered by open alert count descending, so the patients needing attention are on page 1.
 
 **Adherence figures** cover a rolling window ending now (`DASHBOARD_ADHERENCE_WINDOW_DAYS`, default 7), not a caller-supplied date range — use `GET /patients/{id}/adherence` for an explicit `[from, to]`. `open_alerts_count` counts `OPEN` **and** `ACKNOWLEDGED`: a doctor having seen an alert does not mean the patient's situation is closed. `active_prescriptions_count` counts only `APPROVED`.
 
-**WS /ws/dashboard.** Note this path is **not** under `/api/v1`. The token travels as a query parameter because the browser WebSocket API cannot set an `Authorization` header; keep those tokens short-lived, since query strings reach proxy and browser-history logs far more readily than headers do. Authorisation happens before `accept()` — a missing, non-access, or non-DOCTOR/ADMIN token closes with code **1008** (policy violation) rather than opening a socket that immediately dies. Frames currently published: `alert.opened` (SOS or agent-detected alert raised) and `alert.updated` (acknowledged or resolved). Publishing is fail-open: a Redis outage costs the portal its liveness, never the underlying clinical write. There is no separate `/ws/dashboard/events` route — the events *are* this connection's frames; the earlier two-row listing described one endpoint as two.
+**WS /ws/dashboard.** Note this path is **not** under `/api/v1`. The token is **not** sent in the URL (SEC-07): the socket is accepted, and the client must send `{"type":"auth","token":...}` as its first message within 5 s. Failure closes with **4401** (bad/expired/missing token, timeout) or **4403** (wrong role); the socket also closes with 4401 when the access token expires, and a new `auth` frame for the same user extends it. Full protocol: `docs/api-reference.md` section 10a. Frames currently published: `alert.opened` (SOS or agent-detected alert raised) and `alert.updated` (acknowledged or resolved). Publishing is fail-open: a Redis outage costs the portal its liveness, never the underlying clinical write. There is no separate `/ws/dashboard/events` route — the events *are* this connection's frames; the earlier two-row listing described one endpoint as two.
 
-**WS /ws/patient.** Same auth-before-`accept()` pattern as `/ws/dashboard`, but scoped to a single PATIENT and their own `sub`. Frames carry identifiers/status only (never routine/schedule payload content) — the client re-fetches authoritative data over REST once notified. Also not under `/api/v1`, for the same query-token reason as above.
+**WS /ws/patient.** Same auth-before-`accept()` pattern as `/ws/dashboard`, but scoped to a single PATIENT and their own `sub`. Frames carry identifiers/status only (never routine/schedule payload content) — the client re-fetches authoritative data over REST once notified. Also not under `/api/v1`.
 
 **Label OCR removed from this contract.** The former `POST /patients/{id}/drug-label-ocr` + `GET /ocr-jobs/{id}` pair (patient photographs a physical medication label -> OCR -> lookup) has no code behind it anywhere — no router, no live OCR engine wired to an HTTP request. It was speculative and is dropped rather than left to imply a working feature. Re-add it here only once there is a real pipeline to document. Do not confuse this with the separate, real, offline OCR pipeline (`docs/rag_ingestion_pipeline.md`) that built the Dược thư reference corpus behind `search_drug_formulary` — that one exists and runs, it is just not a request-triggered HTTP feature. The only chat-reachable drug-lookup paths are `search_drug_info` and `search_drug_formulary`, both described under Slice 6.
 

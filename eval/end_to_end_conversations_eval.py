@@ -15,7 +15,7 @@ import sys
 
 from langchain_core.messages import HumanMessage
 
-from src.agents.graph import agent
+from src.chatbot.graph import agent
 
 SCENARIOS = [
     ("Chao hoi thong thuong", "Xin chào", {"escalated": False}),

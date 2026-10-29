@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -63,7 +64,7 @@ async def test_full_flow_link_bind_alert_and_telegram_send(monkeypatch):
     monkeypatch.setattr("src.core.telegram.get_telegram_client", lambda: fake_client)
     monkeypatch.setattr("src.core.telegram._fake_instance", fake_client)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")
@@ -135,7 +136,7 @@ async def test_blocked_caregiver_marks_link_and_delivery_blocked(monkeypatch):
     monkeypatch.setattr("src.core.telegram.get_telegram_client", lambda: fake_client)
     monkeypatch.setattr("src.core.telegram._fake_instance", fake_client)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")

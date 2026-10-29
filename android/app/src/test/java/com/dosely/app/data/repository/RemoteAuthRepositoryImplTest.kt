@@ -3,6 +3,9 @@ package com.dosely.app.data.repository
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
 import com.dosely.app.data.remote.DoselyApiService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -18,6 +21,8 @@ class RemoteAuthRepositoryImplTest {
     private lateinit var server: MockWebServer
     private lateinit var store: SessionStore
     private lateinit var repository: RemoteAuthRepositoryImpl
+    private val refreshLock = SessionRefreshLock()
+    private var fcmToken: String? = null
 
     @Before
     fun setUp() {
@@ -32,7 +37,13 @@ class RemoteAuthRepositoryImplTest {
             .build()
             .create(DoselyApiService::class.java)
         store = SessionStore(FakeSessionPersistence())
-        repository = RemoteAuthRepositoryImpl(api, store)
+        fcmToken = "fcm-device-1"
+        repository = RemoteAuthRepositoryImpl(
+            api,
+            store,
+            fcmTokenProvider = FcmTokenProvider { fcmToken },
+            refreshLock = refreshLock,
+        )
     }
 
     @After
@@ -106,6 +117,85 @@ class RemoteAuthRepositoryImplTest {
         val request = server.takeRequest()
         assertEquals("/api/v1/auth/logout", request.path)
         assertEquals(true, request.body.readUtf8().contains("refresh-old"))
+    }
+
+    @Test
+    fun `logout sends this device fcm token with the refresh token`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(successWithoutData())
+
+        repository.logout()
+
+        val body = server.takeRequest().body.readUtf8()
+        assertEquals(true, body.contains("\"refresh_token\":\"refresh-old\""))
+        assertEquals(true, body.contains("\"fcm_token\":\"fcm-device-1\""))
+    }
+
+    @Test
+    fun `logout omits fcm_token when the device has none`() = runBlocking {
+        fcmToken = null
+        store.update(testSession())
+        server.enqueue(successWithoutData())
+
+        repository.logout()
+
+        assertEquals(false, server.takeRequest().body.readUtf8().contains("fcm_token"))
+    }
+
+    @Test
+    fun `logout 403 is treated as logged out locally without throwing`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(403).setBody(ERROR_RESPONSE))
+
+        repository.logout()
+
+        assertNull(store.session.value)
+    }
+
+    @Test
+    fun `transient refresh failure keeps the local session`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(503).setBody(ERROR_RESPONSE))
+
+        runCatching { repository.refreshSession() }
+
+        assertEquals("refresh-old", store.refreshToken)
+    }
+
+    @Test
+    fun `refresh 403 clears local session`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(403).setBody(ERROR_RESPONSE))
+
+        runCatching { repository.refreshSession() }
+
+        assertNull(store.session.value)
+    }
+
+    @Test
+    fun `refresh 400 keeps local session`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(MockResponse().setResponseCode(400).setBody(ERROR_RESPONSE))
+
+        runCatching { repository.refreshSession() }
+
+        assertEquals("refresh-old", store.refreshToken)
+    }
+
+    @Test
+    fun `refreshSession waits for the shared refresh lock`() = runBlocking {
+        store.update(testSession())
+        server.enqueue(successTokenResponse("access-2", "refresh-2", false))
+        refreshLock.mutex.lock()
+        val job = async(Dispatchers.IO) { repository.refreshSession() }
+
+        delay(300)
+        assertEquals(0, server.requestCount)
+        refreshLock.mutex.unlock()
+        job.await()
+
+        assertEquals(1, server.requestCount)
+        assertEquals("refresh-2", store.refreshToken)
     }
 
     private fun successTokenResponse(

@@ -10,7 +10,9 @@ another slice also needs.
 import hashlib
 import json
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional, Type, TypeVar
+import time
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,8 +27,8 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 def build_cache_key(
     namespace: str,
     *,
-    actor: Optional[Dict[str, Any]] = None,
-    params: Optional[Dict[str, Any]] = None,
+    actor: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
 ) -> str:
     """Deterministic cache key for one read endpoint call.
 
@@ -37,7 +39,7 @@ def build_cache_key(
     it. Only omit `actor` for data that is identical for every caller
     regardless of who's asking (the medication catalog).
     """
-    payload: Dict[str, Any] = {"params": params or {}}
+    payload: dict[str, Any] = {"params": params or {}}
     if actor is not None:
         payload["actor"] = {"sub": actor.get("sub"), "role": actor.get("role")}
     digest = hashlib.sha256(
@@ -47,14 +49,61 @@ def build_cache_key(
     return f"{prefix}:{namespace}:{digest}"
 
 
-async def cache_get_json(key: str) -> Optional[Any]:
+# Version counters outlive every entry they version (longest cache TTL is
+# 86400s), so a counter can only expire after all entries written under older
+# versions are already gone.
+_VERSION_TTL_SECONDS = 2 * 86400
+
+
+def _namespace_and_digest(key: str) -> tuple[str, str] | None:
+    """Split a key built by build_cache_key; None for any other key shape."""
+    head = f"{get_settings().cache_key_prefix}:"
+    if not key.startswith(head):
+        return None
+    namespace, sep, digest = key[len(head):].rpartition(":")
+    if not sep or not namespace:
+        return None
+    return namespace, digest
+
+
+def _ancestor_prefixes(namespace: str) -> list[str]:
+    """"dash:patients:list" -> ["dash", "dash:patients", "dash:patients:list"]."""
+    parts = namespace.split(":")
+    return [":".join(parts[: i + 1]) for i in range(len(parts))]
+
+
+def _version_key(prefix_ns: str) -> str:
+    return f"{get_settings().cache_key_prefix}:ver:{prefix_ns}"
+
+
+async def _resolve_key(client: Any, key: str) -> str:
+    """P-07: fold the current version of every namespace prefix into the key.
+
+    invalidate_prefix() bumps a counter instead of SCAN+UNLINK-ing the shared
+    keyspace; entries written under the old version simply become unreachable
+    and expire by TTL. Keys not built by build_cache_key pass through as-is.
+    """
+    parsed = _namespace_and_digest(key)
+    if parsed is None:
+        return key
+    namespace, digest = parsed
+    prefixes = _ancestor_prefixes(namespace)
+    versions = await client.mget([_version_key(p) for p in prefixes])
+    tag = ".".join(
+        (v.decode() if isinstance(v, bytes) else str(v)) if v is not None else "0"
+        for v in versions
+    )
+    return f"{get_settings().cache_key_prefix}:{namespace}:v{tag}:{digest}"
+
+
+async def cache_get_json(key: str) -> Any | None:
     """Fail-open read: a Redis outage or a malformed entry is a cache miss,
     never a 500 — same reasoning as publish_dashboard_event in core/redis.py."""
     if not get_settings().cache_enabled:
         return None
     try:
         client = await get_redis_client()
-        raw = await client.get(key)
+        raw = await client.get(await _resolve_key(client, key))
     except Exception:  # noqa: BLE001 — cache must never fail the request it serves
         logger.warning("Cache read failed for key %s", key, exc_info=True)
         return None
@@ -74,7 +123,9 @@ async def cache_set_json(key: str, value: Any, ttl_seconds: int) -> None:
         return
     try:
         client = await get_redis_client()
-        await client.set(key, json.dumps(value, default=str), ex=ttl_seconds)
+        await client.set(
+            await _resolve_key(client, key), json.dumps(value, default=str), ex=ttl_seconds
+        )
     except Exception:  # noqa: BLE001 — see cache_get_json
         logger.warning("Cache write failed for key %s", key, exc_info=True)
 
@@ -82,7 +133,7 @@ async def cache_set_json(key: str, value: Any, ttl_seconds: int) -> None:
 async def cached_model(
     key: str,
     ttl_seconds: int,
-    model_type: Type[ModelT],
+    model_type: type[ModelT],
     loader: Callable[[], Awaitable[ModelT]],
 ) -> ModelT:
     """Read-through cache for one Pydantic response model.
@@ -105,23 +156,25 @@ async def cached_model(
 
 
 async def invalidate_prefix(namespace: str) -> None:
-    """Drop every cached entry whose key starts with `namespace`.
+    """Drop every cached entry whose namespace starts with `namespace`.
 
-    For a write whose effect a cached read must reflect immediately (e.g. a
-    dashboard roster cached under "dash:patients:list"/"dash:patients:detail"
-    after an alert opens) — call this right after the transaction that wrote
-    it commits, the same "after commit, fail-open" placement already used for
-    publish_dashboard_event. SCAN, never KEYS: this runs against a live Redis
-    instance shared with the dashboard pub/sub channel and must not block it.
+    `namespace` must be a ":"-boundary prefix of the namespaces passed to
+    build_cache_key ("dash:patients" covers "dash:patients:list" and
+    "dash:patients:detail"). For a write whose effect a cached read must
+    reflect immediately -- call this right after the transaction that wrote it
+    commits, the same "after commit, fail-open" placement used for
+    publish_dashboard_event.
+
+    P-07: O(1) version bump, no SCAN over the shared Redis keyspace. The new
+    version is a nanosecond timestamp so it can never repeat a value an older
+    entry was written under, even if the counter key was evicted.
     """
     if not get_settings().cache_enabled:
         return
-    prefix = get_settings().cache_key_prefix
-    pattern = f"{prefix}:{namespace}*"
     try:
         client = await get_redis_client()
-        keys = [k async for k in client.scan_iter(match=pattern, count=200)]
-        if keys:
-            await client.unlink(*keys)
+        await client.set(
+            _version_key(namespace), str(time.time_ns()), ex=_VERSION_TTL_SECONDS
+        )
     except Exception:  # noqa: BLE001 — invalidation failure must not fail the write it guards
         logger.warning("Cache invalidation failed for namespace %s", namespace, exc_info=True)

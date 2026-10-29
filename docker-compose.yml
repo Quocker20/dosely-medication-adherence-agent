@@ -1,6 +1,26 @@
-version: "3.8"
 
 services:
+  # 0. One-shot schema migration (O-20). backend/worker/beat start only after it
+  # exits 0, so a new image never serves against an un-migrated database.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dosely_migrate
+    command: [ "alembic", "upgrade", "head" ]
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+    restart: "no"
+    # The image HEALTHCHECK probes the web server, which this one-shot never runs.
+    healthcheck:
+      disable: true
+
   # 1. FastAPI Backend Service
   backend:
     build:
@@ -12,11 +32,13 @@ services:
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
       - ./downloads:/app/downloads
@@ -24,6 +46,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
@@ -36,37 +60,51 @@ services:
     image: redis:7-alpine
     container_name: dosely_redis
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    # SEC-15: password required, and no `ports:` -- only containers on the compose
+    # network reach Redis (nothing on the host needs it; the test suite uses
+    # docker-compose.test.yml). Use a URL-safe REDIS_PASSWORD (it is embedded in
+    # redis:// URLs).
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    command: [ "sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\"" ]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # 3. Celery Worker Service (Xử lý bất đồng bộ cho OCR, RAG & AI Agent)
+  # P-13: consumes the reminder queues ONLY. Queues are explicit (-Q): a task
+  # routed to a queue that no worker lists is never run (see task_routes in
+  # src/core/celery_app.py). The nightly adherence review (up to ~100 min) has
+  # its own worker below so it can never hold a slot that sends reminders.
+  # --concurrency is explicit rather than nproc forks, to bound RAM on the VPS.
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dosely_worker
-    command: celery -A src.core.celery_app worker --loglevel=info
+    command: celery -A src.core.celery_app worker --loglevel=info -Q celery,notifications --concurrency=2 -n main@%h
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
       - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Overrides the image's HEALTHCHECK, which probes http://localhost:8000/health
     # — right for the backend, but this container serves no HTTP, so it inherited
@@ -74,7 +112,43 @@ services:
     # was running fine. `inspect ping` is the real liveness signal: it round-trips
     # through the broker, so it fails exactly when the worker cannot take work.
     healthcheck:
-      test: [ "CMD", "celery", "-A", "src.core.celery_app", "inspect", "ping" ]
+      test: [ "CMD-SHELL", "celery -A src.core.celery_app inspect ping -d main@$$HOSTNAME" ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+
+  # 3b. Review worker (P-13): only the "review" queue, one job at a time. The
+  # job is LLM-bound and slow (soft limit 6000 s), so it gets its own process
+  # instead of a slot in the reminder worker. Costs one extra Python process
+  # (~200 MB) on the 3.8 GB VPS; chosen over a single shared worker because a
+  # reminder worker with concurrency 2 would lose half its capacity for up to
+  # 100 minutes every night.
+  worker-review:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dosely_worker_review
+    command: celery -A src.core.celery_app worker --loglevel=info -Q review --concurrency=1 -n review@%h
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./firebase-adminsdk.json:/app/firebase-adminsdk.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "celery -A src.core.celery_app inspect ping -d review@$$HOSTNAME" ]
       interval: 30s
       timeout: 15s
       retries: 3
@@ -90,16 +164,20 @@ services:
     env_file:
       - .env
     environment:
+      # SEC-13/14: production behaviour is explicit here, not left to .env.
+      - APP_ENV=production
       # DATABASE_URL trong .env trỏ thẳng vào Supabase — không override ở đây nữa.
       - REDIS_HOST=redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     volumes:
       - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Disabled rather than replaced. Beat is a scheduler, not a worker: it has
     # no inspect protocol to answer, and it serves no HTTP, so the image's

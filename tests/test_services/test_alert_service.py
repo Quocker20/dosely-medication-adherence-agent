@@ -6,7 +6,7 @@ triggered_by_type='SOS_BUTTON'/severity='CRITICAL', so the doctor's dashboard
 could not tell them apart and `GET /alerts` could not filter on either.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -58,7 +58,7 @@ def _fake_alert(**overrides):
         severity="CRITICAL",
         status="OPEN",
         message=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -73,8 +73,15 @@ def _service_with_mocks():
     db.begin.return_value = begin_ctx
 
     alert_repo = AsyncMock()
+    # No idempotent replay and no recent alerts (SEC-09 soft limit not hit).
+    alert_repo.get_by_idempotency_key.return_value = None
+    alert_repo.list_recent_for_patient.return_value = []
     patient_repo = AsyncMock()
-    patient_repo.get_patient_with_user.return_value = SimpleNamespace(user_id=PATIENT_ID)
+    # The real repository returns a (PatientProfile, User) row, not one object.
+    patient_repo.get_patient_with_user.return_value = (
+        SimpleNamespace(user_id=PATIENT_ID, name="Test Patient"),
+        SimpleNamespace(id=PATIENT_ID),
+    )
 
     service = AlertService(
         db=db,

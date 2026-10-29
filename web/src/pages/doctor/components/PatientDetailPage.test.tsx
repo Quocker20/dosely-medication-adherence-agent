@@ -37,7 +37,16 @@ vi.mock("../../../api", () => ({
 class StubWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  sent: string[] = [];
+  url = "";
+  constructor(url = "") {
+    this.url = url;
+  }
+  send(data: string) {
+    this.sent.push(data);
+  }
   close() {}
 }
 
@@ -257,8 +266,8 @@ describe("PatientDetailPage", () => {
   it("re-fetches patient data only when a matching dashboard realtime frame arrives", async () => {
     let socket: StubWebSocket | undefined;
     class CapturingWebSocket extends StubWebSocket {
-      constructor() {
-        super();
+      constructor(url: string) {
+        super(url);
         socket = this;
       }
     }
@@ -266,6 +275,10 @@ describe("PatientDetailPage", () => {
 
     setup();
     await screen.findByRole("heading", { name: "Nguyễn Văn A" });
+    socket?.onopen?.();
+    socket?.onmessage?.({ data: JSON.stringify({ type: "auth_ok", expires_in: 900 }) });
+    expect(socket?.url).not.toContain("token");
+    await waitFor(() => expect(apiMocks.dashboardPatientDetail).toHaveBeenCalled());
     apiMocks.dashboardPatientDetail.mockClear();
 
     socket?.onmessage?.({

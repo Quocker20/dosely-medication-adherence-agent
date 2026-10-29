@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -63,7 +63,7 @@ async def list_doctors(
     service: AdminServiceDep,
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, description="Search by name, phone, or license_no"),
+    search: str | None = Query(None, description="Search by name, phone, or license_no"),
 ) -> JSONResponse:
     """Query paginated doctor roster (Admin only)."""
     result = await service.list_doctors(page=page, size=size, search=search)
@@ -135,8 +135,8 @@ async def list_audit_logs(
     service: AdminServiceDep,
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
-    actor_id: Optional[uuid.UUID] = Query(None, alias="actorId", description="Filter by actor user ID"),
-    entity_type: Optional[str] = Query(None, alias="entityType", description="Filter by entity type"),
+    actor_id: uuid.UUID | None = Query(None, alias="actorId", description="Filter by actor user ID"),
+    entity_type: str | None = Query(None, alias="entityType", description="Filter by entity type"),
 ) -> JSONResponse:
     """Query paginated system audit logs (Admin only)."""
     result = await service.list_audit_logs(

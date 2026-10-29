@@ -42,16 +42,17 @@ separate special case needed.
 from __future__ import annotations
 
 import logging
-import math
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time as dtime, timedelta
-from typing import Any, Dict, FrozenSet, Optional
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import invalidate_prefix
 from src.core.config import Settings, get_settings
@@ -76,7 +77,6 @@ from src.modules.adherence_review.repository import (
 )
 from src.modules.adherence_review.schemas import AdherenceReviewDetailResponse
 
-
 # Matches the DB CHECK constraint's allowed action_taken values
 # (migration 0022_adherence_reviews) and this module's own primary_action
 # ordering below.
@@ -97,7 +97,7 @@ def _raise_one_level(severity: Severity) -> Severity:
 
 
 def compute_severity(
-    ind: SeverityIndicators, trend_delta: Optional[float], cfg: Settings
+    ind: SeverityIndicators, trend_delta: float | None, cfg: Settings
 ) -> Severity:
     """Deterministic, no AI. The min-dose floor is absolute and comes first —
     same reasoning as the zero-dose dashboard-band fix already on this
@@ -124,8 +124,8 @@ def compute_severity(
 
 
 def compute_trend_delta(
-    current: SeverityIndicators, prior: Optional[TrendIndicators]
-) -> Optional[float]:
+    current: SeverityIndicators, prior: TrendIndicators | None
+) -> float | None:
     """current_rate - prior_rate, so a fast deterioration is negative. None
     when either window has no doses to rate — a brand-new patient with
     nothing in the prior window has no trend yet, not a 100-point crash."""
@@ -136,7 +136,7 @@ def compute_trend_delta(
     return current_rate - prior_rate
 
 
-def primary_action(actions: FrozenSet[Action]) -> Action:
+def primary_action(actions: frozenset[Action]) -> Action:
     """Collapse a possibly-multi-action night to the single value
     adherence_reviews.action_taken stores, ranked by consequence. A doctor
     filtering reviews by action_taken='DOCTOR_WARNING' must still find the
@@ -150,7 +150,7 @@ def primary_action(actions: FrozenSet[Action]) -> Action:
 @dataclass(frozen=True)
 class EscalationResult:
     days_in_severity: int
-    actions: FrozenSet[Action]
+    actions: frozenset[Action]
 
 
 def _escalation_days(cfg: Settings) -> tuple[int, int, int]:
@@ -164,7 +164,7 @@ def _escalation_days(cfg: Settings) -> tuple[int, int, int]:
     return d1, d3, d5
 
 
-def _ladder_cell(severity: Severity, days_in_severity: int, cfg: Settings) -> tuple[int, FrozenSet[Action]]:
+def _ladder_cell(severity: Severity, days_in_severity: int, cfg: Settings) -> tuple[int, frozenset[Action]]:
     """The un-throttled action set the ladder recommends for one
     (severity, days_in_severity) pair, plus the day that cell's streak
     started (for cooldown offset calculation below).
@@ -213,7 +213,7 @@ def _passes_cooldown(days_in_severity: int, column_start_day: int, cooldown_days
 
 def resolve_action(
     severity: Severity,
-    prior: Optional[PriorReview],
+    prior: PriorReview | None,
     review_date: date,
     cfg: Settings,
 ) -> EscalationResult:
@@ -318,7 +318,7 @@ class AdherenceReviewService:
         self._alerts = alert_repository
         self._notifications = notification_repository
 
-    async def run_nightly_review(self, review_date: date) -> Dict[str, int]:
+    async def run_nightly_review(self, review_date: date) -> dict[str, int]:
         """Entry point for tasks.py:scan_adherence_review. `review_date` is
         the deployment-local calendar date the run is FOR (today, at the
         moment the Beat job fires) -- the window analyzed is the
@@ -404,12 +404,12 @@ class AdherenceReviewService:
         self, review_date: date, settings: Settings
     ) -> tuple[
         list[SeverityIndicators],
-        Dict[uuid.UUID, TrendIndicators],
-        Dict[uuid.UUID, list],
-        Dict[uuid.UUID, list],
-        Dict[uuid.UUID, list],
-        Dict[uuid.UUID, PriorReview],
-        Dict[uuid.UUID, Any],
+        dict[uuid.UUID, TrendIndicators],
+        dict[uuid.UUID, list],
+        dict[uuid.UUID, list],
+        dict[uuid.UUID, list],
+        dict[uuid.UUID, PriorReview],
+        dict[uuid.UUID, Any],
     ]:
         window_start, window_end = compute_window_bounds(
             review_date, settings.adherence_review_window_days, settings.adherence_review_timezone
@@ -444,13 +444,13 @@ class AdherenceReviewService:
 
     async def _phase_a_and_b(
         self, review_date: date, settings: Settings
-    ) -> tuple[list[_Candidate], Dict[uuid.UUID, RemedyContext]]:
+    ) -> tuple[list[_Candidate], dict[uuid.UUID, RemedyContext]]:
         (
             severity_rows, trend_map, slot_map, medication_map, symptom_map, prior_reviews, roster,
         ) = await self._phase_a_and_b_read(review_date, settings)
 
         candidates: list[_Candidate] = []
-        contexts: Dict[uuid.UUID, RemedyContext] = {}
+        contexts: dict[uuid.UUID, RemedyContext] = {}
         for ind in severity_rows:
             trend_delta = compute_trend_delta(ind, trend_map.get(ind.patient_id))
             severity = compute_severity(ind, trend_delta, settings)
@@ -554,7 +554,7 @@ class AdherenceReviewService:
                         settings.adherence_review_patient_send_from,
                         settings.adherence_review_patient_send_to,
                     )
-                    notification = await self._notifications.create_grouped_delivery(
+                    notification, _created = await self._notifications.create_grouped_delivery(
                         recipient_user_id=candidate.patient_id,
                         channel="APP_NOTIFICATION",
                         template_code="ADHERENCE_SUGGESTION",
@@ -654,7 +654,7 @@ class AdherenceReviewQueryService:
         actor_id = uuid.UUID(actor_payload["sub"])
         rows, total_count = await self._reviews.list_for_patient(patient_id, actor_id, page=page, size=size)
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         content = [AdherenceReviewDetailResponse.model_validate(row) for row in rows]
 

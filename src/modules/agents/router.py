@@ -8,10 +8,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db, oauth2_scheme, require_roles
-from src.core.rate_limit import rate_limit_by_user
+from src.common.exceptions import AppException
+from src.core.config import get_settings
+from src.core.rate_limit import rate_limit_by_user, rate_limit_by_user_per_vn_day
 from src.core.response import success_response
 from src.core.security import create_access_token, reset_actor_token, set_actor_token
+from src.modules.agents.chat_service import ChatService
 from src.modules.agents.repository import AgentRunRepository, ChatMemoryRepository, ScheduledDoseRepository
+from src.modules.agents.scheduling_service import SchedulingService
 from src.modules.agents.schemas import (
     CancelRoutineOverrideRequest,
     ChatRequest,
@@ -20,7 +24,6 @@ from src.modules.agents.schemas import (
     RescheduleRequest,
     RoutineAnchor,
 )
-from src.modules.agents.service import ChatService, SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 
@@ -58,19 +61,15 @@ async def local_dev_chat(request_body: ChatRequest, request: Request, service: C
     settings = get_settings()
     client_host = request.client.host if request.client else ""
     if settings.app_env != "development" or not settings.enable_local_chat_test:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not found")
     if client_host not in {"127.0.0.1", "::1", "localhost", "testclient"}:
-        from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Local chat test is loopback-only")
     browser_origin = request.headers.get("origin") or request.headers.get("referer")
     if browser_origin and (urlparse(browser_origin).hostname or "") not in {"127.0.0.1", "localhost", "::1", "testserver"}:
-        from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Local chat test rejects non-loopback browser origins")
     try:
         patient_id = str(uuid.UUID(settings.dev_chat_patient_id))
     except ValueError:
-        from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="DEV_CHAT_PATIENT_ID is not configured")
     token = create_access_token(user_id=patient_id, role="PATIENT", phone_number="local-test")
     handle = set_actor_token(token)
@@ -285,9 +284,20 @@ async def get_agent_run_status(
 # bound would hand it to whatever runs next on this task.
 
 
+# SEC-10: daily LLM-cost cap shared by /chat and /chat/voice. The message is
+# shown to the patient as-is; errors.retry_after_seconds is the time left.
+CHAT_DAILY_LIMIT = Depends(
+    rate_limit_by_user_per_vn_day(
+        "chat_daily",
+        lambda: get_settings().chat_daily_limit,
+        message="Bạn đã dùng hết lượt hỏi trợ lý hôm nay, vui lòng quay lại vào ngày mai.",
+    )
+)
+
+
 @chat_router.post(
     "/chat",
-    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60)), CHAT_DAILY_LIMIT],
 )
 async def chat(
     request_body: ChatRequest,
@@ -378,9 +388,34 @@ async def chat_history(
     }, message="Chat history loaded")
 
 
+_AUDIO_READ_CHUNK = 64 * 1024
+
+
+async def _read_audio_limited(audio: UploadFile) -> bytes:
+    """Validate content type, then read the upload in chunks up to the configured cap."""
+    media_type = (audio.content_type or "").split(";", 1)[0].strip().lower()
+    if not media_type.startswith("audio/"):
+        raise AppException(
+            message="Unsupported media type: an audio file is required",
+            code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+    limit = get_settings().voice_max_upload_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await audio.read(_AUDIO_READ_CHUNK):
+        total += len(chunk)
+        if total > limit:
+            raise AppException(
+                message=f"Audio upload exceeds the {limit // (1024 * 1024) or 1} MB limit",
+                code=status.HTTP_413_CONTENT_TOO_LARGE,
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @chat_router.post(
     "/chat/voice",
-    dependencies=[Depends(rate_limit_by_user("chat", 20, 60))],
+    dependencies=[Depends(rate_limit_by_user("chat", 20, 60)), CHAT_DAILY_LIMIT],
 )
 async def chat_voice(
     current_user: PatientUserDep,
@@ -392,7 +427,7 @@ async def chat_voice(
     conversation_id: uuid.UUID | None = Form(None, alias="conversationId"),
 ) -> JSONResponse:
     """Chat bằng giọng nói — cho bệnh nhân cao tuổi không muốn/không tiện gõ chữ."""
-    audio_bytes = await audio.read()
+    audio_bytes = await _read_audio_limited(audio)
 
     handle = set_actor_token(token)
     try:

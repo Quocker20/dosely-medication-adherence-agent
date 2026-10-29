@@ -43,7 +43,17 @@ USER appuser
 
 EXPOSE 8000
 
+# Uvicorn worker processes (O-20). Each loads the full app, so size this to the
+# host RAM; override with UVICORN_WORKERS in the compose environment.
+ENV UVICORN_WORKERS=2
+
+# SEC-04: only trust X-Forwarded-For from the reverse proxy (Caddy) on the Docker
+# network. Default is the whole private Docker range; narrow it to the compose
+# network subnet (docker network inspect) for a stricter setting.
+ENV FORWARDED_ALLOW_IPS=172.16.0.0/12
+
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form via sh -c so ${UVICORN_WORKERS} expands; exec keeps uvicorn as PID 1.
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2} --proxy-headers --forwarded-allow-ips ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}"]

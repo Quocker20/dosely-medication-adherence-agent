@@ -3,6 +3,8 @@ package com.dosely.app.di
 import com.dosely.app.data.repository.AuthRepository
 import com.dosely.app.data.repository.AppUpdateRepository
 import com.dosely.app.data.repository.ChatRepository
+import com.dosely.app.data.repository.FcmTokenProvider
+import com.dosely.app.data.repository.FirebaseFcmTokenProvider
 import com.dosely.app.data.repository.OutboxSyncScheduler
 import com.dosely.app.data.repository.PatientRepository
 import com.dosely.app.data.repository.PatientReadableCacheCleaner
@@ -44,6 +46,9 @@ abstract class RepositoryModule {
 
     @Binds
     abstract fun bindOutboxSyncScheduler(impl: WorkManagerOutboxSyncScheduler): OutboxSyncScheduler
+
+    @Binds
+    abstract fun bindFcmTokenProvider(impl: FirebaseFcmTokenProvider): FcmTokenProvider
 
     @Binds
     abstract fun bindPatientReadableCacheCleaner(

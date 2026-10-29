@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup script cho AI20K project
+# Setup script cho Dosely
 
 set -e
 
-echo "=== AI20K Project Setup ==="
+echo "=== Dosely Setup ==="
 
 # Check Python version
 python3 -c "import sys; assert sys.version_info >= (3, 11), 'Python 3.11+ required'"
@@ -14,7 +14,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Create .env if not exists
 if [ ! -f .env ]; then

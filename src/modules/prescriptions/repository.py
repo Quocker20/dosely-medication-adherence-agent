@@ -1,12 +1,13 @@
 import logging
 import uuid
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from sqlalchemy import Exists, delete, func, or_, select, update
-from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.prescriptions.models import Medication, Prescription, PrescriptionItem
 
 logger = logging.getLogger(__name__)
@@ -18,15 +19,15 @@ class MedicationRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def get_medication_by_id(self, medication_id: uuid.UUID) -> Optional[Medication]:
+    async def get_medication_by_id(self, medication_id: uuid.UUID) -> Medication | None:
         """Fetch a single medication by ID."""
         stmt = select(Medication).where(Medication.id == medication_id)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_by_ids(
-        self, medication_ids: List[uuid.UUID]
-    ) -> Dict[uuid.UUID, Medication]:
+        self, medication_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, Medication]:
         """Batch-resolve medications by ID (IN clause) instead of one query
         per ID — avoids N+1 when rendering a prescription's item list (e.g.
         the PDF export). Rides the medications PK. medication_id carries no
@@ -42,9 +43,9 @@ class MedicationRepository:
         self,
         page: int = 1,
         size: int = 10,
-        search: Optional[str] = None,
+        search: str | None = None,
         active_only: bool = True,
-    ) -> Tuple[List[Medication], int]:
+    ) -> tuple[list[Medication], int]:
         """Fetch paginated medication catalog entries.
 
         Count is a separate query rather than count().over() — the window
@@ -55,7 +56,7 @@ class MedicationRepository:
         if active_only:
             filters.append(Medication.is_active.is_(True))
         if search and search.strip():
-            filters.append(Medication.name.ilike(f"%{search.strip()}%"))
+            filters.append(Medication.name.ilike(contains_pattern(search), escape=LIKE_ESCAPE_CHAR))
 
         count_stmt = select(func.count(Medication.id))
         if filters:
@@ -125,7 +126,7 @@ class PrescriptionRepository:
         self,
         patient_id: uuid.UUID,
         doctor_id: uuid.UUID,
-        diagnosis_note: Optional[str] = None,
+        diagnosis_note: str | None = None,
     ) -> Prescription:
         """Persist a new DRAFT prescription header."""
         prescription = Prescription(
@@ -136,8 +137,8 @@ class PrescriptionRepository:
         return prescription
 
     async def get_by_id(
-        self, prescription_id: uuid.UUID, actor_id: Optional[uuid.UUID] = None
-    ) -> Optional[Prescription]:
+        self, prescription_id: uuid.UUID, actor_id: uuid.UUID | None = None
+    ) -> Prescription | None:
         """Fetch a prescription by ID. actor_id=None means unscoped (ADMIN);
         otherwise restricted to self/doctor-prescribed/active-caregiver."""
         stmt = select(Prescription).where(Prescription.id == prescription_id)
@@ -148,7 +149,7 @@ class PrescriptionRepository:
 
     async def get_by_id_for_doctor(
         self, prescription_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Prescription]:
+    ) -> Prescription | None:
         """Fetch a prescription scoped to the doctor who created it (ownership
         check), used to disambiguate 404 (not found/not owner) vs 422 (wrong
         status) after a failed conditional state-transition UPDATE."""
@@ -160,7 +161,7 @@ class PrescriptionRepository:
 
     async def lock_for_items(
         self, prescription_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Prescription]:
+    ) -> Prescription | None:
         """SELECT ... FOR UPDATE the prescription row, scoped to owning
         doctor. Held for the rest of the caller's transaction so a concurrent
         approve/cancel (which also takes a row lock via its UPDATE) cannot
@@ -177,11 +178,11 @@ class PrescriptionRepository:
     async def list_by_patient(
         self,
         patient_id: uuid.UUID,
-        actor_id: Optional[uuid.UUID] = None,
-        status: Optional[str] = None,
+        actor_id: uuid.UUID | None = None,
+        status: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[Prescription], int]:
+    ) -> tuple[list[Prescription], int]:
         """Fetch paginated prescriptions for a patient, newest first.
 
         actor_id=None means unscoped (ADMIN). Otherwise restricted the same
@@ -220,7 +221,7 @@ class PrescriptionRepository:
 
     async def list_current_medications(
         self, patient_id: uuid.UUID, as_of: date
-    ) -> List[PrescriptionItem]:
+    ) -> list[PrescriptionItem]:
         """Return date-active items from APPROVED prescriptions for one patient."""
         stmt = (
             select(PrescriptionItem)
@@ -237,8 +238,8 @@ class PrescriptionRepository:
         return list(result.scalars().all())
 
     async def update_diagnosis_if_draft(
-        self, prescription_id: uuid.UUID, doctor_id: uuid.UUID, diagnosis_note: Optional[str]
-    ) -> Optional[Prescription]:
+        self, prescription_id: uuid.UUID, doctor_id: uuid.UUID, diagnosis_note: str | None
+    ) -> Prescription | None:
         """Atomic compare-and-swap: only updates a row still in DRAFT owned by
         this doctor. Returns None on no match (caller disambiguates 404 vs 422
         via get_by_id_for_doctor)."""
@@ -257,7 +258,7 @@ class PrescriptionRepository:
 
     async def approve_if_draft(
         self, prescription_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Prescription]:
+    ) -> Prescription | None:
         """Atomic DRAFT -> APPROVED compare-and-swap, sets approved_at."""
         stmt = (
             update(Prescription)
@@ -274,7 +275,7 @@ class PrescriptionRepository:
 
     async def cancel_if_active(
         self, prescription_id: uuid.UUID, doctor_id: uuid.UUID
-    ) -> Optional[Prescription]:
+    ) -> Prescription | None:
         """Atomic DRAFT/APPROVED -> CANCELLED compare-and-swap."""
         stmt = (
             update(Prescription)
@@ -292,8 +293,8 @@ class PrescriptionRepository:
     # ── PrescriptionItem ──
 
     async def bulk_create_items(
-        self, prescription_id: uuid.UUID, items: List[Dict[str, Any]]
-    ) -> List[PrescriptionItem]:
+        self, prescription_id: uuid.UUID, items: list[dict[str, Any]]
+    ) -> list[PrescriptionItem]:
         """Insert multiple line items in one flush (single round trip, not a
         per-item loop) — used by atomic prescription creation."""
         if not items:
@@ -304,7 +305,7 @@ class PrescriptionRepository:
         return rows
 
     async def add_item(
-        self, prescription_id: uuid.UUID, fields: Dict[str, Any]
+        self, prescription_id: uuid.UUID, fields: dict[str, Any]
     ) -> PrescriptionItem:
         """Insert a single line item onto an existing prescription."""
         item = PrescriptionItem(prescription_id=prescription_id, **fields)
@@ -314,7 +315,7 @@ class PrescriptionRepository:
 
     async def get_item(
         self, item_id: uuid.UUID, prescription_id: uuid.UUID
-    ) -> Optional[PrescriptionItem]:
+    ) -> PrescriptionItem | None:
         """Fetch a single item scoped to its owning prescription — blocks an
         IDOR where a valid item_id from a different prescription is passed."""
         stmt = select(PrescriptionItem).where(
@@ -323,7 +324,7 @@ class PrescriptionRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_items(self, prescription_id: uuid.UUID) -> List[PrescriptionItem]:
+    async def get_items(self, prescription_id: uuid.UUID) -> list[PrescriptionItem]:
         """Fetch all items for one prescription. Rides
         idx_prescription_items_prescription_id."""
         stmt = (
@@ -335,8 +336,8 @@ class PrescriptionRepository:
         return list(result.scalars().all())
 
     async def get_items_for_prescriptions(
-        self, prescription_ids: List[uuid.UUID]
-    ) -> Dict[uuid.UUID, List[PrescriptionItem]]:
+        self, prescription_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[PrescriptionItem]]:
         """Batch-fetch items for many prescriptions in one query (IN clause)
         instead of one query per prescription — avoids N+1 on the list
         endpoint. Rides idx_prescription_items_prescription_id."""
@@ -348,13 +349,13 @@ class PrescriptionRepository:
             .order_by(PrescriptionItem.prescription_id, PrescriptionItem.created_at.asc())
         )
         result = await self._db.execute(stmt)
-        mapping: Dict[uuid.UUID, List[PrescriptionItem]] = {}
+        mapping: dict[uuid.UUID, list[PrescriptionItem]] = {}
         for item in result.scalars().all():
             mapping.setdefault(item.prescription_id, []).append(item)
         return mapping
 
     async def update_item(
-        self, item_id: uuid.UUID, fields: Dict[str, Any]
+        self, item_id: uuid.UUID, fields: dict[str, Any]
     ) -> PrescriptionItem:
         """Update a line item by ID. Caller must already hold the DRAFT lock
         via lock_for_items before calling this."""

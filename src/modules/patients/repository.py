@@ -1,13 +1,13 @@
 import logging
 import uuid
 from datetime import date, time
-from typing import List, Optional, Tuple
 
 from sqlalchemy import Exists, func, or_, select, update
-from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.auth.models import User
 from src.modules.patients.models import PatientProfile, PatientRoutine
 from src.modules.prescriptions.models import Prescription
@@ -54,10 +54,10 @@ class PatientRepository:
         self,
         user_id: uuid.UUID,
         name: str,
-        dob: Optional[date] = None,
-        sex: Optional[str] = None,
+        dob: date | None = None,
+        sex: str | None = None,
         timezone: str = "Asia/Ho_Chi_Minh",
-        emergency_note: Optional[str] = None,
+        emergency_note: str | None = None,
     ) -> PatientProfile:
         """Persist a new patient profile record."""
         profile = PatientProfile(
@@ -75,9 +75,9 @@ class PatientRepository:
     async def get_patient_with_user(
         self,
         user_id: uuid.UUID,
-        requesting_doctor_id: Optional[uuid.UUID] = None,
+        requesting_doctor_id: uuid.UUID | None = None,
         for_update: bool = False,
-    ) -> Optional[Tuple[PatientProfile, User]]:
+    ) -> tuple[PatientProfile, User] | None:
         """Fetch patient profile joined with user record in one query.
 
         requesting_doctor_id=None means unscoped (ADMIN). Otherwise the access
@@ -105,7 +105,7 @@ class PatientRepository:
 
     async def get_patient_by_phone(
         self, phone: str
-    ) -> Optional[Tuple[PatientProfile, User]]:
+    ) -> tuple[PatientProfile, User] | None:
         """Fetch patient profile and user record globally by phone (unscoped by doctor)."""
         stmt = (
             select(PatientProfile, User)
@@ -118,7 +118,7 @@ class PatientRepository:
             return None
         return row[0], row[1]
 
-    async def get_names_by_ids(self, patient_ids: List[uuid.UUID]) -> dict[uuid.UUID, str]:
+    async def get_names_by_ids(self, patient_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Batch name lookup for annotating a page of rows that reference
         patient_id (e.g. GET /alerts) without one query per row. Empty input
         short-circuits to an empty dict rather than issuing `WHERE ... IN ()`."""
@@ -132,11 +132,11 @@ class PatientRepository:
 
     async def list_patients(
         self,
-        doctor_id: Optional[uuid.UUID] = None,
+        doctor_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 10,
-        search: Optional[str] = None,
-    ) -> Tuple[List[Tuple[PatientProfile, User]], int]:
+        search: str | None = None,
+    ) -> tuple[list[tuple[PatientProfile, User]], int]:
         """Fetch paginated patient profiles joined with users.
 
         doctor_id=None means unscoped (ADMIN). Otherwise restricted to patients
@@ -150,11 +150,11 @@ class PatientRepository:
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
         if search and search.strip():
-            term = f"%{search.strip()}%"
+            term = contains_pattern(search)
             filters.append(
                 or_(
-                    PatientProfile.name.ilike(term),
-                    User.phone.ilike(term),
+                    PatientProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                    User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR),
                 )
             )
 
@@ -188,10 +188,10 @@ class PatientRepository:
         self,
         user_id: uuid.UUID,
         name: str,
-        dob: Optional[date] = None,
-        sex: Optional[str] = None,
+        dob: date | None = None,
+        sex: str | None = None,
         timezone: str = "Asia/Ho_Chi_Minh",
-        emergency_note: Optional[str] = None,
+        emergency_note: str | None = None,
     ) -> None:
         """Update self-onboarding profile fields for an existing patient row.
 
@@ -213,7 +213,7 @@ class PatientRepository:
 
     async def get_routine(
         self, patient_id: uuid.UUID, actor_id: uuid.UUID
-    ) -> Optional[PatientRoutine]:
+    ) -> PatientRoutine | None:
         """Fetch a patient's routine, single row by unique patient_id.
 
         Access is role-agnostic: a single user can simultaneously be the
@@ -242,7 +242,7 @@ class PatientRepository:
     async def upsert_routine(
         self,
         patient_id: uuid.UUID,
-        updates: dict[str, Optional[time]],
+        updates: dict[str, time | None],
     ) -> PatientRoutine:
         """Insert-or-update only the routine fields the caller actually sent.
 
@@ -286,12 +286,12 @@ class PatientRepository:
     async def update_routine(
         self,
         patient_id: uuid.UUID,
-        wake_time: Optional[time] = None,
-        breakfast_time: Optional[time] = None,
-        lunch_time: Optional[time] = None,
-        dinner_time: Optional[time] = None,
-        sleep_time: Optional[time] = None,
-    ) -> Optional[PatientRoutine]:
+        wake_time: time | None = None,
+        breakfast_time: time | None = None,
+        lunch_time: time | None = None,
+        dinner_time: time | None = None,
+        sleep_time: time | None = None,
+    ) -> PatientRoutine | None:
         """Update an existing routine row. Returns None if no row exists yet
         (caller treats that as "complete onboarding first" -> 404)."""
         stmt = (

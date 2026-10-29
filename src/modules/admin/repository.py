@@ -1,10 +1,11 @@
 import logging
 import uuid
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.admin.models import AuditLog, DoctorProfile
 from src.modules.auth.models import User
 
@@ -22,7 +23,7 @@ class DoctorRepository:
         user_id: uuid.UUID,
         name: str,
         license_no: str,
-        specialty: Optional[str] = None,
+        specialty: str | None = None,
     ) -> DoctorProfile:
         """Persist a new doctor profile record."""
         profile = DoctorProfile(
@@ -37,7 +38,7 @@ class DoctorRepository:
 
     async def get_doctor_with_user(
         self, user_id: uuid.UUID, for_update: bool = False
-    ) -> Optional[Tuple[DoctorProfile, User]]:
+    ) -> tuple[DoctorProfile, User] | None:
         """Fetch doctor profile joined with user record O(1)."""
         stmt = (
             select(DoctorProfile, User)
@@ -54,15 +55,15 @@ class DoctorRepository:
 
     async def get_doctor_by_license_no(
         self, license_no: str
-    ) -> Optional[DoctorProfile]:
+    ) -> DoctorProfile | None:
         """Fetch doctor profile by license number."""
         stmt = select(DoctorProfile).where(DoctorProfile.license_no == license_no)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_doctors(
-        self, page: int = 1, size: int = 10, search: Optional[str] = None
-    ) -> Tuple[List[Tuple[DoctorProfile, User]], int]:
+        self, page: int = 1, size: int = 10, search: str | None = None
+    ) -> tuple[list[tuple[DoctorProfile, User]], int]:
         """Fetch paginated doctor profiles joined with users.
 
         Count is a separate query rather than count().over() — the window
@@ -71,11 +72,11 @@ class DoctorRepository:
         """
         filter_clause = None
         if search and search.strip():
-            term = f"%{search.strip()}%"
+            term = contains_pattern(search)
             filter_clause = or_(
-                DoctorProfile.name.ilike(term),
-                User.phone.ilike(term),
-                DoctorProfile.license_no.ilike(term),
+                DoctorProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR),
+                DoctorProfile.license_no.ilike(term, escape=LIKE_ESCAPE_CHAR),
             )
 
         count_stmt = select(func.count(DoctorProfile.user_id)).join(
@@ -107,8 +108,8 @@ class DoctorRepository:
     async def update_doctor_profile(
         self,
         user_id: uuid.UUID,
-        name: Optional[str] = None,
-        specialty: Optional[str] = None,
+        name: str | None = None,
+        specialty: str | None = None,
     ) -> None:
         """Update doctor profile fields."""
         values: dict[str, Any] = {}
@@ -136,13 +137,13 @@ class AuditLogRepository:
         self,
         action: str,
         entity_type: str,
-        actor_user_id: Optional[uuid.UUID] = None,
-        entity_id: Optional[uuid.UUID] = None,
-        old_values: Optional[dict[str, Any]] = None,
-        new_values: Optional[dict[str, Any]] = None,
-        changed_fields: Optional[List[str]] = None,
-        ip_address: Optional[str] = None,
-        device_info: Optional[str] = None,
+        actor_user_id: uuid.UUID | None = None,
+        entity_id: uuid.UUID | None = None,
+        old_values: dict[str, Any] | None = None,
+        new_values: dict[str, Any] | None = None,
+        changed_fields: list[str] | None = None,
+        ip_address: str | None = None,
+        device_info: str | None = None,
     ) -> AuditLog:
         """Persist a new audit log record."""
         log = AuditLog(
@@ -165,9 +166,9 @@ class AuditLogRepository:
         self,
         page: int = 1,
         size: int = 10,
-        actor_id: Optional[uuid.UUID] = None,
-        entity_type: Optional[str] = None,
-    ) -> Tuple[List[AuditLog], int]:
+        actor_id: uuid.UUID | None = None,
+        entity_type: str | None = None,
+    ) -> tuple[list[AuditLog], int]:
         """Fetch paginated audit logs with optional filters.
 
         Count is a separate query rather than count().over() — the window

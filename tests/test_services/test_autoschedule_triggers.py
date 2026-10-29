@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.common.exceptions import NotFoundException
 from src.core.config import get_settings
-from src.modules.agents.service import AutoscheduleOutcome, SchedulingService
+from src.modules.agents.scheduling_service import AutoscheduleOutcome, SchedulingService
 from src.modules.patients.constants import DEFAULT_ROUTINE
 from src.modules.patients.schemas import UpdateRoutineRequest
 from src.modules.patients.service import PatientService
@@ -48,7 +48,6 @@ def _patient_service(patient_repository: MagicMock) -> PatientService:
         # AsyncMock, not MagicMock: update_routine awaits
         # auth_repository.clear_need_onboarding(...).
         auth_repository=AsyncMock(),
-        caregiver_repository=MagicMock(),
     )
 
 

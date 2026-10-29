@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.agents.nodes.classify_intent_node import classify_intent_node  # noqa: E402
+from src.chatbot.nodes.classify_intent_node import classify_intent_node  # noqa: E402
 
 
 async def main() -> int:

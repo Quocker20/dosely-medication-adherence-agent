@@ -15,7 +15,7 @@ from src.main import WEB_DIST, app
 
 def test_settings_load():
     settings = get_settings()
-    assert settings.app_name == "ADHE REMIND API"
+    assert settings.app_name == "Dosely API"
     assert settings.jwt_algorithm == "HS256"
     # Deliberately no assertion on postgres_host/redis_host: those differ
     # between a host-side run and a container, and nothing in the code reads
@@ -45,6 +45,20 @@ def test_jwt_tokens_phone_otp():
     refresh_payload = decode_token(refresh)
     assert refresh_payload["sub"] == "usr_01"
     assert refresh_payload["type"] == "refresh"
+
+
+def test_tokens_issued_in_same_second_are_unique():
+    """JWT iat/exp are whole seconds; without a random jti two tokens for the
+    same user issued in the same second were byte-identical, which collided on
+    refresh_tokens.token_hash (unique)."""
+    refresh_a = create_refresh_token(user_id="usr_01")
+    refresh_b = create_refresh_token(user_id="usr_01")
+    assert refresh_a != refresh_b
+    assert decode_token(refresh_a)["jti"] != decode_token(refresh_b)["jti"]
+
+    access_a = create_access_token(user_id="usr_01", role="DOCTOR", phone_number="+84912345678")
+    access_b = create_access_token(user_id="usr_01", role="DOCTOR", phone_number="+84912345678")
+    assert access_a != access_b
 
 
 def test_health_endpoint():

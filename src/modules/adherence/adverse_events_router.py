@@ -1,7 +1,9 @@
 import uuid
 from typing import Annotated
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.deps import get_db, require_roles
 from src.core.response import success_response
 from src.modules.adherence.adverse_events import AdverseEventService, CreateAdverseEventRequest

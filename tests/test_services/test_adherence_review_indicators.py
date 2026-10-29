@@ -13,7 +13,7 @@ tests/test_api/test_dashboard.py, since these queries have no per-test
 transaction isolation of their own (real commits against a shared DB).
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -133,8 +133,8 @@ class TestComputeWindowBounds:
         assert start.tzinfo is not None and end.tzinfo is not None
         # Asia/Ho_Chi_Minh is UTC+7 with no DST -- 2026-08-29 00:00 local is
         # 2026-08-28 17:00 UTC.
-        assert end == datetime(2026, 8, 28, 17, 0, tzinfo=timezone.utc)
-        assert start == datetime(2026, 8, 21, 17, 0, tzinfo=timezone.utc)
+        assert end == datetime(2026, 8, 28, 17, 0, tzinfo=UTC)
+        assert start == datetime(2026, 8, 21, 17, 0, tzinfo=UTC)
 
 
 class TestSeverityIndicators:
@@ -142,7 +142,7 @@ class TestSeverityIndicators:
     async def test_four_buckets_sum_to_total(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=1), status="TAKEN")
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=2), status="SKIPPED")
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=3), status="MISSED")
@@ -166,7 +166,7 @@ class TestSeverityIndicators:
     async def test_pending_within_grace_window_is_excluded_from_both_sides(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Due in 10 minutes -- still PENDING, well inside the 60-minute grace
         # window, must not count as due yet.
         await _add_dose(rx_id, patient_id, at=now + timedelta(minutes=10), status="PENDING")
@@ -182,7 +182,7 @@ class TestSeverityIndicators:
     @pytest.mark.asyncio
     async def test_patient_with_no_doses_produces_no_row(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with AsyncSessionLocal() as db:
             repo = AdherenceIndicatorRepository(db)
@@ -198,7 +198,7 @@ class TestSlotBreakdown:
     async def test_groups_by_slot_with_at_most_four_rows(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=1), status="MISSED", dose_slot="EVENING")
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=2), status="MISSED", dose_slot="EVENING")
         await _add_dose(rx_id, patient_id, at=now - timedelta(hours=3), status="TAKEN", dose_slot="MORNING")
@@ -222,7 +222,7 @@ class TestMedicationBreakdown:
     async def test_caps_at_top_n_by_miss_count(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         med_ids = [uuid.uuid4() for _ in range(3)]
         # med 0: 3 missed, med 1: 1 missed, med 2: 0 missed
         for i in range(3):
@@ -255,7 +255,7 @@ class TestMedicationBreakdown:
     async def test_legacy_null_medication_id_is_excluded(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await _add_dose(
             rx_id, patient_id, at=now - timedelta(hours=1), status="MISSED", medication_id=None
         )
@@ -274,7 +274,7 @@ class TestTrendIndicators:
     async def test_returns_prior_window_totals_only(self):
         patient_id = await _create_patient(PATIENT_A_PHONE, "Bệnh nhân A")
         rx_id = await _create_prescription(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         prior_at = now - timedelta(days=10)
         await _add_dose(rx_id, patient_id, at=prior_at, status="TAKEN")
 
@@ -300,7 +300,7 @@ class TestSymptomEvidence:
                     survey_date=today,
                     status="SUBMITTED",
                     answers_json={"blood_pressure": "should not appear"},
-                    submitted_at=datetime.now(timezone.utc),
+                    submitted_at=datetime.now(UTC),
                 )
                 db.add(survey)
                 await db.flush()

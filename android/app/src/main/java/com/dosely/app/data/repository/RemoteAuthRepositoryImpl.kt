@@ -11,12 +11,15 @@ import com.dosely.app.data.remote.DoselyApiService
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
 
 class RemoteAuthRepositoryImpl @Inject constructor(
     private val api: DoselyApiService,
     private val sessionStore: SessionStore,
     private val readableCacheCleaner: PatientReadableCacheCleaner = NoOpPatientReadableCacheCleaner,
+    private val fcmTokenProvider: FcmTokenProvider = NoFcmTokenProvider,
+    private val refreshLock: SessionRefreshLock = SessionRefreshLock(),
 ) : AuthRepository {
 
     override val session: StateFlow<AuthSession?> = sessionStore.session
@@ -46,15 +49,18 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshSession(): AuthSession {
+    override suspend fun refreshSession(): AuthSession = refreshLock.mutex.withLock {
+        // Read the session only once the lock is held: the OkHttp Authenticator
+        // may have just rotated the refresh token.
         val sessionBeforeRefresh = sessionStore.session.value ?: run {
             sessionStore.clear()
             throw IllegalStateException("Không có refresh token trong phiên đăng nhập.")
         }
-        return refreshSession(sessionBeforeRefresh)
+        refreshLocked(sessionBeforeRefresh)
     }
 
-    private suspend fun refreshSession(sessionBeforeRefresh: AuthSession): AuthSession {
+    /** Caller must hold [refreshLock]. */
+    private suspend fun refreshLocked(sessionBeforeRefresh: AuthSession): AuthSession {
         return try {
             val body = api.refreshToken(RefreshTokenRequestDto(sessionBeforeRefresh.refreshToken))
                 .requireData("làm mới phiên đăng nhập")
@@ -69,26 +75,35 @@ class RemoteAuthRepositoryImpl @Inject constructor(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
-            sessionStore.clearIfCurrent(sessionBeforeRefresh)
+            // Only a rejected refresh token (401/403) ends the session. Anything else
+            // (network, 5xx, parse errors) says nothing about the token: keep it.
+            if (error.isRefreshTokenRejected()) sessionStore.clearIfCurrent(sessionBeforeRefresh)
             throw error
         }
     }
 
+    private fun Exception.isRefreshTokenRejected(): Boolean =
+        this is HttpException && (code() == 401 || code() == 403)
+
     override suspend fun logout() {
         var sessionBeingLoggedOut = sessionStore.session.value ?: return
+        val fcmToken = runCatching { fcmTokenProvider.currentToken() }.getOrNull()
         try {
             try {
-                api.logout(LogoutRequestDto(sessionBeingLoggedOut.refreshToken))
+                api.logout(LogoutRequestDto(sessionBeingLoggedOut.refreshToken, fcmToken))
                     .requireSuccess("đăng xuất")
             } catch (error: HttpException) {
+                // 403: the token belongs to someone else, nothing to revoke. The local
+                // session is cleared below regardless, so treat it as logged out.
+                if (error.code() == 403) return
                 if (error.code() != 401) throw error
 
                 // Logout needs both a valid access token and the refresh token
                 // being revoked. Refresh explicitly so a retried request never
                 // carries the already-rotated token in its body.
-                val renewed = refreshSession(sessionBeingLoggedOut)
+                val renewed = refreshLock.mutex.withLock { refreshLocked(sessionBeingLoggedOut) }
                 sessionBeingLoggedOut = renewed
-                api.logout(LogoutRequestDto(renewed.refreshToken)).requireSuccess("đăng xuất")
+                api.logout(LogoutRequestDto(renewed.refreshToken, fcmToken)).requireSuccess("đăng xuất")
             }
         } finally {
             runCatching { readableCacheCleaner.clearReadableCache(sessionBeingLoggedOut.patientId) }

@@ -25,9 +25,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
-from datetime import timezone as dt_timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Exists, func, or_, select, update
@@ -39,8 +38,7 @@ from src.modules.adherence_review.models import AdherenceReview
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
 from src.modules.patients.models import PatientProfile
-from src.modules.prescriptions.models import Prescription
-from src.modules.prescriptions.models import PrescriptionItem
+from src.modules.prescriptions.models import Prescription, PrescriptionItem
 
 
 def compute_window_bounds(
@@ -56,7 +54,7 @@ def compute_window_bounds(
     tz = ZoneInfo(timezone_name)
     end_local = datetime.combine(today_local, time.min, tzinfo=tz)
     start_local = end_local - timedelta(days=window_days)
-    return start_local.astimezone(dt_timezone.utc), end_local.astimezone(dt_timezone.utc)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
 
 
 @dataclass(frozen=True)
@@ -151,7 +149,7 @@ class AdherenceIndicatorRepository:
 
     async def get_severity_indicators(
         self, range_start: datetime, range_end: datetime, overdue_minutes: int
-    ) -> List[SeverityIndicators]:
+    ) -> list[SeverityIndicators]:
         """One row per patient with at least one due dose in the window.
         A patient with zero scheduled doses (no prescriptions, or nothing
         due yet) produces no row at all — Stage 4's min-dose floor narrows
@@ -191,7 +189,7 @@ class AdherenceIndicatorRepository:
 
     async def get_trend_indicators(
         self, range_start: datetime, range_end: datetime, overdue_minutes: int
-    ) -> Dict[uuid.UUID, TrendIndicators]:
+    ) -> dict[uuid.UUID, TrendIndicators]:
         """Same shape as get_severity_indicators over the prior window
         (caller passes [D-2W, D-W)), total+taken only. One extra query for
         the whole population, not one per patient."""
@@ -213,7 +211,7 @@ class AdherenceIndicatorRepository:
 
     async def get_slot_breakdown(
         self, range_start: datetime, range_end: datetime, overdue_minutes: int
-    ) -> Dict[uuid.UUID, List[SlotBreakdown]]:
+    ) -> dict[uuid.UUID, list[SlotBreakdown]]:
         """<=4 rows per patient (MORNING/NOON/EVENING/BEDTIME). Remedy-side
         only — never read by the severity rules in Stage 4."""
         stmt = (
@@ -234,7 +232,7 @@ class AdherenceIndicatorRepository:
             .group_by(ScheduledDose.patient_id, ScheduledDose.dose_slot)
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[uuid.UUID, List[SlotBreakdown]] = {}
+        grouped: dict[uuid.UUID, list[SlotBreakdown]] = {}
         for row in result.all():
             grouped.setdefault(row.patient_id, []).append(
                 SlotBreakdown(dose_slot=row.dose_slot, total=row.total, missed=row.missed)
@@ -247,7 +245,7 @@ class AdherenceIndicatorRepository:
         range_end: datetime,
         overdue_minutes: int,
         top_n: int = 5,
-    ) -> Dict[uuid.UUID, List[MedicationBreakdown]]:
+    ) -> dict[uuid.UUID, list[MedicationBreakdown]]:
         """Grouped by (patient, medication_id), display_name read from
         PrescriptionItem (a real FK via prescription_item_id) rather than
         the medications catalog — medication_id itself carries no FK
@@ -279,7 +277,7 @@ class AdherenceIndicatorRepository:
             .group_by(ScheduledDose.patient_id, ScheduledDose.medication_id)
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[uuid.UUID, List[MedicationBreakdown]] = {}
+        grouped: dict[uuid.UUID, list[MedicationBreakdown]] = {}
         for row in result.all():
             grouped.setdefault(row.patient_id, []).append(
                 MedicationBreakdown(
@@ -296,7 +294,7 @@ class AdherenceIndicatorRepository:
 
     async def get_symptom_evidence(
         self, window_start: date, window_end: date
-    ) -> Dict[uuid.UUID, List[SymptomEvidence]]:
+    ) -> dict[uuid.UUID, list[SymptomEvidence]]:
         """Explicit join, not selectinload: HealthSurvey.symptom_reports is
         lazy="raise". Rides idx_health_surveys_date_id, no new index needed.
         Only symptom_code/severity selected — answers_json and free-text
@@ -316,7 +314,7 @@ class AdherenceIndicatorRepository:
             )
         )
         result = await self._db.execute(stmt)
-        grouped: Dict[uuid.UUID, List[SymptomEvidence]] = {}
+        grouped: dict[uuid.UUID, list[SymptomEvidence]] = {}
         for row in result.all():
             grouped.setdefault(row.patient_id, []).append(
                 SymptomEvidence(
@@ -327,7 +325,7 @@ class AdherenceIndicatorRepository:
             )
         return grouped
 
-    async def get_prior_reviews(self, cutoff_date: date) -> Dict[uuid.UUID, PriorReview]:
+    async def get_prior_reviews(self, cutoff_date: date) -> dict[uuid.UUID, PriorReview]:
         """Each patient's single most recent review at or after cutoff_date,
         via DISTINCT ON — one query for the whole population. Rides
         idx_adherence_reviews_patient_date_desc. A patient absent from the
@@ -355,8 +353,8 @@ class AdherenceIndicatorRepository:
         }
 
     async def get_patient_roster(
-        self, patient_ids: List[uuid.UUID]
-    ) -> Dict[uuid.UUID, PatientRosterEntry]:
+        self, patient_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, PatientRosterEntry]:
         """Name/timezone/status for exactly the patients Query 1 already
         found to have due doses this window — not the whole patient_profiles
         table, and not one lookup per patient."""
@@ -407,7 +405,7 @@ class AdherenceReviewRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def insert_review(self, fields: Dict[str, Any]) -> AdherenceReview:
+    async def insert_review(self, fields: dict[str, Any]) -> AdherenceReview:
         """Insert with alert_id/notification_delivery_id left unset (both
         nullable FKs, default NULL) -- the caller fills them in afterward via
         link_alert_and_notification, once the alert/notification rows this
@@ -424,8 +422,8 @@ class AdherenceReviewRepository:
     async def link_alert_and_notification(
         self,
         review_id: uuid.UUID,
-        alert_id: Optional[uuid.UUID],
-        notification_delivery_id: Optional[uuid.UUID],
+        alert_id: uuid.UUID | None,
+        notification_delivery_id: uuid.UUID | None,
     ) -> None:
         """Second statement in the same transaction as insert_review, once
         the alert/notification it references have been created."""
@@ -442,7 +440,7 @@ class AdherenceReviewRepository:
         actor_id: uuid.UUID,
         page: int = 1,
         size: int = 10,
-    ) -> Tuple[List[AdherenceReview], int]:
+    ) -> tuple[list[AdherenceReview], int]:
         """Newest first, access-scoped the same way as adherence logs and
         health surveys (self / doctor-prescribed / active-caregiver).
         Out-of-scope returns an empty page, matching

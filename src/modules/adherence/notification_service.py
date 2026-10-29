@@ -1,11 +1,16 @@
 """Notification dispatch service for consolidated dose reminders."""
 import hashlib
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from kombu.exceptions import KombuError
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import get_settings
 from src.modules.adherence.models import NotificationDelivery
 from src.modules.adherence.repository import NotificationRepository
 from src.modules.agents.repository import ScheduledDoseRepository
@@ -18,6 +23,16 @@ logger = logging.getLogger(__name__)
 # them, so "has no linked doses" cannot distinguish a stale reminder from an
 # alert delivery, which must never be held back.
 DOSE_REMINDER_TEMPLATE_CODE = "DOSE_REMINDER_GROUPED"
+
+DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh"
+
+# What Celery's .delay() raises when the Redis broker is unreachable (kombu
+# wraps connection errors in OperationalError; raw redis/OS errors can leak).
+ENQUEUE_ERRORS = (KombuError, RedisError, OSError)
+
+# Re-enqueues allowed without progress before a delivery is FAILED. Backoff is
+# notification_requeue_after_minutes * 2**requeue_count (2, 4, 8 min by default).
+MAX_REQUEUES = 3
 
 
 class NotificationDispatchService:
@@ -35,7 +50,7 @@ class NotificationDispatchService:
         self._notif_repo = notification_repository
 
     @staticmethod
-    def _merge_doses(doses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_doses(doses: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge duplicate medications by name, summing their dose_value.
 
         E.g. two entries of Metformin 500mg (1 viên each) become one entry
@@ -44,7 +59,7 @@ class NotificationDispatchService:
         from collections import OrderedDict
         from decimal import Decimal
 
-        merged: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        merged: OrderedDict[str, dict[str, Any]] = OrderedDict()
         for d in doses:
             name = d.get("medication_name") or "thuốc"
             unit = d.get("dose_unit") or "viên"
@@ -63,20 +78,22 @@ class NotificationDispatchService:
 
     @staticmethod
     def format_notification_text(
-        scheduled_at: datetime, doses: List[Dict[str, Any]], timezone_str: str = "Asia/Ho_Chi_Minh"
-    ) -> Tuple[str, str]:
+        scheduled_at: datetime, doses: list[dict[str, Any]], timezone_str: str | None = DEFAULT_TIMEZONE
+    ) -> tuple[str, str]:
         """Generate user-friendly title and consolidated message body.
 
-        Merges duplicate medications by name and converts UTC to local timezone.
+        Merges duplicate medications by name and converts UTC to the patient's
+        timezone. An unknown/invalid timezone falls back to Vietnam time (the
+        deployment's market), never UTC, and logs a warning (audit O-04).
         """
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=UTC)
         try:
-            from zoneinfo import ZoneInfo
-            if scheduled_at.tzinfo is None:
-                local_dt = scheduled_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(timezone_str))
-            else:
-                local_dt = scheduled_at.astimezone(ZoneInfo(timezone_str))
-        except Exception:
-            local_dt = scheduled_at
+            zone = ZoneInfo(timezone_str or DEFAULT_TIMEZONE)
+        except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError, OSError):
+            logger.warning("Invalid patient timezone %r; using %s for reminder text", timezone_str, DEFAULT_TIMEZONE)
+            zone = ZoneInfo(DEFAULT_TIMEZONE)
+        local_dt = scheduled_at.astimezone(zone)
 
         time_str = local_dt.strftime("%H:%M")
 
@@ -109,31 +126,36 @@ class NotificationDispatchService:
 
     async def create_consolidated_reminders(
         self, cutoff: datetime
-    ) -> List[NotificationDelivery]:
+    ) -> list[NotificationDelivery]:
         """Scan all PENDING doses due at or before cutoff, group by (patient_id, current_scheduled_at),
         and persist consolidated notification deliveries with junction items."""
-        grouped = await self._dose_repo.get_due_dose_groups(cutoff)
-        new_deliveries: List[NotificationDelivery] = []
-        final_deliveries: List[NotificationDelivery] = []
+        # Doses overdue by more than missed_dose_overdue_minutes belong to the
+        # missed-dose scan (audit P-02); never look further back than that.
+        not_before = cutoff - timedelta(minutes=get_settings().missed_dose_overdue_minutes)
+        grouped = await self._dose_repo.get_due_dose_groups(cutoff, not_before=not_before)
+        new_deliveries: list[NotificationDelivery] = []
+        final_deliveries: list[NotificationDelivery] = []
 
-        # 1. Tạo các bản ghi delivery
+        # 1. Build every group's idempotency key, then look them all up in one query.
+        prepared: list[tuple[uuid.UUID, datetime, list[dict[str, Any]], list[uuid.UUID], str]] = []
         for (patient_id, scheduled_at), doses in grouped.items():
             dose_ids = [d["scheduled_dose_id"] for d in doses]
-            title, body = self.format_notification_text(scheduled_at, doses)
             sorted_dose_ids_str = ",".join(sorted(str(d_id) for d_id in dose_ids))
             doses_hash = hashlib.sha256(sorted_dose_ids_str.encode("utf-8")).hexdigest()[:16]
-            idempotency_key = (
-                f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{doses_hash}"
-            )
+            idempotency_key = f"notif:dose_group:{patient_id}:{scheduled_at.isoformat()}:{doses_hash}"
+            prepared.append((patient_id, scheduled_at, doses, dose_ids, idempotency_key))
+        existing_by_key = await self._notif_repo.get_deliveries_by_idempotency_keys(
+            [key for *_, key in prepared]
+        )
 
-            existing = await self._notif_repo.get_delivery_by_idempotency_key(
-                idempotency_key
-            )
+        for patient_id, scheduled_at, doses, dose_ids, idempotency_key in prepared:
+            existing = existing_by_key.get(idempotency_key)
             if existing is not None:
                 final_deliveries.append(existing)
                 continue
 
-            delivery = await self._notif_repo.create_grouped_delivery(
+            title, body = self.format_notification_text(scheduled_at, doses, doses[0].get("timezone"))
+            delivery, created = await self._notif_repo.create_grouped_delivery(
                 recipient_user_id=patient_id,
                 channel="APP_NOTIFICATION",
                 template_code="DOSE_REMINDER_GROUPED",
@@ -144,20 +166,72 @@ class NotificationDispatchService:
                 metadata={"dose_ids": [str(d_id) for d_id in dose_ids]},
                 idempotency_key=idempotency_key,
             )
-            new_deliveries.append(delivery)
+            if created:
+                new_deliveries.append(delivery)
             final_deliveries.append(delivery)
 
         if new_deliveries:
             await self._db.commit()
 
         # 2. Enqueue Celery task gửi push notification cho các delivery mới tạo
+        # Only broker/connectivity failures are tolerated (the committed row is
+        # re-enqueued by requeue_stale_deliveries); a bug must not be masked.
         if new_deliveries:
-            try:
-                from src.modules.agents.tasks import send_notification_task
+            from src.modules.agents.tasks import send_notification_task
 
-                for delivery in new_deliveries:
+            for delivery in new_deliveries:
+                try:
                     send_notification_task.delay(str(delivery.id))
-            except Exception as exc:
-                logger.error("Failed to enqueue send_notification_task: %s", exc)
+                except ENQUEUE_ERRORS:
+                    logger.error("Failed to enqueue send_notification_task for delivery %s", delivery.id, exc_info=True)
 
         return final_deliveries
+
+    async def requeue_stale_deliveries(self, now: datetime) -> list[uuid.UUID]:
+        """Re-enqueue deliveries whose Celery message was lost (audit O-01).
+
+        There is no outbox: the task is enqueued after the delivery row commits,
+        so a crash or broker blip in between leaves a QUEUED row nobody sends.
+        A delivery whose worker died mid-send is stuck in SENDING and is treated
+        the same way once it is older than the stale threshold. Re-enqueueing is
+        safe because send_notification atomically claims the row first.
+        """
+        settings = get_settings()
+        stale = await self._notif_repo.list_stale_delivery_ids(
+            now,
+            queued_after=timedelta(minutes=settings.notification_requeue_after_minutes),
+            stale_after=timedelta(minutes=settings.notification_sending_stale_minutes),
+            lookback=timedelta(hours=settings.notification_requeue_lookback_hours),
+        )
+        if not stale:
+            return []
+
+        stale_ids = [d for d, count in stale if count < MAX_REQUEUES]
+        exhausted_ids = [d for d, count in stale if count >= MAX_REQUEUES]
+        if exhausted_ids:
+            await self._notif_repo.mark_requeue_exhausted(
+                exhausted_ids, now, f"no progress after {MAX_REQUEUES} requeues"
+            )
+            logger.warning(
+                "Marked %d notification deliveries FAILED after %d requeues without progress: %s",
+                len(exhausted_ids),
+                MAX_REQUEUES,
+                [str(d) for d in exhausted_ids],
+            )
+
+        # Stamp before enqueueing and commit, so overlapping/next scans skip
+        # these rows while the messages sit in a backed-up queue.
+        await self._notif_repo.mark_requeued(stale_ids, now)
+        await self._db.commit()
+
+        from src.modules.agents.tasks import send_notification_task
+
+        enqueued: list[uuid.UUID] = []
+        for delivery_id in stale_ids:
+            try:
+                send_notification_task.delay(str(delivery_id))
+                enqueued.append(delivery_id)
+            except ENQUEUE_ERRORS:
+                logger.error("Failed to re-enqueue delivery %s", delivery_id, exc_info=True)
+        logger.info("Re-enqueued %d stale notification deliveries", len(enqueued))
+        return enqueued

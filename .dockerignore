@@ -1,8 +1,14 @@
 .git
 .gitignore
 .env
+.env.*
+firebase-adminsdk.json
 .venv
+.venv*
 .venv313
+.codegraph
+.claude
+.github
 .tools
 __pycache__
 *.pyc
@@ -12,13 +18,20 @@ web/node_modules
 web/dist
 .ruff_cache
 docs/
+downloads/
+android/
+tests/
 presentation/
 eval/
 *.md
 !requirements.txt
+requirements-dev.txt
+requirements.in
 .dockerignore
 Dockerfile
 docker-compose.yml
+docker-compose.test.yml
+Caddyfile
 
 # Keep the production RAG index, exclude OCR sources and alternate indexes.
 data/*

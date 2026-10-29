@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, time
-from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -9,10 +9,10 @@ class CreatePatientByDoctorRequest(BaseModel):
 
     phone: str = Field(..., pattern=r"^\+?[0-9]{9,15}$")
     name: str = Field(..., max_length=255)
-    dob: Optional[date] = None
-    sex: Optional[str] = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
+    dob: date | None = None
+    sex: str | None = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
     timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=50)
-    emergency_note: Optional[str] = None
+    emergency_note: str | None = None
 
 
 class PatientDetailResponse(BaseModel):
@@ -29,11 +29,11 @@ class PatientDetailResponse(BaseModel):
     role: str = "PATIENT"
     status: str
     name: str
-    dob: Optional[date] = None
-    sex: Optional[str] = None
+    dob: date | None = None
+    sex: str | None = None
     timezone: str
-    privacy_consent_status: Optional[str] = None
-    emergency_note: Optional[str] = None
+    privacy_consent_status: str | None = None
+    emergency_note: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -55,11 +55,11 @@ class CreatePatientResponse(BaseModel):
 class UpdateRoutineRequest(BaseModel):
     """Request schema for setting/updating patient daily routine timestamps."""
 
-    wake_time: Optional[time] = None
-    breakfast_time: Optional[time] = None
-    lunch_time: Optional[time] = None
-    dinner_time: Optional[time] = None
-    sleep_time: Optional[time] = None
+    wake_time: time | None = None
+    breakfast_time: time | None = None
+    lunch_time: time | None = None
+    dinner_time: time | None = None
+    sleep_time: time | None = None
 
 
 class PatientRoutineResponse(BaseModel):
@@ -72,11 +72,11 @@ class PatientRoutineResponse(BaseModel):
 
     id: uuid.UUID
     patient_id: uuid.UUID
-    wake_time: Optional[time] = None
-    breakfast_time: Optional[time] = None
-    lunch_time: Optional[time] = None
-    dinner_time: Optional[time] = None
-    sleep_time: Optional[time] = None
+    wake_time: time | None = None
+    breakfast_time: time | None = None
+    lunch_time: time | None = None
+    dinner_time: time | None = None
+    sleep_time: time | None = None
     updated_at: datetime
 
 
@@ -87,10 +87,10 @@ class PatientOnboardingRequest(BaseModel):
     """
 
     name: str = Field(..., max_length=255)
-    dob: Optional[date] = None
-    sex: Optional[str] = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
+    dob: date | None = None
+    sex: str | None = Field(None, pattern=r"^(MALE|FEMALE|OTHER)$")
     timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=50)
-    emergency_note: Optional[str] = None
+    emergency_note: str | None = None
     routine: UpdateRoutineRequest
 
 

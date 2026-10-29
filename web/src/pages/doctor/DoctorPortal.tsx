@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, api } from "../../api";
+import { connectSessionRealtime } from "../../api/realtime";
 import GuardBanner from "../../components/shared/GuardBanner";
 import { useTheme } from "../../hooks/useTheme";
 import { useToasts } from "../../hooks/useToasts";
@@ -140,39 +141,26 @@ export default function DoctorPortal({ session, view, onViewChange, patientDetai
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  // WS /ws/dashboard nằm ngoài /api/v1 và nhận token qua query — browser
-  // WebSocket không set được header Authorization.
-  //
-  // Vercel không proxy được WebSocket qua rewrite (chỉ HTTP thường), nên khi
-  // deploy tách domain (web ở Vercel, backend ở nơi khác) phải nối thẳng vào
-  // backend qua VITE_WS_HOST thay vì same-origin. Để trống thì dùng
-  // window.location.host như cũ — đúng cho dev/khi web và backend cùng origin.
+  // WS /ws/dashboard nằm ngoài /api/v1. Token gửi bằng tin nhắn auth đầu tiên
+  // (browser WebSocket không set được header, và query token đã bị bỏ). Vercel
+  // không proxy WebSocket nên deploy tách domain nối thẳng backend qua VITE_WS_HOST
+  // (xem api/realtime.ts). Phụ thuộc theo user, không theo access token: token
+  // đổi thì helper tự re-auth trên socket đang mở.
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = import.meta.env.VITE_WS_HOST || window.location.host;
-    const url = `${protocol}//${wsHost}/ws/dashboard?token=${encodeURIComponent(session.accessToken)}`;
-
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(url);
-    } catch {
-      return;
-    }
-
-    socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data) as { event_type?: string };
-        if (payload.event_type === "alert.opened") {
-          setEmergencyNotification(true);
-        }
-      } catch {
-        // Plain event frame
-      }
-      refresh().catch(() => {});
-    };
-
-    return () => socket.close();
-  }, [session.accessToken, refresh]);
+    return connectSessionRealtime(
+      "/ws/dashboard",
+      {
+        onEvent: (payload) => {
+          if (payload.event_type === "alert.opened") {
+            setEmergencyNotification(true);
+          }
+          refresh().catch(() => {});
+        },
+      },
+      session.accessToken,
+    );
+    // Cố ý không phụ thuộc session.accessToken (xem ghi chú trên).
+  }, [session.user.id, refresh]);
 
 
   async function acknowledgeAlert(id: string) {

@@ -896,21 +896,33 @@ class ScheduledDoseRepository:
             grouped.setdefault(patient_id, []).append({"status": status})
         return grouped
 
-    async def get_due_dose_groups(self, cutoff: datetime) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
-        """Fetch all PENDING doses due at or before cutoff, grouped by
+    async def get_due_dose_groups(
+        self, cutoff: datetime, *, not_before: datetime | None = None
+    ) -> dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]]:
+        """Fetch PENDING doses due in [not_before, cutoff], grouped by
         (patient_id, current_scheduled_at). Each group contains the individual
         scheduled doses with medication display name and dosage snapshot,
-        ready for consolidating into a single push notification delivery."""
+        ready for consolidating into a single push notification delivery.
+
+        not_before (audit P-02) keeps the scan from re-reading every overdue
+        dose in the table each minute. Callers must pass a bound no tighter
+        than missed_dose_overdue_minutes: anything older is the missed-dose
+        scan's job, so nothing reminder-worthy is skipped."""
+        conditions = [
+            ScheduledDose.status == "PENDING",
+            ScheduledDose.current_scheduled_at <= cutoff,
+        ]
+        if not_before is not None:
+            conditions.append(ScheduledDose.current_scheduled_at >= not_before)
         stmt = (
-            select(ScheduledDose, PrescriptionItem.display_name)
+            select(ScheduledDose, PrescriptionItem.display_name, PatientProfile.timezone)
             .join(
                 PrescriptionItem,
                 ScheduledDose.prescription_item_id == PrescriptionItem.id,
             )
-            .where(
-                ScheduledDose.status == "PENDING",
-                ScheduledDose.current_scheduled_at <= cutoff,
-            )
+            # The patient's timezone rides along with the batch (audit O-04): no per-patient lookup.
+            .outerjoin(PatientProfile, PatientProfile.user_id == ScheduledDose.patient_id)
+            .where(*conditions)
             .order_by(
                 ScheduledDose.patient_id,
                 ScheduledDose.current_scheduled_at,
@@ -919,7 +931,7 @@ class ScheduledDoseRepository:
         )
         result = await self._db.execute(stmt)
         grouped: dict[tuple[uuid.UUID, datetime], list[dict[str, Any]]] = {}
-        for dose, medication_name in result.all():
+        for dose, medication_name, patient_timezone in result.all():
             key = (dose.patient_id, dose.current_scheduled_at)
             grouped.setdefault(key, []).append(
                 {
@@ -934,6 +946,27 @@ class ScheduledDoseRepository:
                     "meal_relation": dose.meal_relation,
                     "snooze_count": dose.snooze_count,
                     "status": dose.status,
+                    "timezone": patient_timezone,
                 }
             )
         return grouped
+
+    async def count_statuses_in_window(
+        self, patient_ids: list[uuid.UUID], start: datetime, end: datetime
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Per-patient dose counts by status for doses scheduled in [start, end]: one GROUP BY."""
+        if not patient_ids:
+            return {}
+        result = await self._db.execute(
+            select(ScheduledDose.patient_id, ScheduledDose.status, func.count())
+            .where(
+                ScheduledDose.patient_id.in_(patient_ids),
+                ScheduledDose.current_scheduled_at >= start,
+                ScheduledDose.current_scheduled_at <= end,
+            )
+            .group_by(ScheduledDose.patient_id, ScheduledDose.status)
+        )
+        counts: dict[uuid.UUID, dict[str, int]] = {}
+        for patient_id, status, n in result.all():
+            counts.setdefault(patient_id, {})[status] = int(n)
+        return counts

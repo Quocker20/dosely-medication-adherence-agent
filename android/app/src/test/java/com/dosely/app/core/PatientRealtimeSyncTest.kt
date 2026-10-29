@@ -4,16 +4,19 @@ import android.app.Application
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.dosely.app.data.repository.AuthRepository
 import com.dosely.app.data.repository.AuthSession
 import com.dosely.app.data.repository.SessionPersistence
 import com.dosely.app.data.repository.SessionStore
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.WebSocket
@@ -23,6 +26,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -44,6 +48,7 @@ class PatientRealtimeSyncTest {
     private lateinit var server: MockWebServer
     private lateinit var client: OkHttpClient
     private lateinit var sessionStore: SessionStore
+    private lateinit var authRepository: RefreshingAuthRepository
     private lateinit var sync: PatientRealtimeSync
     private lateinit var owner: FakeLifecycleOwner
     private val collectorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -64,7 +69,9 @@ class PatientRealtimeSyncTest {
         server.start()
         client = OkHttpClient()
         sessionStore = SessionStore(FixedSessionPersistence(session))
-        sync = PatientRealtimeSync(client, sessionStore, server.url("/api/v1/"))
+        authRepository = RefreshingAuthRepository(sessionStore)
+        sync = PatientRealtimeSync(client, sessionStore, server.url("/api/v1/"), authRepository)
+        sync.reconnectBaseDelayMs = 100L
         owner = FakeLifecycleOwner()
     }
 
@@ -80,22 +87,25 @@ class PatientRealtimeSyncTest {
     }
 
     @Test
-    fun `foregrounding connects and emits both realtime events once the socket opens`() {
+    fun `connects without a token in the URL, authenticates first, and emits events only after auth_ok`() {
         val events = collectEvents()
-
-        server.enqueue(MockResponse().withWebSocketUpgrade(AcceptingServerListener()))
+        val received = CopyOnWriteArrayList<String>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(AuthenticatingServerListener(received)))
         sync.onStart(owner)
 
         val request = server.takeRequest(5, TimeUnit.SECONDS)
         assertTrue("expected a /ws/patient connection attempt", request != null)
-        assertTrue(request!!.path!!.startsWith("/ws/patient"))
-        assertTrue(request.path!!.contains("token=access-token"))
+        assertEquals("/ws/patient", request!!.path)
+        assertFalse(request.path!!.contains("token"))
 
         awaitEvents(events, count = 2, timeoutMs = 3_000)
         assertEquals(
             listOf(PatientRealtimeEventType.ROUTINE_UPDATED, PatientRealtimeEventType.SCHEDULE_UPDATED),
             events.map { it.type },
         )
+        val auth = JSONObject(received.first())
+        assertEquals("auth", auth.getString("type"))
+        assertEquals("access-token", auth.getString("token"))
     }
 
     @Test
@@ -104,12 +114,12 @@ class PatientRealtimeSyncTest {
         val serverSocket = CopyOnWriteArrayList<WebSocket>()
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
-                AcceptingServerListener(onOpen = { ws -> serverSocket.add(ws) }),
+                AuthenticatingServerListener(onOpen = { ws -> serverSocket.add(ws) }),
             ),
         )
         sync.onStart(owner)
         server.takeRequest(5, TimeUnit.SECONDS)
-        awaitEvents(events, count = 2, timeoutMs = 3_000) // the onOpen ROUTINE/SCHEDULE pair
+        awaitEvents(events, count = 2, timeoutMs = 3_000) // the post-auth ROUTINE/SCHEDULE pair
         events.clear()
 
         val frame = JSONObject().apply {
@@ -129,7 +139,7 @@ class PatientRealtimeSyncTest {
         val serverSocket = CopyOnWriteArrayList<WebSocket>()
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
-                AcceptingServerListener(onOpen = { ws -> serverSocket.add(ws) }),
+                AuthenticatingServerListener(onOpen = { ws -> serverSocket.add(ws) }),
             ),
         )
         sync.onStart(owner)
@@ -149,30 +159,77 @@ class PatientRealtimeSyncTest {
     }
 
     @Test
+    fun `control frames such as pong are ignored`() {
+        val events = collectEvents()
+        val serverSocket = CopyOnWriteArrayList<WebSocket>()
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                AuthenticatingServerListener(onOpen = { ws -> serverSocket.add(ws) }),
+            ),
+        )
+        sync.onStart(owner)
+        server.takeRequest(5, TimeUnit.SECONDS)
+        awaitEvents(events, count = 2, timeoutMs = 3_000)
+        events.clear()
+
+        awaitCondition(timeoutMs = 3_000) { serverSocket.isNotEmpty() }
+        serverSocket.first().send("""{"type":"pong"}""")
+
+        Thread.sleep(300)
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
     fun `backgrounding closes the socket and does not reconnect`() {
-        server.enqueue(MockResponse().withWebSocketUpgrade(AcceptingServerListener()))
+        server.enqueue(MockResponse().withWebSocketUpgrade(AuthenticatingServerListener()))
         sync.onStart(owner)
         assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
 
         sync.onStop(owner)
 
         // Give the (never-scheduled) reconnect a generous window to prove it does not happen.
-        val secondRequest = server.takeRequest(3, TimeUnit.SECONDS)
+        val secondRequest = server.takeRequest(2, TimeUnit.SECONDS)
         assertNull("backgrounded sync must not reconnect", secondRequest)
     }
 
     @Test
-    fun `a server-initiated close while foregrounded triggers a reconnect`() {
-        server.enqueue(MockResponse().withWebSocketUpgrade(ClosingServerListener()))
-        server.enqueue(MockResponse().withWebSocketUpgrade(AcceptingServerListener()))
+    fun `a server-initiated close while foregrounded triggers a reconnect with backoff`() {
+        server.enqueue(MockResponse().withWebSocketUpgrade(ClosingServerListener(1000)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(AuthenticatingServerListener()))
 
         sync.onStart(owner)
         val first = server.takeRequest(5, TimeUnit.SECONDS)
         assertTrue(first != null)
 
-        // PatientRealtimeSync waits ~2s before reconnecting; give it headroom.
         val second = server.takeRequest(6, TimeUnit.SECONDS)
         assertTrue("expected an automatic reconnect after the server closed the socket", second != null)
+    }
+
+    @Test
+    fun `close 4401 refreshes the session then reconnects with the new access token`() {
+        val received = CopyOnWriteArrayList<String>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(ClosingServerListener(4401)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(AuthenticatingServerListener(received)))
+
+        sync.onStart(owner)
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        assertTrue("expected a reconnect after 4401", server.takeRequest(6, TimeUnit.SECONDS) != null)
+
+        assertEquals(1, authRepository.refreshCalls.get())
+        awaitCondition(timeoutMs = 3_000) { received.isNotEmpty() }
+        assertEquals("access-after-refresh", JSONObject(received.first()).getString("token"))
+    }
+
+    @Test
+    fun `close 4403 stops without refreshing or reconnecting`() {
+        server.enqueue(MockResponse().withWebSocketUpgrade(ClosingServerListener(4403)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(AuthenticatingServerListener()))
+
+        sync.onStart(owner)
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+
+        assertNull("4403 must not reconnect", server.takeRequest(2, TimeUnit.SECONDS))
+        assertEquals(0, authRepository.refreshCalls.get())
     }
 
     private fun collectEvents(): CopyOnWriteArrayList<PatientRealtimeEvent> {
@@ -210,12 +267,44 @@ private class FakeLifecycleOwner : LifecycleOwner {
     override val lifecycle: Lifecycle get() = registry
 }
 
-/** Accepts the WS upgrade and does nothing else unless [onOpen] is supplied. */
-private class AcceptingServerListener(
+/** refreshSession() rotates the stored session to a fresh access token, like the real repository. */
+private class RefreshingAuthRepository(private val store: SessionStore) : AuthRepository {
+    val refreshCalls = AtomicInteger()
+    override val session: StateFlow<AuthSession?> = store.session
+
+    override suspend fun refreshSession(): AuthSession {
+        refreshCalls.incrementAndGet()
+        val renewed = store.session.value!!.copy(
+            accessToken = "access-after-refresh",
+            refreshToken = "refresh-after-refresh",
+        )
+        store.update(renewed)
+        return renewed
+    }
+
+    override suspend fun login(phone: String, pin: String): AuthSession = error("Not used")
+    override suspend fun changePin(accessToken: String, currentPin: String, newPin: String) = error("Not used")
+    override suspend fun logout() = error("Not used")
+    override suspend fun registerDeviceToken(fcmToken: String, deviceName: String?) = Unit
+}
+
+/**
+ * Accepts the upgrade and answers the first client message (the auth frame) with auth_ok, like
+ * the real server. Every text frame received is recorded in [received].
+ */
+private class AuthenticatingServerListener(
+    private val received: MutableList<String> = CopyOnWriteArrayList(),
     private val onOpen: (WebSocket) -> Unit = {},
 ) : WebSocketListener() {
     override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
         onOpen.invoke(webSocket)
+    }
+
+    override fun onMessage(webSocket: WebSocket, text: String) {
+        received += text
+        if (JSONObject(text).optString("type") == "auth") {
+            webSocket.send("""{"type":"auth_ok","expires_in":900}""")
+        }
     }
 
     // Reciprocate a client-initiated close (e.g. PatientRealtimeSync.onStop) so the handshake
@@ -225,9 +314,9 @@ private class AcceptingServerListener(
     }
 }
 
-/** Accepts the WS upgrade, then immediately closes it — used to exercise reconnect. */
-private class ClosingServerListener : WebSocketListener() {
+/** Accepts the WS upgrade, then immediately closes it with [code] — used to exercise reconnect. */
+private class ClosingServerListener(private val code: Int) : WebSocketListener() {
     override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
-        webSocket.close(1000, "server closing")
+        webSocket.close(code, "server closing")
     }
 }

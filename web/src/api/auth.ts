@@ -1,5 +1,5 @@
 // Slice 1: Authentication
-import { request } from "./client";
+import { ApiError, request } from "./client";
 import type { AuthTokenResponse } from "../types";
 
 export const authApi = {
@@ -17,8 +17,22 @@ export const authApi = {
       anonymous: true,
     }),
 
-  logout: (refreshToken: string) =>
-    request<null>("/auth/logout", { method: "POST", body: { refresh_token: refreshToken } }),
+  /**
+   * Thu hồi refresh token (và vô hiệu hoá FCM token của thiết bị này nếu có).
+   * 403 = token thuộc người khác: không thu hồi được gì, nhưng phiên cục bộ vẫn
+   * phải bị xoá nên coi như đã đăng xuất.
+   */
+  logout: async (refreshToken: string, fcmToken?: string | null): Promise<void> => {
+    try {
+      await request<null>("/auth/logout", {
+        method: "POST",
+        body: fcmToken ? { refresh_token: refreshToken, fcm_token: fcmToken } : { refresh_token: refreshToken },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) return;
+      throw error;
+    }
+  },
 
   changePassword: (currentPassword: string, newPassword: string, accessToken?: string) =>
     request<null>("/auth/change-password", {

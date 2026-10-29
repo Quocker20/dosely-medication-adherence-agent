@@ -8,7 +8,7 @@ test_adherence_review_indicators.py) or the rules underneath (that's
 test_adherence_review_rules.py).
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -80,11 +80,11 @@ def _make_service(indicator_repo=None, review_repo=None, alert_repo=None, notifi
         id=uuid.uuid4(), patient_id=uuid.uuid4(), assigned_doctor_id=None,
         triggered_by_type="ADHERENCE_REVIEW", triggered_by_id=None,
         alert_type="WARNING", severity="MEDIUM", status="OPEN",
-        message="x", created_at=datetime.now(timezone.utc),
+        message="x", created_at=datetime.now(UTC),
     )
 
     notification_repo = notification_repo or AsyncMock()
-    notification_repo.create_grouped_delivery.return_value = SimpleNamespace(id=uuid.uuid4())
+    notification_repo.create_grouped_delivery.return_value = (SimpleNamespace(id=uuid.uuid4()), True)
 
     service = AdherenceReviewService(
         db=db,

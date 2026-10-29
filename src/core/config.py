@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # App Config
-    app_name: str = "ADHE REMIND API"
+    app_name: str = "Dosely API"
     app_env: Literal["development", "production", "test"] = "development"
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     android_latest_version_code: int = Field(default=9, ge=1)
     android_latest_version_name: str = "1.7.0"
     android_latest_apk_filename: str = "dosely-1.7.0.apk"
+    # Public HTTPS origin the APK is downloaded from (SEC-11). Configured, never
+    # derived from the request's Host header, so a spoofed Host cannot redirect
+    # clients to an attacker's APK. The default is the production domain served
+    # by the Caddyfile; override per deployment.
+    android_download_base_url: str = "https://dosely.duckdns.org"
 
     # PostgreSQL Database
     # Defaults are the host-side view (pytest/alembic/uvicorn run on the
@@ -41,6 +46,18 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     database_url: str
+    # SQLAlchemy statement logging. Off by default and independent of app_env:
+    # echoed SQL carries bound parameters (PHI) into the logs (SEC-06/SEC-17).
+    sql_echo: bool = False
+    # P-05: main engine pool. Defaults suit a Supabase session pooler / direct
+    # Postgres. Recycle below the pooler's idle-connection timeout.
+    db_pool_size: int = Field(default=5, ge=1, le=100)
+    db_max_overflow: int = Field(default=10, ge=0, le=100)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=-1)
+    db_pool_timeout_seconds: int = Field(default=30, ge=1)
+    # Set true when DATABASE_URL goes through a pgbouncer *transaction* pooler
+    # (Supabase port 6543): asyncpg's prepared statement cache breaks there.
+    db_disable_statement_cache: bool = False
 
     # Redis Cache & Message Broker
     redis_host: str = "localhost"
@@ -72,7 +89,7 @@ class Settings(BaseSettings):
     celery_result_backend: str
 
     # JWT Security
-    jwt_secret_key: str
+    jwt_secret_key: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
@@ -86,12 +103,15 @@ class Settings(BaseSettings):
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
-    # Speech (STT/TTS) — src/modules/planning/core/speech.py
+    # Speech (STT/TTS) — src/chatbot/clients/speech.py
+    # POST /chat/voice upload cap (SEC-08). Caddy's request_body max_size must stay
+    # a little above this so the proxy never rejects what the app would accept.
+    voice_max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     stt_model: str = "whisper-1"
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
 
-    # Backend HTTP client cho agent tools — src/modules/planning/core/backend_client.py
+    # Backend HTTP client cho agent tools — src/chatbot/clients/backend_client.py
     api_base_url: str = "http://localhost:8000/api/v1"
     # Fallback identity chỉ dùng ngoài request (worker nền). Trong luồng chat,
     # backend_client ưu tiên token của chính người gọi — xem src/core/security.py.
@@ -99,7 +119,7 @@ class Settings(BaseSettings):
     api_timeout_seconds: int = 10
 
     # Password Security
-    password_pepper: str
+    password_pepper: str = Field(min_length=32)
 
     # Dosely — luật lâm sàng chạy bằng code xác định (không phải LLM).
     # Xem docs/Dosely_Tong_Hop_Tai_Lieu.md mục 7.2 "Guardrails bắt buộc".
@@ -116,10 +136,25 @@ class Settings(BaseSettings):
     # Missed-dose scan job (Celery Beat) — see prbm.md #1 / planner.py trigger 1.
     missed_dose_overdue_minutes: int = Field(default=60, ge=1, le=1440)
     missed_dose_scan_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    # O-01: a delivery still QUEUED this long after creation lost its Celery
+    # enqueue (no outbox) and is enqueued again by the due-dose scan.
+    notification_requeue_after_minutes: int = Field(default=2, ge=1, le=60)
+    # O-01/O-02: SENDING (or RETRYING) older than this means the worker died
+    # mid-send; it is treated like QUEUED. Must exceed the send task's hard
+    # time limit (P-13) so a live worker is never raced.
+    notification_sending_stale_minutes: int = Field(default=10, ge=1, le=240)
+    # Deliveries older than this are never re-enqueued automatically.
+    notification_requeue_lookback_hours: int = Field(default=24, ge=1, le=168)
     planning_agent_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     planning_run_lease_seconds: int = Field(default=180, ge=60, le=900)
     planning_grouping_enabled: bool = False
+    # SEC-19: a refresh token rotated less than this long ago may be presented
+    # again (client retry after a lost response) without revoking the session.
+    refresh_reuse_grace_seconds: int = Field(default=30, ge=0, le=300)
     rate_limit_enabled: bool = True
+    # SEC-10: per-patient cap on LLM-backed chat turns (text + voice combined)
+    # per calendar day (resets at midnight Asia/Ho_Chi_Minh), on top of the 20/minute burst limit.
+    chat_daily_limit: int = Field(default=200, ge=1, le=100000)
     # Duyệt đơn xong thì Planning Agent tự sinh lịch (docs mục 8: approve phát
     # event PrescriptionApproved). Tắt cờ này thì bác sĩ phải gọi tay
     # POST /patients/{id}/schedules/generate như trước.
@@ -242,6 +277,26 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
     caregiver_report_interval_days: int = Field(default=7, ge=1, le=30)
+
+
+    @field_validator("android_download_base_url")
+    @classmethod
+    def _download_base_url_must_be_https(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value.startswith("https://") or len(value) <= len("https://"):
+            raise ValueError("ANDROID_DOWNLOAD_BASE_URL must be an https:// URL")
+        return value
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """CORS origins with surrounding whitespace stripped and blanks dropped."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _require_cors_origins_in_production(self) -> "Settings":
+        if self.app_env == "production" and not self.cors_origin_list:
+            raise ValueError("CORS_ORIGINS must list at least one explicit origin when APP_ENV=production")
+        return self
 
 
 @lru_cache

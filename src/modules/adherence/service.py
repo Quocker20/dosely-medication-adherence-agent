@@ -1,9 +1,6 @@
 import logging
-import math
 import uuid
-from datetime import date, datetime, time, timedelta
-from datetime import timezone as dt_timezone
-from typing import Optional
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +12,7 @@ from src.common.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
 from src.core.cache import build_cache_key, cached_model, invalidate_prefix
 from src.core.config import get_settings
@@ -42,8 +40,8 @@ from src.modules.adherence.schemas import (
 )
 from src.modules.admin.repository import AuditLogRepository
 from src.modules.agents.repository import AgentRunRepository, ScheduledDoseRepository
+from src.modules.agents.scheduling_service import SchedulingService
 from src.modules.agents.schemas import ReportRoutineDeviationRequest
-from src.modules.agents.service import SchedulingService
 from src.modules.patients.repository import PatientRepository
 
 logger = logging.getLogger(__name__)
@@ -62,7 +60,7 @@ def _page_from_survey_rows(
     both repository methods return the same
     (patient_id, patient_name, survey_date, id, status, submitted_at,
     symptom_count, max_severity) row shape."""
-    total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+    total_pages = page_count(total_count, size)
     last = page >= total_pages if total_pages > 0 else True
     content = [
         HealthSurveyListItemResponse(
@@ -115,7 +113,7 @@ class AdherenceLogService:
         scheduled_dose_id: uuid.UUID,
         request: RecordDoseActionRequest,
         actor_payload: dict,
-        idempotency_key: Optional[str],
+        idempotency_key: str | None,
     ) -> AdherenceLogDetailResponse:
         """PATIENT only, scoped to the dose's own patient.
 
@@ -195,7 +193,7 @@ class AdherenceLogService:
                         raise NotFoundException(message="Scheduled dose not found")
                     if (
                         existing_dose.status == "PENDING"
-                        and existing_dose.current_scheduled_at > datetime.now(dt_timezone.utc)
+                        and existing_dose.current_scheduled_at > datetime.now(UTC)
                     ):
                         raise ConflictException(message="Scheduled dose is not due yet")
                     raise ConflictException(message="Scheduled dose is no longer pending")
@@ -233,7 +231,7 @@ class AdherenceLogService:
         self,
         request: BatchRecordDoseActionRequest,
         actor_payload: dict,
-        idempotency_key: Optional[str],
+        idempotency_key: str | None,
     ) -> BatchRecordDoseActionResponse:
         """PATIENT only, scoped to the patient's own doses.
         Executes a synchronized dose action (TAKEN/SNOOZE/SKIPPED) across multiple doses.
@@ -244,8 +242,8 @@ class AdherenceLogService:
 
         existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
         if existing_logs:
-            log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
-            dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+            log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in existing_logs]
+            dose_ids = [log.scheduled_dose_id for log in existing_logs if log.scheduled_dose_id]
             return BatchRecordDoseActionResponse(
                 patient_id=actor_id,
                 action=existing_logs[0].action,
@@ -311,8 +309,8 @@ class AdherenceLogService:
         except IntegrityError:
             existing_logs = await self._repo.get_batch_logs_by_idempotency_key(idempotency_key)
             if existing_logs:
-                log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in existing_logs]
-                dose_ids = [l.scheduled_dose_id for l in existing_logs if l.scheduled_dose_id]
+                log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in existing_logs]
+                dose_ids = [log.scheduled_dose_id for log in existing_logs if log.scheduled_dose_id]
                 return BatchRecordDoseActionResponse(
                     patient_id=actor_id,
                     action=existing_logs[0].action,
@@ -322,7 +320,7 @@ class AdherenceLogService:
                 )
             raise
 
-        log_responses = [AdherenceLogDetailResponse.model_validate(l) for l in logs]
+        log_responses = [AdherenceLogDetailResponse.model_validate(log) for log in logs]
         response = BatchRecordDoseActionResponse(
             patient_id=actor_id,
             action=request.action,
@@ -402,11 +400,11 @@ class AdherenceLogService:
 
             tz = ZoneInfo(patient_timezone)
             range_start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(
-                dt_timezone.utc
+                UTC
             )
             range_end = datetime.combine(
                 to_date + timedelta(days=1), time.min, tzinfo=tz
-            ).astimezone(dt_timezone.utc)
+            ).astimezone(UTC)
 
             total, taken, skipped, missed = await self._repo.get_dose_status_counts(
                 patient_id,
@@ -451,16 +449,16 @@ class AdherenceLogService:
             )
 
         tz = ZoneInfo(patient_timezone)
-        range_start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(dt_timezone.utc)
+        range_start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(UTC)
         range_end = datetime.combine(
             to_date + timedelta(days=1), time.min, tzinfo=tz
-        ).astimezone(dt_timezone.utc)
+        ).astimezone(UTC)
 
         rows, total_count = await self._repo.list_by_patient(
             patient_id, actor_id, range_start, range_end, page=page, size=size
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         content = [AdherenceLogDetailResponse.model_validate(r) for r in rows]
 
@@ -481,7 +479,7 @@ class HealthSurveyService:
         db: AsyncSession,
         health_survey_repository: HealthSurveyRepository,
         alert_repository: AlertRepository,
-        patient_repository: Optional[PatientRepository] = None,
+        patient_repository: PatientRepository | None = None,
     ) -> None:
         self._db = db
         self._survey_repo = health_survey_repository
@@ -600,8 +598,8 @@ class HealthSurveyService:
         actor_payload: dict,
         from_date: date,
         to_date: date,
-        patient_id: Optional[uuid.UUID] = None,
-        severity: Optional[str] = None,
+        patient_id: uuid.UUID | None = None,
+        severity: str | None = None,
         page: int = 1,
         size: int = 10,
     ) -> PageResponse[HealthSurveyListItemResponse]:
@@ -673,6 +671,11 @@ class HealthSurveyService:
         )
 
 
+# SEC-09: soft per-patient SOS limit (see AlertService.trigger_sos).
+SOS_SOFT_LIMIT_PER_MINUTE = 5
+SOS_SOFT_LIMIT_WINDOW_SECONDS = 60
+
+
 class AlertService:
     """Service handling SOS triggers and doctor-side alert acknowledge/resolve/list."""
 
@@ -681,7 +684,7 @@ class AlertService:
         db: AsyncSession,
         alert_repository: AlertRepository,
         audit_repository: AuditLogRepository,
-        patient_repository: Optional[PatientRepository] = None,
+        patient_repository: PatientRepository | None = None,
     ) -> None:
         self._db = db
         self._alert_repo = alert_repository
@@ -693,7 +696,7 @@ class AlertService:
         patient_id: uuid.UUID,
         request: TriggerSosRequest,
         actor_payload: dict,
-        idempotency_key: Optional[str],
+        idempotency_key: str | None,
     ) -> AlertDetailResponse:
         """PATIENT only, scoped to their own patient_id. Idempotency-Key is
         required — a retried/duplicate-delivered SOS tap must not page a
@@ -709,6 +712,34 @@ class AlertService:
             raise NotFoundException(message="Patient not found")
         if self._db.in_transaction():
             await self._db.commit()
+
+        # Idempotent replay first: a retried tap must return its own alert even
+        # when the patient is currently over the soft limit.
+        replay = await self._alert_repo.get_by_idempotency_key(idempotency_key)
+        if replay is not None:
+            if self._db.in_transaction():
+                await self._db.commit()
+            return await self._with_patient_name(replay)
+
+        # SEC-09 soft limit: past SOS_SOFT_LIMIT_PER_MINUTE alerts in the last
+        # minute, hand back the most recent live alert instead of creating
+        # another. Deliberately NOT an error and NOT rate_limit_by_user (which
+        # raises 429): a genuine SOS must never be refused, and the doctor is
+        # already looking at an open alert for this patient. Applies to
+        # agent-raised alerts too (same endpoint).
+        recent = await self._alert_repo.list_recent_for_patient(
+            patient_id,
+            since=datetime.now(UTC) - timedelta(seconds=SOS_SOFT_LIMIT_WINDOW_SECONDS),
+            limit=SOS_SOFT_LIMIT_PER_MINUTE,
+        )
+        if self._db.in_transaction():
+            await self._db.commit()
+        if len(recent) >= SOS_SOFT_LIMIT_PER_MINUTE:
+            live = [a for a in recent if a.status in ("OPEN", "ACKNOWLEDGED")]
+            logger.warning(
+                "SOS soft limit hit for patient %s; returning existing alert", patient_id
+            )
+            return await self._with_patient_name((live or recent)[0])
 
         try:
             async with self._db.begin():
@@ -754,7 +785,7 @@ class AlertService:
         self,
         alert_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> AlertDetailResponse:
         """DOCTOR only. OPEN -> ACKNOWLEDGED, assigns the acknowledging doctor."""
         doctor_id = uuid.UUID(actor_payload["sub"])
@@ -784,7 +815,7 @@ class AlertService:
         alert_id: uuid.UUID,
         request: ResolveAlertRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> AlertDetailResponse:
         """DOCTOR only. OPEN/ACKNOWLEDGED -> RESOLVED. resolution_note has no
         dedicated column on alerts — persisted via AuditLog.new_values, same
@@ -834,7 +865,7 @@ class AlertService:
         return response
 
     async def _raise_not_found_or_conflict(
-        self, alert_id: uuid.UUID, already: Optional[str] = None
+        self, alert_id: uuid.UUID, already: str | None = None
     ) -> None:
         """Disambiguate why a conditional state-transition UPDATE matched no
         row: either the alert doesn't exist (404) or it exists but is
@@ -848,8 +879,8 @@ class AlertService:
 
     async def list_alerts(
         self,
-        status: Optional[str] = None,
-        patient_id: Optional[uuid.UUID] = None,
+        status: str | None = None,
+        patient_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 10,
     ) -> PageResponse[AlertDetailResponse]:
@@ -859,7 +890,7 @@ class AlertService:
             status=status, patient_id=patient_id, page=page, size=size
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
         # Batched, not one lookup per row — a page of alerts can span up to
         # `size` distinct patients and this endpoint is platform-wide.

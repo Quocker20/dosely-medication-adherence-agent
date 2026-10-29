@@ -8,3 +8,15 @@ ignore = ["E501"]
 [format]
 quote-style = "double"
 indent-style = "space"
+
+# Deliberate, documented exceptions -- each would be a behaviour/API change, not a style fix.
+[lint.per-file-ignores]
+# AppException is the root of the public exception hierarchy imported across
+# every module; an "Error" suffix would rename it at every raise/except site.
+"src/common/exceptions.py" = ["N818"]
+# These are `(str, Enum)`, not StrEnum, on purpose: str()/format() of a
+# (str, Enum) member is "Severity.NONE" while StrEnum yields "NONE", and the
+# values are interpolated into messages and stored/compared as strings.
+# Migrating needs an audit of every f-string/format use first.
+"src/modules/adherence_review/enums.py" = ["UP042"]
+"src/modules/adherence_review/llm.py" = ["UP042"]

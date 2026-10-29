@@ -342,7 +342,6 @@ private class FakePatientRepository : PatientRepository {
     override suspend fun createCaregiver(
         caregiverPhone: String,
         relationship: String?,
-        channels: List<String>,
     ): CaregiverLink = error("Not used")
 
     override suspend fun deleteCaregiver(caregiverLinkId: String): String = error("Not used")

@@ -11,6 +11,7 @@ import com.dosely.app.data.ChatConversation
 import com.dosely.app.data.ChatMessage
 import com.dosely.app.data.ChatRole
 import com.dosely.app.data.DoseToday
+import com.dosely.app.data.remote.chatRateLimitMessage
 import com.dosely.app.data.repository.ChatRepository
 import com.dosely.app.ui.toVietnameseUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -116,7 +117,8 @@ class AssistantViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isReplying = false,
-                            error = error.toVietnameseUiMessage("Không nhận được phản hồi từ trợ lý AI."),
+                            error = error.chatRateLimitMessage()
+                                ?: error.toVietnameseUiMessage("Không nhận được phản hồi từ trợ lý AI."),
                         )
                     }
                 }
@@ -188,7 +190,8 @@ class AssistantViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isReplying = false,
-                            error = error.toVietnameseUiMessage("Không xử lý được giọng nói. Vui lòng thử lại."),
+                            error = error.chatRateLimitMessage()
+                                ?: error.toVietnameseUiMessage("Không xử lý được giọng nói. Vui lòng thử lại."),
                         )
                     }
                 }

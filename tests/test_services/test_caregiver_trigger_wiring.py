@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
@@ -8,9 +9,9 @@ from src.core.database import AsyncSessionLocal, engine
 from src.core.security import hash_password
 from src.modules.adherence.models import Alert, NotificationDelivery
 from src.modules.adherence.repository import AlertRepository
+from src.modules.agents.missed_dose_scan_service import MissedDoseScanService
 from src.modules.agents.models import ScheduledDose
 from src.modules.agents.repository import ScheduledDoseRepository
-from src.modules.agents.service import MissedDoseScanService
 from src.modules.agents.tasks import _execute_send_caregiver_adherence_reports
 from src.modules.auth.models import User
 from src.modules.auth.repository import AuthRepository
@@ -58,7 +59,7 @@ async def test_periodic_adherence_report_task_claims_and_creates_deliveries(monk
     from src.modules.agents import tasks
     monkeypatch.setattr(tasks.send_notification_task, "delay", lambda d_id: enqueued_task_ids.append(d_id))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")
@@ -147,7 +148,7 @@ async def test_missed_dose_streak_creates_caregiver_notification(monkeypatch):
     from src.modules.agents import tasks
     monkeypatch.setattr(tasks.send_notification_task, "delay", lambda d_id: enqueued_task_ids.append(d_id))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with AsyncSessionLocal() as db:
         async with db.begin():
             patient = await AuthRepository(db).create_user(phone=PATIENT_PHONE, hashed_password=hash_password(PIN), role="PATIENT")

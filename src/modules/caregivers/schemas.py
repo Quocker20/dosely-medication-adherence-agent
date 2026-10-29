@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class CreateCaregiverLinkRequest(BaseModel):
     phone: str = Field(..., min_length=1, max_length=20, description="Phone number of caregiver")
-    relationship: Optional[str] = Field(
+    relationship: str | None = Field(
         None, max_length=50, description="Relationship to patient (e.g. child, spouse)"
     )
 
@@ -24,10 +24,10 @@ class CaregiverLinkDetailResponse(BaseModel):
     id: uuid.UUID
     patient_id: uuid.UUID
     phone: str
-    relationship: Optional[str] = None
-    link_code: Optional[str] = None
-    telegram_deep_link: Optional[str] = None
+    relationship: str | None = None
+    link_code: str | None = None
+    telegram_deep_link: str | None = None
     status: str
-    telegram_bound_at: Optional[datetime] = None
-    last_message_sent_at: Optional[datetime] = None
+    telegram_bound_at: datetime | None = None
+    last_message_sent_at: datetime | None = None
     created_at: datetime

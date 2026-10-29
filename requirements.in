@@ -1,0 +1,28 @@
+# Direct runtime dependencies. Resolve into requirements.txt with pip-compile.
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-dotenv
+tzdata  # zoneinfo has no IANA db on Windows without this
+python-multipart  # required by FastAPI Form/File (POST /chat/voice)
+bcrypt
+pyjwt
+fpdf2  # prescription PDF export (see docs/prescription-pdf-export-plan.md)
+celery
+redis
+langchain
+langchain-openai
+langgraph
+sqlalchemy[asyncio]  # [asyncio] pulls greenlet; SQLAlchemy 2.1 no longer installs it implicitly
+alembic
+Mako
+psycopg2-binary
+asyncpg
+chromadb
+tiktoken
+numpy
+openai
+langdetect
+firebase-admin
+httpx

@@ -2,10 +2,13 @@ from fastapi import Request
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract the client IP, honoring the first forwarded address when present."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        first_forwarded = forwarded.split(",")[0].strip()
-        if first_forwarded:
-            return first_forwarded
+    """Return the TCP peer address of the request (SEC-04).
+
+    Deliberately ignores the X-Forwarded-For header: any client can send it, so
+    trusting it lets an attacker pick their own rate-limit key. Behind a reverse
+    proxy, uvicorn (``--proxy-headers --forwarded-allow-ips=<proxy network>``)
+    rewrites ``request.client`` from X-Forwarded-For *only* when the connection
+    comes from a trusted proxy address, so ``request.client.host`` is already the
+    real client there.
+    """
     return request.client.host if request.client else "127.0.0.1"

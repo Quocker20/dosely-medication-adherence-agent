@@ -1,6 +1,6 @@
 import uuid
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -59,7 +59,7 @@ async def list_medications(
     service: MedicationServiceDep,
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, min_length=2, description="Search by name"),
+    search: str | None = Query(None, min_length=2, description="Search by name"),
 ) -> JSONResponse:
     """Query paginated medication catalog (any authenticated role)."""
     result = await service.list_medications(page=page, size=size, search=search)
@@ -90,7 +90,7 @@ prescriptions_router = APIRouter(tags=["Prescriptions & Prescription Items"])
 async def get_my_current_medications(
     current_user: PatientUserDep,
     service: PrescriptionServiceDep,
-    as_of: Optional[date] = Query(None, description="Local date; defaults to today"),
+    as_of: date | None = Query(None, description="Local date; defaults to today"),
 ) -> JSONResponse:
     """Return only the authenticated patient's approved, date-active medicines."""
     result = await service.get_current_medications(patient_id=uuid.UUID(current_user["sub"]), as_of=as_of)
@@ -130,7 +130,7 @@ async def list_prescriptions(
     patient_id: uuid.UUID,
     current_user: AuthenticatedUserDep,
     service: PrescriptionServiceDep,
-    status_filter: Optional[str] = Query(None, alias="status", pattern=r"^(DRAFT|APPROVED|CANCELLED)$"),
+    status_filter: str | None = Query(None, alias="status", pattern=r"^(DRAFT|APPROVED|CANCELLED)$"),
     page: int = Query(1, ge=1, le=1000, description="Page number"),
     size: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> JSONResponse:

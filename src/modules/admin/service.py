@@ -1,9 +1,7 @@
 import logging
-import math
 import secrets
 import string
 import uuid
-from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +10,11 @@ from src.common.exceptions import (
     ConflictException,
     NotFoundException,
     ValidationException,
+    describe_integrity_error,
 )
+from src.common.pagination import page_count
 from src.common.schemas import PageResponse
-from src.core.security import hash_password, validate_phone_number
+from src.core.security import hash_password_async, validate_phone_number
 from src.modules.admin.repository import AuditLogRepository, DoctorRepository
 from src.modules.admin.schemas import (
     AuditLogListResponse,
@@ -37,7 +37,7 @@ class AdminService:
         db: AsyncSession,
         doctor_repository: DoctorRepository,
         audit_repository: AuditLogRepository,
-        auth_repository: Optional[AuthRepository] = None,
+        auth_repository: AuthRepository | None = None,
     ) -> None:
         self._db = db
         self._doctor_repo = doctor_repository
@@ -53,7 +53,7 @@ class AdminService:
         self,
         request: CreateDoctorRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> CreateDoctorResponse:
         """Create a new Doctor account and profile.
 
@@ -66,7 +66,7 @@ class AdminService:
         cleaned_phone = validate_phone_number(request.phone)
 
         temp_pin = self._generate_temp_pin()
-        hashed_pin = hash_password(temp_pin)
+        hashed_pin = await hash_password_async(temp_pin)
         actor_user_id = (
             uuid.UUID(actor_payload["sub"]) if actor_payload.get("sub") else None
         )
@@ -98,7 +98,7 @@ class AdminService:
                     ip_address=ip_address,
                 )
         except IntegrityError as exc:
-            logger.warning(f"IntegrityError creating doctor: {exc}")
+            logger.warning("IntegrityError creating doctor: %s", describe_integrity_error(exc))
             constraint = getattr(exc.orig, "constraint_name", None)
             err_msg = str(exc).lower()
 
@@ -132,14 +132,14 @@ class AdminService:
         )
 
     async def list_doctors(
-        self, page: int = 1, size: int = 10, search: Optional[str] = None
+        self, page: int = 1, size: int = 10, search: str | None = None
     ) -> PageResponse[DoctorDetailResponse]:
         """Fetch paginated doctor roster with search filter."""
         items, total_count = await self._doctor_repo.list_doctors(
             page=page, size=size, search=search
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         content = [
@@ -188,7 +188,7 @@ class AdminService:
         doctor_id: uuid.UUID,
         request: UpdateDoctorRequest,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> DoctorDetailResponse:
         """Update doctor name, specialty, or account status."""
         if (
@@ -291,7 +291,7 @@ class AdminService:
         self,
         doctor_id: uuid.UUID,
         actor_payload: dict,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> MessageResponse:
         """Deactivate a doctor account (soft delete)."""
         actor_user_id = (
@@ -330,15 +330,15 @@ class AdminService:
         self,
         page: int = 1,
         size: int = 10,
-        actor_id: Optional[uuid.UUID] = None,
-        entity_type: Optional[str] = None,
+        actor_id: uuid.UUID | None = None,
+        entity_type: str | None = None,
     ) -> PageResponse[AuditLogListResponse]:
         """Fetch paginated audit logs with optional filters."""
         logs, total_count = await self._audit_repo.list_audit_logs(
             page=page, size=size, actor_id=actor_id, entity_type=entity_type
         )
 
-        total_pages = math.ceil(total_count / size) if total_count > 0 else 0
+        total_pages = page_count(total_count, size)
         last = page >= total_pages if total_pages > 0 else True
 
         content = [

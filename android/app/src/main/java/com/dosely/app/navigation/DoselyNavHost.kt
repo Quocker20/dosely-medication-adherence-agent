@@ -221,6 +221,7 @@ fun DoselyApp() {
                     isLoading = authState.isLoading,
                     error = authState.error,
                     shouldClearPin = authState.shouldClearLoginPin,
+                    lockRemainingSeconds = authState.lockRemainingSeconds,
                     onInputChanged = authViewModel::clearError,
                     onPinCleared = authViewModel::consumeClearLoginPin,
                     onLogin = { phone, pin ->

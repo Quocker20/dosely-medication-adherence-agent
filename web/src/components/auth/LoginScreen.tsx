@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError, api } from "../../api";
+import { loginRateLimit } from "../../api/rateLimit";
 import PinDotInput from "./PinDotInput";
 import { delay, MIN_STEP_DELAY_MS } from "./delay";
 import { cleanPhoneNumber } from "./phone";
@@ -26,6 +27,12 @@ function randomSecondaryPatient(): string {
   return `08300000${String(xx).padStart(2, "0")}`;
 }
 
+function formatCountdown(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 /**
  * Luồng đăng nhập 2 bước (số điện thoại -> mã PIN) + đổi PIN lần đầu.
  *
@@ -41,6 +48,19 @@ export default function LoginScreen({ onBack }: Props) {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 429 (khoá đăng nhập / giới hạn IP): khoá form đến khi hết retry_after_seconds.
+  const [lockRemaining, setLockRemaining] = useState(0);
+  const locked = lockRemaining > 0;
+
+  useEffect(() => {
+    if (lockRemaining <= 0) return;
+    const timer = window.setTimeout(() => setLockRemaining((value) => Math.max(0, value - 1)), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [lockRemaining]);
+
+  const lockNote = locked ? (
+    <p className="rail-note" role="status">Có thể thử lại sau {formatCountdown(lockRemaining)}</p>
+  ) : null;
 
   // Backend đánh dấu must_change_password: phải đổi PIN trước khi dùng portal.
   const [pendingTokens, setPendingTokens] = useState<AuthTokenResponse | null>(null);
@@ -95,7 +115,12 @@ export default function LoginScreen({ onBack }: Props) {
 
       setSession(sessionFromTokens(tokens));
     } catch (err) {
-      if (err instanceof ApiError) {
+      const limited = loginRateLimit(err);
+      if (limited) {
+        setPin("");
+        setError(limited.message);
+        setLockRemaining(limited.seconds);
+      } else if (err instanceof ApiError) {
         setPin("");
         setError(err.message);
       } else if (err instanceof TypeError) {
@@ -111,12 +136,13 @@ export default function LoginScreen({ onBack }: Props) {
 
   async function submitPin(event: React.FormEvent) {
     event.preventDefault();
+    if (locked) return;
     await authenticate(phone, pin);
   }
 
   // Nút demo: điền sẵn số + PIN rồi đăng nhập luôn một chạm.
   async function loginWithDemo(phoneNumber: string) {
-    if (busy) return;
+    if (busy || locked) return;
     setPhone(phoneNumber);
     setPin(DEMO_PIN);
     await authenticate(phoneNumber, DEMO_PIN);
@@ -239,9 +265,10 @@ export default function LoginScreen({ onBack }: Props) {
                 <b>{error}</b>
               </div>
             )}
+            {lockNote}
 
             <div className="row-actions">
-              <button className="btn primary" type="submit" disabled={pin.length < 6 || busy}>
+              <button className="btn primary" type="submit" disabled={pin.length < 6 || busy || locked}>
                 {busy ? "Đang đăng nhập…" : "Đăng nhập"}
               </button>
             </div>
@@ -278,9 +305,10 @@ export default function LoginScreen({ onBack }: Props) {
               <b>{error}</b>
             </div>
           )}
+          {lockNote}
 
           <div className="row-actions">
-            <button className="btn primary" type="submit" disabled={busy}>
+            <button className="btn primary" type="submit" disabled={busy || locked}>
               Tiếp tục
             </button>
           </div>
@@ -301,7 +329,7 @@ export default function LoginScreen({ onBack }: Props) {
                     key={phoneNumber}
                     type="button"
                     className="btn sm"
-                    disabled={busy}
+                    disabled={busy || locked}
                     onClick={() => loginWithDemo(phoneNumber)}
                   >
                     {phoneNumber}
@@ -318,7 +346,7 @@ export default function LoginScreen({ onBack }: Props) {
                     key={phoneNumber}
                     type="button"
                     className="btn sm"
-                    disabled={busy}
+                    disabled={busy || locked}
                     onClick={() => loginWithDemo(phoneNumber)}
                   >
                     {phoneNumber}
@@ -327,7 +355,7 @@ export default function LoginScreen({ onBack }: Props) {
                 <button
                   type="button"
                   className="btn sm ghost"
-                  disabled={busy}
+                  disabled={busy || locked}
                   onClick={() => loginWithDemo(randomSecondaryPatient())}
                 >
                   Ngẫu nhiên 06–25

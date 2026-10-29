@@ -12,8 +12,8 @@ from the proposal alone.
 | Question | Decision | Evidence |
 |---|---|---|
 | Which module owns this? | New vertical slice `src/modules/adherence_review/` with `models.py`, `repository.py`, `service.py`, `schemas.py`, `router.py`, `tasks.py` | It owns a new table, so `models.py` is justified per `structure.md`. `adherence/service.py` is already ~760 lines and `adherence/repository.py` ~870; adding a fourth service there buries it. It does have a genuine HTTP surface (review history + manual trigger), so `router.py` satisfies the CLAUDE.md "every module MUST have router/service/repository/schemas" rule honestly rather than by exception. |
-| Does `get_llm()` support structured output? | Yes | `src/modules/planning/core/llm.py` returns `ChatOpenAI`; LangChain exposes `.with_structured_output(PydanticModel)` on it. |
-| Where does `is_critical` get snapshotted? | Four hops: `PrescriptionItem` model → `PlannableItem` → `ScheduleRow` → `row_dicts` in `planning_persist_node` | `src/agents/nodes/planning_normalize_node.py:41`, `src/modules/agents/planner.py:70,88,379`, `src/agents/nodes/planning_persist_node.py:20` |
+| Does `get_llm()` support structured output? | Yes | `src/chatbot/clients/llm.py` returns `ChatOpenAI`; LangChain exposes `.with_structured_output(PydanticModel)` on it. |
+| Where does `is_critical` get snapshotted? | Four hops: `PrescriptionItem` model → `PlannableItem` → `ScheduleRow` → `row_dicts` in `planning_persist_node` | `src/chatbot/nodes/planning_normalize_node.py:41`, `src/modules/agents/planner.py:70,88,379`, `src/chatbot/nodes/planning_persist_node.py:20` |
 | Can the nightly job reuse the dashboard's aggregate queries? | **No.** `DashboardRepository` uses correlated scalar subqueries per row — correct at `size ≤ 100`, catastrophic across the whole patient table. The nightly job uses set-based `GROUP BY patient_id` instead. | `src/modules/dashboard/repository.py:105-129` |
 | Where is the feedback signal? | `audit_logs.new_values->>'resolution_note'`, joined via `entity_type='ALERT' AND entity_id = alerts.id`. No new column needed — `adherence_reviews.alert_id` completes the path. | `src/modules/adherence/service.py:724-742` |
 | Severity band boundaries | Reuse the dashboard's existing 50/70 cutoffs and add 80 as the all-clear line: `SEVERE <50`, `MODERATE 50–70`, `MILD 70–80`, `NONE ≥80` | `src/modules/dashboard/repository.py:180-195`. Keeps the number a doctor sees on the roster consistent with the tier that generated the alert. |
@@ -244,8 +244,8 @@ which migration added it).
    `PlannableItem` (line ~70) and `ScheduleRow` (line ~88); pass it through in
    `expand_schedule` (line ~379). It is a pure carried value: it must **not**
    participate in slot selection, gap validation, or any scheduling decision.
-4. `src/agents/nodes/planning_normalize_node.py:41` — populate it on `PlannableItem`
-5. `src/agents/nodes/planning_persist_node.py:20` — add to `row_dicts`
+4. `src/chatbot/nodes/planning_normalize_node.py:41` — populate it on `PlannableItem`
+5. `src/chatbot/nodes/planning_persist_node.py:20` — add to `row_dicts`
 
 Also `src/modules/agents/grouping.py` — `_assert_schedule_unchanged` compares
 `ScheduleRow`s; confirm the new field does not break that equality check or
@@ -263,7 +263,7 @@ Doctor-set only, and items are DRAFT-locked — no new authorization logic.
 
 ### 2.3 · Narrow the missed-dose scanner
 
-In `src/modules/agents/service.py`:
+In `src/modules/agents/scheduling_service.py`:
 
 - **Keep** `mark_overdue_pending_as_missed` (line 512) at its 15-minute
   cadence, untouched. Without it doses sit `PENDING` forever, and
@@ -289,7 +289,7 @@ per patient — plus `WHERE is_critical`. Rides
 `idx_scheduled_doses_critical_patient_time`.
 
 > **Semantic change, deliberate.** `count_missed_dose_streak`
-> (`src/agents/tools/safety_tools.py:129`) walks backwards and breaks on the
+> (`src/chatbot/tools/safety_tools.py:129`) walks backwards and breaks on the
 > first non-missed dose. Today a patient who takes their statin but skips
 > warfarin has streak 0 — the taken statin interrupts the run. Filtered to
 > critical doses, the same patient shows streak 3 after three days. The
@@ -514,7 +514,7 @@ there is structurally no field for the model to change it through.
 - **Prompt states: cite only the supplied indicators, introduce no new clinical
   claims, never mention dosage.** Backed by the max-length caps above and by a
   reject-list check on `message_patient` reusing
-  `src/agents/medication_policy.py`, which already exists for this exact class
+  `src/chatbot/medication_policy.py`, which already exists for this exact class
   of leak in chat.
 - De-identified: `patient_id` and clinical numbers only. No name, phone, or DOB
   in the prompt — same rule as `AgentState`'s docstring.

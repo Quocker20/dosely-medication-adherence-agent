@@ -27,7 +27,6 @@ class FakeRedis:
         self.store: dict[str, str] = {}
         self.get_calls: list[str] = []
         self.set_calls: list[str] = []
-        self.unlink_calls: list[tuple[str, ...]] = []
 
     async def get(self, key: str) -> str | None:
         self.get_calls.append(key)
@@ -37,16 +36,8 @@ class FakeRedis:
         self.set_calls.append(key)
         self.store[key] = value
 
-    async def scan_iter(self, match: str, count: int = 200):
-        prefix = match[:-1] if match.endswith("*") else match
-        for key in list(self.store):
-            if key.startswith(prefix):
-                yield key
-
-    async def unlink(self, *keys: str) -> None:
-        self.unlink_calls.append(tuple(keys))
-        for key in keys:
-            self.store.pop(key, None)
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.store.get(k) for k in keys]
 
 
 async def _purge_test_data() -> None:
@@ -139,7 +130,7 @@ async def test_chat_creates_conversation_and_sets_summary(client):
         "messages": [AsyncMock(content="Thuốc uống sau ăn nhé")],
         "intent": "MEDICATION_QUERY",
     }
-    with patch("src.modules.agents.service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
+    with patch("src.modules.agents.chat_service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
         response = await client.post(
             "/api/v1/chat",
             json={"message": "Tôi nên uống thuốc trước hay sau ăn?"},
@@ -294,14 +285,14 @@ async def test_chat_cache_and_invalidation(client):
             "messages": [AsyncMock(content="Câu trả lời mới")],
             "intent": "GENERAL_INQUIRY",
         }
-        with patch("src.modules.agents.service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
+        with patch("src.modules.agents.chat_service.agent.ainvoke", new=AsyncMock(return_value=mock_agent_result)):
             post_res = await client.post(
                 "/api/v1/chat",
                 json={"message": "Câu hỏi đầu tiên"},
                 headers=headers,
             )
         assert post_res.status_code == 200
-        assert redis.unlink_calls
+        assert any(k.endswith(":ver:chat:conversations") for k in redis.store)
 
         res2 = await client.get("/api/v1/chat/conversations", headers=headers)
         assert res2.status_code == 200

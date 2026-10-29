@@ -7,4 +7,5 @@ fun LatestAppVersionDto.toDomain(): AppUpdateInfo = AppUpdateInfo(
     versionCode = versionCode,
     versionName = versionName,
     downloadUrl = downloadUrl,
+    sha256 = sha256?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
 )

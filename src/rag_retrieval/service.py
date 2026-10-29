@@ -97,6 +97,15 @@ class RetrievalHit:
         return f"{source} — {drug} — {section}, trang {pages}"
 
 
+def index_available() -> bool:
+    """True when any supported index exists on disk (no side effects)."""
+    return (
+        (DEFAULT_DENSE_INDEX / "manifest.json").exists()
+        or (DEFAULT_DB / "chroma.sqlite3").exists()
+        or (LEGACY_DENSE_INDEX / "manifest.json").exists()
+    )
+
+
 class DrugRAG:
     def __init__(
         self,
@@ -128,7 +137,19 @@ class DrugRAG:
                 collection = chroma.get_collection(collection_name)
         self.collection = collection
         self.embedding_model = embedding_model
-        if client is None:
+        # Built lazily: name inference / lexical paths need no API key.
+        self._client = client
+        self._documents: dict[str, str] | None = None
+        self._metadatas: dict[str, dict[str, Any]] | None = None
+        self._drug_names: dict[str, str] | None = None
+        self._unique_drug_tokens: dict[str, tuple[str, str]] | None = None
+        # P-09: (normalized, display, fold(display)) computed once at load
+        # instead of re-folding every heading on every infer_drug call.
+        self._folded_drug_names: list[tuple[str, str, str]] = []
+
+    @property
+    def client(self) -> OpenAI:
+        if self._client is None:
             settings = get_settings()
             client_kwargs: dict[str, Any] = {
                 "api_key": settings.openai_api_key or None,
@@ -137,12 +158,16 @@ class DrugRAG:
             }
             if settings.openai_base_url:
                 client_kwargs["base_url"] = settings.openai_base_url
-            client = OpenAI(**client_kwargs)
-        self.client = client
-        self._documents: dict[str, str] | None = None
-        self._metadatas: dict[str, dict[str, Any]] | None = None
-        self._drug_names: dict[str, str] | None = None
-        self._unique_drug_tokens: dict[str, tuple[str, str]] | None = None
+            self._client = OpenAI(**client_kwargs)
+        return self._client
+
+    @client.setter
+    def client(self, value: OpenAI) -> None:
+        self._client = value
+
+    def warm_up(self) -> None:
+        """Eagerly build the lexical tables (called at app startup)."""
+        self._load_lexical_index()
 
     def _load_lexical_index(self) -> None:
         if self._documents is not None:
@@ -159,9 +184,13 @@ class DrugRAG:
             display = str(metadata.get("drug_name", ""))
             if normalized and display:
                 self._drug_names[normalized] = display
+        self._folded_drug_names = [
+            (normalized, display, fold(display))
+            for normalized, display in self._drug_names.items()
+        ]
         token_owners: dict[str, set[str]] = {}
-        for normalized, display in self._drug_names.items():
-            for token in set(fold(display).split()):
+        for normalized, _display, spaced in self._folded_drug_names:
+            for token in set(spaced.split()):
                 if len(token) >= 4 and token not in _NON_DISTINCTIVE_DRUG_TOKENS:
                     token_owners.setdefault(token, set()).add(normalized)
         self._unique_drug_tokens = {
@@ -174,11 +203,12 @@ class DrugRAG:
     def infer_drug(self, query: str) -> tuple[str | None, str | None]:
         self._load_lexical_index()
         assert self._drug_names is not None
-        folded_query = f" {fold(query)} "
-        compact_query = fold(query).replace(" ", "")
+        folded = fold(query)
+        folded_tokens = folded.split()
+        folded_query = f" {folded} "
+        compact_query = folded.replace(" ", "")
         matches = []
-        for normalized, display in self._drug_names.items():
-            spaced = fold(display)
+        for normalized, display, spaced in self._folded_drug_names:
             position = folded_query.find(f" {spaced} ")
             if position >= 0:
                 matches.append((position, -len(spaced), normalized, display))
@@ -197,7 +227,7 @@ class DrugRAG:
         # "acid" or "natri" remain unresolved instead of guessing.
         if not matches:
             assert self._unique_drug_tokens is not None
-            for position, token in enumerate(fold(query).split()):
+            for position, token in enumerate(folded_tokens):
                 resolved = self._unique_drug_tokens.get(token)
                 if resolved:
                     normalized, display = resolved
@@ -207,7 +237,7 @@ class DrugRAG:
         # "natribica" for "NATRI BICARBONAT". Never resolve a prefix shared by
         # multiple headings, since near-identical drug names are safety-critical.
         if not matches:
-            for position, token in enumerate(fold(query).split()):
+            for position, token in enumerate(folded_tokens):
                 if len(token) < 7:
                     continue
                 prefix_matches = [
@@ -222,7 +252,7 @@ class DrugRAG:
         # a unique, clearly better candidate: in a clinical setting an
         # ambiguous fuzzy match is worse than asking the user to clarify.
         if not matches:
-            for position, token in enumerate(fold(query).split()):
+            for position, token in enumerate(folded_tokens):
                 if len(token) < 7 or token in _NON_DISTINCTIVE_DRUG_TOKENS:
                     continue
                 ranked = sorted(

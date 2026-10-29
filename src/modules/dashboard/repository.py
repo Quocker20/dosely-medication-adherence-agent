@@ -1,11 +1,11 @@
 import uuid
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Tuple
 
 from sqlalchemy import Exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from src.common.search import LIKE_ESCAPE_CHAR, contains_pattern
 from src.modules.adherence.models import Alert, HealthSurvey
 from src.modules.agents.models import ScheduledDose
 from src.modules.auth.models import User
@@ -52,62 +52,6 @@ class DashboardRepository:
         )
 
     @staticmethod
-    def _open_alerts_count_subquery(patient_id_col: ColumnElement):
-        """Correlated COUNT of alerts still awaiting a doctor.
-
-        ACKNOWLEDGED counts as open: a doctor has seen it but the patient's
-        situation is not closed, and hiding it would make the roster look
-        calmer than it is. Only RESOLVED drops out.
-        """
-        return (
-            select(func.count(Alert.id))
-            .where(
-                Alert.patient_id == patient_id_col,
-                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
-            )
-            .correlate_except(Alert)
-            .scalar_subquery()
-        )
-
-    @staticmethod
-    def _critical_alerts_count_subquery(patient_id_col: ColumnElement):
-        """Correlated COUNT of alerts a doctor must act on now (RED_ALERT
-        severities). Kept separate from _warning_alerts_count_subquery so
-        the roster's ORDER BY can rank truly urgent patients above
-        merely-watched ones. Without this split, the WARNING tier the
-        nightly graded-adherence review introduces
-        (docs/graded-adherence-implementation.md Stage 6) could let warning
-        volume push a genuinely critical patient off page 1 if ordering used
-        only the combined open_alerts_count."""
-        return (
-            select(func.count(Alert.id))
-            .where(
-                Alert.patient_id == patient_id_col,
-                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
-                Alert.severity.in_(("CRITICAL", "HIGH")),
-            )
-            .correlate_except(Alert)
-            .scalar_subquery()
-        )
-
-    @staticmethod
-    def _warning_alerts_count_subquery(patient_id_col: ColumnElement):
-        """Correlated COUNT of alerts worth watching but not paging for
-        (MEDIUM severity — currently only WARNING-type ADHERENCE_REVIEW
-        alerts use this). Ranked below critical_alerts, never instead of it,
-        in the roster ORDER BY."""
-        return (
-            select(func.count(Alert.id))
-            .where(
-                Alert.patient_id == patient_id_col,
-                Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
-                Alert.severity == "MEDIUM",
-            )
-            .correlate_except(Alert)
-            .scalar_subquery()
-        )
-
-    @staticmethod
     def _last_survey_date_subquery(patient_id_col: ColumnElement):
         return (
             select(func.max(HealthSurvey.survey_date))
@@ -140,72 +84,90 @@ class DashboardRepository:
             <= func.now() - timedelta(minutes=overdue_minutes),
         )
 
-    @classmethod
-    def _dose_count_subquery(
-        cls,
-        patient_id_col: ColumnElement,
-        range_start: datetime,
-        overdue_minutes: int,
-        status: Optional[str] = None,
-    ):
-        """Correlated COUNT of due doses scheduled since range_start.
-
-        status=None counts every due dose in the window (the denominator).
-        """
-        filters = [
-            ScheduledDose.patient_id == patient_id_col,
-            ScheduledDose.current_scheduled_at >= range_start,
-            cls._is_due_filter(overdue_minutes),
-        ]
-        if status is not None:
-            filters.append(ScheduledDose.status == status)
-        return (
-            select(func.count(ScheduledDose.id))
-            .where(*filters)
-            .correlate_except(ScheduledDose)
-            .scalar_subquery()
-        )
-
     async def list_dashboard_patients(
         self,
         range_start: datetime,
         overdue_minutes: int,
-        doctor_id: Optional[uuid.UUID] = None,
+        doctor_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 10,
-        alert_status: Optional[str] = None,
-        adherence_band: Optional[str] = None,
-        search: Optional[str] = None,
-    ) -> Tuple[List[Tuple[uuid.UUID, str, int, int, int, Optional[date]]], int]:
+        alert_status: str | None = None,
+        adherence_band: str | None = None,
+        search: str | None = None,
+    ) -> tuple[list[tuple[uuid.UUID, str, int, int, int, date | None]], int]:
         """One page of roster rows: (patient_id, name, total_doses, taken_doses,
         open_alerts_count, last_survey_date).
 
         doctor_id=None means unscoped (ADMIN); otherwise restricted to patients
         this doctor has prescribed for.
 
-        The per-row aggregates are correlated scalar subqueries rather than
-        LEFT JOIN + GROUP BY: joining three one-to-many tables in a single
-        query multiplies rows before grouping, and the counts come back wrong
-        unless each is wrapped in its own DISTINCT. Subqueries stay correct by
-        construction and run against the existing per-patient indexes, and at
-        `size` <= 100 rows the cost is bounded.
+        P-06: dose totals and alert counts are pre-aggregated once per query
+        (GROUP BY patient_id) and LEFT JOINed, instead of correlated scalar
+        subqueries re-evaluated per row in ORDER BY / WHERE. Each aggregate is
+        its own derived table with one row per patient, so joining them cannot
+        multiply rows. Window and "due" semantics are unchanged (same
+        `_is_due_filter`, same `range_start`). For a doctor the dose
+        aggregate is restricted to the patients they prescribed for.
 
         Count is a separate query rather than count().over() — the window
         function forces the planner to materialize the full filtered result
         before LIMIT can apply, which is a full scan on every page request.
         """
         filters = []
-        total_doses = self._dose_count_subquery(
-            PatientProfile.user_id, range_start, overdue_minutes
+        dose_filters = [
+            ScheduledDose.current_scheduled_at >= range_start,
+            self._is_due_filter(overdue_minutes),
+        ]
+        if doctor_id is not None:
+            dose_filters.append(
+                ScheduledDose.patient_id.in_(
+                    select(Prescription.patient_id).where(Prescription.doctor_id == doctor_id)
+                )
+            )
+        dose_agg = (
+            select(
+                ScheduledDose.patient_id.label("patient_id"),
+                func.count(ScheduledDose.id).label("total"),
+                func.count(ScheduledDose.id)
+                .filter(ScheduledDose.status == "TAKEN")
+                .label("taken"),
+            )
+            .where(*dose_filters)
+            .group_by(ScheduledDose.patient_id)
+            .subquery("dose_agg")
         )
-        taken_doses = self._dose_count_subquery(
-            PatientProfile.user_id, range_start, overdue_minutes, "TAKEN"
+        open_statuses = ("OPEN", "ACKNOWLEDGED")
+        alert_conditions = [Alert.status.in_(open_statuses)]
+        if doctor_id is not None:
+            alert_conditions.append(
+                Alert.patient_id.in_(
+                    select(Prescription.patient_id).where(Prescription.doctor_id == doctor_id)
+                )
+            )
+        # open_alerts (the combined count) is what the API returns as
+        # open_alerts_count. critical/warning exist only to drive ORDER BY: a
+        # patient with one RED_ALERT must sort above one with five WARNINGs,
+        # which a single combined count cannot express.
+        alert_agg = (
+            select(
+                Alert.patient_id.label("patient_id"),
+                func.count(Alert.id).label("open_alerts"),
+                func.count(Alert.id)
+                .filter(Alert.severity.in_(("CRITICAL", "HIGH")))
+                .label("critical"),
+                func.count(Alert.id).filter(Alert.severity == "MEDIUM").label("warning"),
+            )
+            .where(*alert_conditions)
+            .group_by(Alert.patient_id)
+            .subquery("alert_agg")
         )
+        total_doses = func.coalesce(dose_agg.c.total, 0)
+        taken_doses = func.coalesce(dose_agg.c.taken, 0)
         if doctor_id is not None:
             filters.append(self._has_prescribed_filter(doctor_id, PatientProfile.user_id))
         if search and search.strip():
-            term = f"%{search.strip()}%"
-            filters.append(or_(PatientProfile.name.ilike(term), User.phone.ilike(term)))
+            term = contains_pattern(search)
+            filters.append(or_(PatientProfile.name.ilike(term, escape=LIKE_ESCAPE_CHAR), User.phone.ilike(term, escape=LIKE_ESCAPE_CHAR)))
         if alert_status:
             filters.append(
                 select(Alert.id)
@@ -231,6 +193,11 @@ class DashboardRepository:
         count_stmt = select(func.count(PatientProfile.user_id)).join(
             User, PatientProfile.user_id == User.id
         )
+        if adherence_band:
+            # The dose aggregate is only needed when a band filter reads it.
+            count_stmt = count_stmt.outerjoin(
+                dose_agg, dose_agg.c.patient_id == PatientProfile.user_id
+            )
         if filters:
             count_stmt = count_stmt.where(*filters)
         total_count = (await self._db.execute(count_stmt)).scalar_one()
@@ -238,25 +205,23 @@ class DashboardRepository:
         if total_count == 0:
             return [], 0
 
-        # open_alerts (the combined count) is still what the API returns as
-        # open_alerts_count -- unchanged meaning, unchanged response shape.
-        # critical_alerts/warning_alerts exist only to drive ORDER BY: a
-        # patient with one RED_ALERT must sort above one with five WARNINGs,
-        # which a single combined count cannot express.
-        open_alerts = self._open_alerts_count_subquery(PatientProfile.user_id)
-        critical_alerts = self._critical_alerts_count_subquery(PatientProfile.user_id)
-        warning_alerts = self._warning_alerts_count_subquery(PatientProfile.user_id)
         stmt = (
             select(
                 PatientProfile.user_id,
                 PatientProfile.name,
                 total_doses,
                 taken_doses,
-                open_alerts,
+                func.coalesce(alert_agg.c.open_alerts, 0),
                 self._last_survey_date_subquery(PatientProfile.user_id),
             )
             .join(User, PatientProfile.user_id == User.id)
-            .order_by(critical_alerts.desc(), warning_alerts.desc(), PatientProfile.created_at.desc())
+            .outerjoin(dose_agg, dose_agg.c.patient_id == PatientProfile.user_id)
+            .outerjoin(alert_agg, alert_agg.c.patient_id == PatientProfile.user_id)
+            .order_by(
+                func.coalesce(alert_agg.c.critical, 0).desc(),
+                func.coalesce(alert_agg.c.warning, 0).desc(),
+                PatientProfile.created_at.desc(),
+            )
             .offset((page - 1) * size)
             .limit(size)
         )
@@ -270,8 +235,8 @@ class DashboardRepository:
         return rows, total_count
 
     async def get_patient_identity(
-        self, patient_id: uuid.UUID, doctor_id: Optional[uuid.UUID] = None
-    ) -> Optional[Tuple[uuid.UUID, str, str]]:
+        self, patient_id: uuid.UUID, doctor_id: uuid.UUID | None = None
+    ) -> tuple[uuid.UUID, str, str] | None:
         """(user_id, name, phone) for one patient, or None when out of scope.
 
         Returning None for "exists but not yours" is deliberate — the caller
@@ -301,7 +266,7 @@ class DashboardRepository:
 
     async def get_dose_status_counts(
         self, patient_id: uuid.UUID, range_start: datetime, overdue_minutes: int
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """(total, taken, skipped, missed) *due* doses scheduled since
         range_start, as one aggregate round trip using FILTER-based
         conditional counts. See _is_due_filter for why the future horizon and
@@ -333,7 +298,7 @@ class DashboardRepository:
         row = (await self._db.execute(stmt)).one()
         return row[0], row[1], row[2], row[3]
 
-    async def list_recent_alerts(self, patient_id: uuid.UUID, limit: int) -> List[Alert]:
+    async def list_recent_alerts(self, patient_id: uuid.UUID, limit: int) -> list[Alert]:
         """Newest alerts for one patient regardless of status — the detail view
         shows recent history, not just what is still open. Rides
         idx_alerts_patient_created."""

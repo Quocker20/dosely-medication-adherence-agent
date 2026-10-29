@@ -1,10 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user_payload, get_db
+from src.common.http import get_client_ip
 from src.core.rate_limit import rate_limit_by_ip
 from src.core.response import success_response
 from src.modules.auth.repository import AuthRepository
@@ -36,10 +37,17 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 async def login(
     request: LoginRequest,
+    raw_request: Request,
     service: AuthServiceDep,
 ) -> JSONResponse:
-    """Authenticate user via phone and 6-digit PIN password."""
-    result = await service.login(request.phone, request.password)
+    """Authenticate user via phone and 6-digit PIN password.
+
+    After 5 consecutive failures for a phone the account is locked (429 with
+    ``errors.retry_after_seconds`` and a Vietnamese message safe to display).
+    """
+    result = await service.login(
+        request.phone, request.password, ip_address=get_client_ip(raw_request)
+    )
     return success_response(data=result.model_dump(mode="json"), message="Login successful")
 
 
@@ -77,8 +85,11 @@ async def logout(
     current_user: CurrentUserDep,
     service: AuthServiceDep,
 ) -> JSONResponse:
-    """Revoke refresh token session for authenticated user."""
-    result = await service.logout(request.refresh_token)
+    """Revoke refresh token session for authenticated user; optionally also
+    deactivate this device's FCM token (``fcm_token``)."""
+    result = await service.logout(
+        request.refresh_token, current_user["sub"], fcm_token=request.fcm_token
+    )
     return success_response(data=None, message=result.message)
 
 

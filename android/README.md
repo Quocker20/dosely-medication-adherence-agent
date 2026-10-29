@@ -100,8 +100,7 @@ cd D:/Android/dosely-medication-adherence-agent
 
 Khi chạy bản debug mà backend chưa bật, có thể đăng nhập bằng:
 
-- Số điện thoại: `0900000000`
-- Mã PIN ban đầu: `123456`
+- Tài khoản demo: xem hướng dẫn seed dữ liệu (thông tin đăng nhập không được công bố trong tài liệu).
 
 Tài khoản này luôn bắt đầu ở trạng thái đăng nhập lần đầu. Sau khi đổi PIN,
 nó tiếp tục vào màn hình thiết lập lịch sinh hoạt. Dữ liệu mock chỉ ở bộ nhớ

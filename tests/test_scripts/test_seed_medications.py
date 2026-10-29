@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from scripts.seed_medications import DEFAULT_CATALOG, load_catalog
+from scripts.db.seed_medications import DEFAULT_CATALOG, load_catalog
 
 
 def test_starter_medication_catalog_is_valid_and_substantial():

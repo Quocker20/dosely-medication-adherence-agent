@@ -1,8 +1,9 @@
+import json
 import uuid
 from datetime import date, datetime, time
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RecordDoseActionRequest(BaseModel):
@@ -10,16 +11,16 @@ class RecordDoseActionRequest(BaseModel):
 
     action: Literal["TAKEN", "SNOOZE", "SKIPPED"]
     action_source: str = "PATIENT_MOBILE_APP"
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class BatchRecordDoseActionRequest(BaseModel):
     """Request schema for POST /scheduled-doses/batch-actions."""
 
-    dose_ids: List[uuid.UUID] = Field(..., min_length=1)
+    dose_ids: list[uuid.UUID] = Field(..., min_length=1)
     action: Literal["TAKEN", "SNOOZE", "SKIPPED"]
     action_source: str = "PATIENT_MOBILE_APP"
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class BatchRecordDoseActionResponse(BaseModel):
@@ -28,8 +29,8 @@ class BatchRecordDoseActionResponse(BaseModel):
     patient_id: uuid.UUID
     action: str
     updated_dose_count: int
-    updated_dose_ids: List[uuid.UUID]
-    logs: List["AdherenceLogDetailResponse"]
+    updated_dose_ids: list[uuid.UUID]
+    logs: list["AdherenceLogDetailResponse"]
 
 
 
@@ -39,13 +40,13 @@ class AdherenceLogDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    scheduled_dose_id: Optional[uuid.UUID] = None
+    scheduled_dose_id: uuid.UUID | None = None
     patient_id: uuid.UUID
     action: str
     performed_at: datetime
     action_source: str
-    payload: Dict[str, Any]
-    idempotency_key: Optional[str] = None
+    payload: dict[str, Any]
+    idempotency_key: str | None = None
 
 
 class AdherenceSummaryResponse(BaseModel):
@@ -66,7 +67,7 @@ class SymptomEntry(BaseModel):
 
     symptom_code: str
     severity: Literal["MILD", "MODERATE", "SEVERE"]
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class RoutineDeviationEntry(BaseModel):
@@ -85,8 +86,8 @@ class SubmitHealthSurveyRequest(BaseModel):
     """Request schema for POST /patients/{patient_id}/health-surveys."""
 
     survey_date: date
-    answers_json: Dict[str, Any]
-    symptoms: List[SymptomEntry] = Field(default_factory=list)
+    answers_json: dict[str, Any]
+    symptoms: list[SymptomEntry] = Field(default_factory=list)
     routine_deviations: list[RoutineDeviationEntry] = Field(default_factory=list)
 
 
@@ -99,7 +100,7 @@ class HealthSurveyDetailResponse(BaseModel):
     patient_id: uuid.UUID
     survey_date: date
     status: str
-    submitted_at: Optional[datetime] = None
+    submitted_at: datetime | None = None
 
 
 class SymptomReportDetailResponse(BaseModel):
@@ -109,10 +110,10 @@ class SymptomReportDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    survey_id: Optional[uuid.UUID] = None
+    survey_id: uuid.UUID | None = None
     symptom_code: str
     severity: str
-    description: Optional[str] = None
+    description: str | None = None
     reported_at: datetime
     source: str
 
@@ -127,9 +128,9 @@ class HealthSurveyListItemResponse(BaseModel):
     patient_name: str
     survey_date: date
     status: str
-    submitted_at: Optional[datetime] = None
+    submitted_at: datetime | None = None
     symptom_count: int
-    max_severity: Optional[str] = None
+    max_severity: str | None = None
 
 
 class HealthSurveyFullDetailResponse(BaseModel):
@@ -140,9 +141,13 @@ class HealthSurveyFullDetailResponse(BaseModel):
     patient_name: str
     survey_date: date
     status: str
-    submitted_at: Optional[datetime] = None
-    answers_json: Dict[str, Any]
-    symptoms: List[SymptomReportDetailResponse]
+    submitted_at: datetime | None = None
+    answers_json: dict[str, Any]
+    symptoms: list[SymptomReportDetailResponse]
+
+
+SOS_MESSAGE_MAX_CHARS = 500
+SOS_METADATA_MAX_BYTES = 4096
 
 
 class TriggerSosRequest(BaseModel):
@@ -156,16 +161,42 @@ class TriggerSosRequest(BaseModel):
     ck_alerts_triggered_by_type / ck_alerts_severity — no migration needed.
     """
 
-    message: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     triggered_by_type: Literal["SOS_BUTTON", "SEVERE_SYMPTOM", "MISSED_DOSES"] = "SOS_BUTTON"
     severity: Literal["CRITICAL", "HIGH", "MEDIUM"] = "CRITICAL"
+
+    @field_validator("message")
+    @classmethod
+    def _bound_message(cls, value: str | None) -> str | None:
+        """SEC-09: cap at SOS_MESSAGE_MAX_CHARS by truncating, never rejecting.
+
+        The agent builds `message` from reason + the patient's own words, so it
+        can legitimately run long; a 422 here would drop a genuine safety
+        alert. Truncation bounds storage without ever blocking one.
+        """
+        if value is not None and len(value) > SOS_MESSAGE_MAX_CHARS:
+            return value[: SOS_MESSAGE_MAX_CHARS - 1] + "…"
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def _bound_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """SEC-09: serialized metadata must fit SOS_METADATA_MAX_BYTES. The
+        agent sends ~40 bytes ({"source": "agent_auto_detect"}); its evidence
+        text travels in `message`, so this cap leaves ample headroom."""
+        size = len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
+        if size > SOS_METADATA_MAX_BYTES:
+            raise ValueError(
+                f"metadata must be at most {SOS_METADATA_MAX_BYTES} bytes when serialized"
+            )
+        return value
 
 
 class ResolveAlertRequest(BaseModel):
     """Request schema for POST /alerts/{alert_id}/resolve."""
 
-    resolution_note: str = Field(min_length=1)
+    resolution_note: str = Field(min_length=1, max_length=1000)
 
 
 class AlertDetailResponse(BaseModel):
@@ -179,11 +210,11 @@ class AlertDetailResponse(BaseModel):
     # "no implicit lazy loading" convention); the service attaches this
     # after model_validate via PatientRepository, batched for list_alerts so
     # a page of N alerts costs one extra query, not N.
-    patient_name: Optional[str] = None
-    assigned_doctor_id: Optional[uuid.UUID] = None
+    patient_name: str | None = None
+    assigned_doctor_id: uuid.UUID | None = None
     triggered_by_type: str
     alert_type: str
     severity: str
     status: str
-    message: Optional[str] = None
+    message: str | None = None
     created_at: datetime

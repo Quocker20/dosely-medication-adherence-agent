@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from src.agents.medication_policy import match_medication_decision
-from src.agents.nodes.grounding_validator_node import validate_grounded_answer
+from src.chatbot.medication_policy import match_medication_decision
+from src.chatbot.nodes.grounding_validator_node import validate_grounded_answer
 from src.rag_retrieval.input_guardrail import (
     NEEDS_DRUG_NAME_REPLY,
     route_input,
