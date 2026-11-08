@@ -15,11 +15,28 @@ _SAFE_FALLBACK = (
 )
 
 _SECRET = re.compile(r"(?:api[_ -]?key|bearer\s+[a-z0-9._-]+|system prompt|jwt_secret)", re.I)
+_DANGEROUS_ACTION = (
+    r"(?:(?:tự\s+)?(?:tăng|giảm|đổi)\s+(?:liều|thuốc)"
+    r"|(?:tự\s+|tạm\s+)?(?:ngừng|dừng|ngưng|bỏ)\s+(?:uống\s+)?(?:thuốc|liều)"
+    r"|uống\s+(?:thêm|bù|gấp\s+đôi)|gấp\s+đôi)"
+)
 _DANGEROUS_DIRECTIVE = re.compile(
-    r"\b(?:bạn|anh|chị|bác)\s+(?:có thể|nên|hãy)\s+"
-    r"(?:tăng|giảm|đổi|ngừng|dừng|bỏ|uống thêm|uống bù|uống gấp đôi|gấp đôi)\b",
+    r"(?:(?<![\wÀ-ỹ])(?:bạn|anh|chị|em|cô|chú|ông|bà|bác(?!\s+sĩ))\s+(?:có thể|nên|hãy|cứ)|(?<![\wÀ-ỹ])(?:hãy|cứ))\s+"
+    + _DANGEROUS_ACTION
+    + r"|(?<![\wÀ-ỹ])(?:bạn|anh|chị|em|cô|chú|ông|bà)\s+(?:cứ\s+)?không\s+cần\s+(?:phải\s+)?uống(?:\s+thuốc)?\s+nữa",
     re.I,
 )
+_NEGATED = re.compile(r"(?:không|đừng|chớ|tránh)\s+(?:nên\s+|được\s+)?$", re.I)
+
+
+def _has_dangerous_directive(text: str) -> bool:
+    """A treatment directive counts unless a negation ("không nên", "đừng") sits right before it."""
+    for match in _DANGEROUS_DIRECTIVE.finditer(text):
+        if not _NEGATED.search(text[max(0, match.start() - 16) : match.start()]):
+            return True
+    return False
+
+
 _OUT_OF_SCOPE = re.compile(r"\b(?:world cup|bóng đá|chính trị|bài thơ|giá vàng)\b", re.I)
 _ENGLISH_UI_LABEL = re.compile(
     r"(?im)^\s*(?:[-*•]\s*)?(?:drug|medicine|schedule|status|next dose|dose status|"
@@ -40,7 +57,7 @@ def validate_patient_output(text: str) -> list[str]:
         errors.append("empty_output")
     if _SECRET.search(text):
         errors.append("secret_or_prompt_leak")
-    if _DANGEROUS_DIRECTIVE.search(text):
+    if _has_dangerous_directive(text):
         errors.append("unsafe_treatment_directive")
     if _OUT_OF_SCOPE.search(text):
         errors.append("out_of_scope_output")

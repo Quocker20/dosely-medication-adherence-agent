@@ -15,6 +15,7 @@ _PROMPT = """Bạn là bộ phân tích ngữ nghĩa của Dosely, không trả 
 Chuyển tin nhắn cuối và ngữ cảnh gần nhất thành 1-3 bước, mỗi bước đúng một tool trong schema.
 Phân loại theo ý nghĩa, không dựa vào cụm từ cố định:
 - get_schedule/get_next_dose: lịch và cữ thuốc của bệnh nhân.
+- get_adherence_stats: bệnh nhân hỏi mình uống thuốc đều/đủ đến mức nào trong một khoảng thời gian (tuần này, 7 ngày qua).
 - get_current_medications/explain_current_medications: danh sách hoặc giải thích thuốc trong đơn hiện tại.
 - resolve_medication: xác định thuốc trong đơn qua mô tả/ngữ cảnh rồi giải thích.
 - search_drug_knowledge: kiến thức chung về thuốc được nêu tên.

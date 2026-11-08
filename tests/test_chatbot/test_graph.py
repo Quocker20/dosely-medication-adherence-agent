@@ -356,5 +356,5 @@ def test_chat_system_prompt_guides_profile_based_addressing():
 
     assert 'Không mặc định mở đầu bằng "chào bác"' in content
     assert "Xưng hô đã được backend xác định từ hồ sơ: chị" in content
-    assert "không cần gọi tool hồ sơ" in content
+    assert "không cần gọi tool" not in content  # C-01: prompt no longer mentions uncallable tools
     assert "không tự suy đoán tuổi" in content

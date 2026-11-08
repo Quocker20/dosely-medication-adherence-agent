@@ -6,6 +6,7 @@ from copy import deepcopy
 
 from langchain_core.messages import AIMessage
 
+from src.chatbot.nodes.adherence_stats_node import adherence_stats_node
 from src.chatbot.nodes.current_medications_node import current_medications_node
 from src.chatbot.nodes.drug_rag_node import drug_rag_node
 from src.chatbot.nodes.explain_my_medications_node import explain_my_medications_node
@@ -18,6 +19,7 @@ from src.chatbot.state import AgentState
 _EXECUTORS = {
     "get_schedule": today_schedule_node,
     "get_next_dose": next_dose_node,
+    "get_adherence_stats": adherence_stats_node,
     "get_current_medications": current_medications_node,
     "explain_current_medications": explain_my_medications_node,
     "resolve_medication": prescribed_drug_info_node,

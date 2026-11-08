@@ -2,12 +2,12 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
+from src.chatbot.nodes.adherence_stats_node import adherence_stats_node
 from src.chatbot.nodes.adverse_event_node import adverse_event_node
 
 # pyrefly: ignore [missing-import]
 from src.chatbot.nodes.chat_node import agent_node, should_continue
 from src.chatbot.nodes.clarification_node import clarification_node
-from src.chatbot.nodes.classify_intent_node import classify_intent_node
 from src.chatbot.nodes.current_medications_node import current_medications_node
 from src.chatbot.nodes.drug_rag_node import drug_rag_node
 from src.chatbot.nodes.explain_my_medications_node import explain_my_medications_node
@@ -74,6 +74,8 @@ def _route_after_classify_intent(state: AgentState) -> str:
         return "next_dose"
     if state.get("intent") == "ask_schedule":
         return "today_schedule"
+    if state.get("intent") == "ask_adherence_stats":
+        return "adherence_stats"
     if state.get("intent") == "clarify":
         return "clarification"
     return "agent"
@@ -88,7 +90,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("semantic_output_reviewer", semantic_output_reviewer_node)
     graph.add_node("semantic_planner", semantic_planner_node)
     graph.add_node("plan_guard", plan_guard_node)
-    graph.add_node("classify_intent", classify_intent_node)
+    graph.add_node("adherence_stats", adherence_stats_node)
     graph.add_node("rescheduling", rescheduling_node)
     graph.add_node("adverse_event", adverse_event_node)
     graph.add_node("recent_adverse_event", recent_adverse_event_node)
@@ -128,31 +130,13 @@ def build_graph() -> CompiledStateGraph:
             "scheduled_drug_info": "scheduled_drug_info", "prescribed_drug_info": "prescribed_drug_info",
             "current_medications": "current_medications", "explain_my_medications": "explain_my_medications",
             "next_dose": "next_dose", "today_schedule": "today_schedule",
+            "adherence_stats": "adherence_stats",
             "agent": "agent",
             "multi_tool_executor": "multi_tool_executor",
         },
     )
 
-    # meal shift có route riêng, tách khỏi ReAct loop.
-    graph.add_conditional_edges(
-        "classify_intent",
-        _route_after_classify_intent,
-        {
-            "rescheduling": "rescheduling",
-            "adverse_event": "adverse_event",
-            "recent_adverse_event": "recent_adverse_event",
-            "drug_rag": "drug_rag",
-            "scheduled_drug_info": "scheduled_drug_info",
-            "prescribed_drug_info": "prescribed_drug_info",
-            "current_medications": "current_medications",
-            "explain_my_medications": "explain_my_medications",
-            "next_dose": "next_dose",
-            "today_schedule": "today_schedule",
-            "clarification": "clarification",
-            "multi_tool_executor": "multi_tool_executor",
-            "agent": "agent",
-        },
-    )
+    graph.add_edge("adherence_stats", "output_guard")
     graph.add_edge("rescheduling", "output_guard")
     graph.add_edge("adverse_event", "output_guard")
     graph.add_edge("recent_adverse_event", "output_guard")

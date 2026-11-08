@@ -13,6 +13,7 @@ from src.chatbot import graph as graph_module
 
 EXPECTED_PLAN_GUARD_TARGETS = {
     "output_guard",
+    "adherence_stats",
     "clarification",
     "rescheduling",
     "drug_rag",
@@ -42,6 +43,7 @@ INTENTS = [
     "explain_my_medications",
     "ask_next_dose",
     "ask_schedule",
+    "ask_adherence_stats",
     "clarify",
     "something_else",
 ]

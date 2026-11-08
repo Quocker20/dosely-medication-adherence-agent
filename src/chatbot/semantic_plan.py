@@ -18,6 +18,7 @@ SemanticTool = Literal[
     "report_meal_shift",
     "record_adverse_event",
     "get_recent_adverse_event",
+    "get_adherence_stats",
     "clarify",
     "general_response",
 ]
@@ -79,6 +80,7 @@ TOOL_TO_LEGACY_INTENT = {
     "report_meal_shift": "report_meal_shift",
     "record_adverse_event": "report_adverse_event",
     "get_recent_adverse_event": "get_recent_adverse_event",
+    "get_adherence_stats": "ask_adherence_stats",
     "clarify": "clarify",
     "general_response": "general",
 }

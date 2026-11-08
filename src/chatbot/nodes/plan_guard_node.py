@@ -10,6 +10,7 @@ _READ_TOOLS = {
     "get_schedule", "get_next_dose", "get_current_medications", "explain_current_medications",
     "resolve_medication", "resolve_prescribed_medication",
     "search_drug_knowledge", "search_drug_information", "search_medication_catalog",
+    "get_adherence_stats",
 }
 _BLOCKED_REPLY = (
     "Mình không thể tự quyết định thay đổi liều, ngừng thuốc hoặc thay đổi điều trị. "

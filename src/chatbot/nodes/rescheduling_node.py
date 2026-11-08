@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Literal
@@ -46,6 +47,8 @@ from src.chatbot.clients.llm import get_llm
 from src.chatbot.state import AgentState
 from src.chatbot.tools.patient_tools import get_recent_routine_overrides
 from src.chatbot.tools.schedule_tools import DEVIATION_TOOL_FAILURE_PREFIX, report_routine_deviation
+
+logger = logging.getLogger(__name__)
 
 _ANCHOR_VI = {"breakfast": "bữa sáng", "lunch": "bữa trưa", "dinner": "bữa tối", "sleep": "giờ ngủ"}
 
@@ -335,16 +338,17 @@ async def handle_reschedule_request(text: str, patient_id: str, client_date: str
             }
         )
     except Exception as exc:
+        logger.warning("reschedule_tool_failed error_type=%s", type(exc).__name__)
         return RescheduleResult(
             status="failed",
-            message=f"Không thể cập nhật lịch {anchor_vi} {day_label}: {exc}. Lịch uống thuốc hiện tại vẫn giữ nguyên.",
+            message=f"Không thể cập nhật lịch {anchor_vi} {day_label} lúc này. Lịch uống thuốc hiện tại vẫn giữ nguyên.",
         )
 
     if isinstance(tool_result, str) and tool_result.startswith(DEVIATION_TOOL_FAILURE_PREFIX):
-        detail = tool_result.removeprefix(DEVIATION_TOOL_FAILURE_PREFIX).strip()
+        logger.warning("reschedule_tool_rejected")
         return RescheduleResult(
             status="failed",
-            message=f"Không thể cập nhật lịch {anchor_vi} {day_label}: {detail}. Lịch uống thuốc hiện tại vẫn giữ nguyên.",
+            message=f"Không thể cập nhật lịch {anchor_vi} {day_label} lúc này. Lịch uống thuốc hiện tại vẫn giữ nguyên.",
         )
 
     return RescheduleResult(
