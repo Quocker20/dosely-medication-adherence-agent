@@ -32,6 +32,12 @@ class AgentState(TypedDict, total=False):
     safety_reason: str
     # Exactly one canonical reason is exposed to the refusal-answer LLM.
     refusal_reason: str
+    # True when safety_guard sent a Red Alert (or one already exists in the
+    # 30-minute gate window); output_guard then appends the doctor-notified sentence.
+    red_alert_notified: bool
+    # Scope LLM result computed concurrently with the emergency LLM check
+    # ({"category": ...}); scope_guard reuses it. Rewritten on every turn.
+    scope_prefetch: dict | None
     scope_blocked: bool
     scope_category: str
     output_guarded: bool

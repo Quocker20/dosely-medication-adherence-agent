@@ -40,9 +40,8 @@ _DATE_TIME_MARKERS = (
     "hom nay ngay bao nhieu", "hom nay la ngay may", "bay gio la may gio",
     "may gio roi", "ngay hien tai",
 )
-_ABUSIVE_OR_NOISE = (
-    "dit me", "địt mẹ", "gay deo", "gãy đéo", "vcl", "dm", "dmm",
-)
+# Matched on token boundaries against folded text, so "dm" does not hit "dmso" or "admin".
+_ABUSIVE_OR_NOISE = ("dit me", "gay deo", "vcl", "dm", "dmm")
 
 
 class ScopeClassification(BaseModel):
@@ -89,9 +88,9 @@ def _last_human_text(state: AgentState) -> str:
 def _obviously_allowed(normalized: str) -> str | None:
     # Do not let an isolated medication keyword whitelist abusive/noise text.
     # This is a pre-LLM safety/scope filter, not an intent classifier.
-    if any(marker in normalized for marker in _ABUSIVE_OR_NOISE):
-        return None
     padded = f" {normalized} "
+    if any(f" {marker} " in padded for marker in _ABUSIVE_OR_NOISE):
+        return None
 
     def has(marker: str) -> bool:
         return f" {marker} " in padded
@@ -143,6 +142,24 @@ async def _classify_scope(text: str) -> ScopeClassification | None:
         )
     except Exception:  # fail closed for input not known to be in product scope
         return None
+
+
+def _scope_request(state: AgentState) -> str:
+    return f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{_recent_conversation(state)}"
+
+
+def needs_scope_llm(state: AgentState) -> bool:
+    """Cheap check: would scope_guard fall through to the LLM for this message?"""
+    return _obviously_allowed(fold(_last_human_text(state))) is None
+
+
+async def prefetch_scope(state: AgentState) -> dict:
+    """Run the scope LLM early (concurrently with safety_guard's emergency LLM).
+
+    scope_guard_node reuses the result from state["scope_prefetch"].
+    """
+    result = await _classify_scope(_scope_request(state))
+    return {"category": result.category if result is not None else "unknown"}
 
 
 def _recent_conversation(state: AgentState, limit: int = 5) -> str:
@@ -197,11 +214,12 @@ async def scope_guard_node(state: AgentState) -> dict:
         "lich", "cu thuoc", "uong thuoc", "buon non", "chong mat", "noi man",
     )):
         return {"scope_blocked": False, "scope_category": "conversation_follow_up"}
-    context = _recent_conversation(state)
-    result = await _classify_scope(
-            f"Hãy phân loại tin nhắn cuối dựa trên ngữ cảnh hội thoại.\n{context}"
-        )
-    category = result.category if result is not None else "unknown"
+    prefetched = state.get("scope_prefetch")
+    if prefetched:
+        category = prefetched["category"]
+    else:
+        result = await _classify_scope(_scope_request(state))
+        category = result.category if result is not None else "unknown"
     # Rescue plausible medication questions that the scope model may reject
     # because the product name is abbreviated or misspelled (e.g. "acn gel").
     normalized = text.casefold()
