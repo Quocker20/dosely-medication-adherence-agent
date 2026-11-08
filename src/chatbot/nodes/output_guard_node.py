@@ -14,6 +14,19 @@ _SAFE_FALLBACK = (
     "trực tiếp đơn/lịch trên Dosely hoặc hỏi bác sĩ, dược sĩ."
 )
 
+_ALERT_NOTICE = "Dosely đã gửi cảnh báo tới bác sĩ của bạn."
+
+
+def _with_alert_notice(state: AgentState, answer: str) -> str:
+    """Append the doctor-notified sentence (own sentence) when safety_guard raised/found an alert."""
+    if not state.get("red_alert_notified") or _ALERT_NOTICE in answer:
+        return answer
+    answer = answer.rstrip()
+    if answer and answer[-1] not in ".!?…":
+        answer += "."
+    return f"{answer} {_ALERT_NOTICE}"
+
+
 _SECRET = re.compile(r"(?:api[_ -]?key|bearer\s+[a-z0-9._-]+|system prompt|jwt_secret)", re.I)
 _DANGEROUS_ACTION = (
     r"(?:(?:tự\s+)?(?:tăng|giảm|đổi)\s+(?:liều|thuốc)"
@@ -98,6 +111,7 @@ async def output_guard_node(state: AgentState) -> dict:
     except Exception:
         # Fail safely if the response model is temporarily unavailable.
         answer = _SAFE_FALLBACK
+    answer = _with_alert_notice(state, answer)
     return {
         "messages": [AIMessage(content=answer)],
         "output_guarded": False,

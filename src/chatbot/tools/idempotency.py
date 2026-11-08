@@ -36,7 +36,10 @@ def dose_action_key(scheduled_dose_id: str, action: str, today: date | None = No
 
 
 def alert_key(patient_id: str, reason: str, now: datetime | None = None) -> str:
-    """One key per (patient, reason, 5-minute bucket)."""
+    """One key per (patient, reason, 5-minute bucket).
+
+    Chat passes the alert category (e.g. SEVERE_SYMPTOM), not the matched keyword,
+    so rewording the same complaint maps to the same key."""
     moment = now or datetime.now(UTC)
     bucket = int(moment.timestamp()) // _ALERT_BUCKET_SECONDS
     return _digest("alert", patient_id, reason, str(bucket))

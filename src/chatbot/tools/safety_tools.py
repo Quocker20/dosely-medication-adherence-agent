@@ -20,35 +20,35 @@ does not have.
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 
 from langchain_core.tools import tool
 
+import src.core.redis as core_redis
 from src.chatbot.clients.backend_client import post
+from src.chatbot.tool_authorization import authorize_patient_write
 from src.chatbot.tools.idempotency import alert_key
 
 logger = logging.getLogger("safety")
 
 # Từ cong_viec.md §4.1 / "Kế hoạch tầng 2" §1.2 — cố tình viết bằng ngôn
 # ngữ dân dã, KHÔNG phải thuật ngữ y khoa, vì bệnh nhân nói "thở không ra
-# hơi" chứ không nói "khó thở cấp". ≥40 mục theo yêu cầu kế hoạch, nhóm
-# theo hệ cơ quan chỉ để dễ đọc/maintain — lúc match vẫn duyệt phẳng cả
-# danh sách. Đây là danh sách khởi điểm — CẦN bác sĩ/dược sĩ trong team
-# review trước khi dùng thật, việc này ngoài thẩm quyền của AI.
-SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
+# hơi" chứ không nói "khó thở cấp". Chia 2 bậc: CRITICAL (đe dọa tính mạng)
+# và HIGH (nặng nhưng không tức thì). Đây là danh sách khởi điểm — CẦN
+# bác sĩ/dược sĩ trong team review trước khi dùng thật, việc này ngoài
+# thẩm quyền của AI.
+CRITICAL_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     # Hô hấp
     "khó thở",
     "thở không ra hơi",
     "thở gấp",
-    "thở khò khè",
     "thở dốc",
     # Tim mạch / ngực
     "tức ngực",
     "đau ngực",
     "đau thắt ngực",
     "đè nặng ngực",
-    "tim đập nhanh",
-    "tim đập loạn",
-    "đánh trống ngực",
     # Đột quỵ / thần kinh
     "méo miệng",
     "nói ngọng",
@@ -74,19 +74,10 @@ SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "phân đen",
     "ho ra máu",
     "chảy máu không cầm được",
-    # Dị ứng nặng
-    "phát ban",
-    "nổi mẩn khắp người",
-    "nổi mề đay",
-    "sưng mặt",
+    # Dị ứng nặng ở môi/lưỡi/họng
     "sưng môi",
     "sưng lưỡi",
     "sưng họng khó nuốt",
-    # Đau/sốt dữ dội
-    "đau bụng dữ dội",
-    "đau đầu dữ dội",
-    "đau đầu như búa bổ",
-    "sốt cao không hạ",
     # Sức khỏe tâm thần / quá liều — quan trọng với bệnh nhân cao tuổi
     # đang dùng nhiều thuốc, KHÔNG được bỏ sót nhóm này
     "muốn chết",
@@ -96,11 +87,65 @@ SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "uống quá liều thuốc",
 )
 
+HIGH_SYMPTOM_KEYWORDS: tuple[str, ...] = (
+    "thở khò khè",
+    "tim đập nhanh",
+    "tim đập loạn",
+    "đánh trống ngực",
+    "phát ban",
+    "nổi mẩn khắp người",
+    "nổi mề đay",
+    "sưng mặt",
+    "đau bụng dữ dội",
+    "đau đầu dữ dội",
+    "đau đầu như búa bổ",
+    "sốt cao không hạ",
+)
+
+SEVERE_SYMPTOM_KEYWORDS: tuple[str, ...] = CRITICAL_SYMPTOM_KEYWORDS + HIGH_SYMPTOM_KEYWORDS
+
+# Negation words cancel a keyword when they sit right before it, optionally with
+# one filler word in between ("không còn co giật", "không bị đau ngực").
+_NEGATIONS = frozenset({"không", "chưa", "hết", "chẳng", "chả"})
+_NEGATION_FILLERS = frozenset({"còn", "bị", "hề", "có", "thấy", "phải"})
+# Multi-syllable keywords that must still be accent-exact: unaccented "tu tu"
+# is just "từ từ". (Single-syllable keywords are always accent-exact too.)
+_ACCENT_EXACT_ONLY = frozenset({"tự tử"})
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"\w+", unicodedata.normalize("NFC", text).lower())
+
+
+def _fold_token(token: str) -> str:
+    token = unicodedata.normalize("NFD", token.replace("đ", "d"))
+    return "".join(ch for ch in token if unicodedata.category(ch) != "Mn")
+
+
+def _has_unnegated(
+    tokens: list[str], keyword_tokens: list[str], negations: frozenset[str], fillers: frozenset[str]
+) -> bool:
+    """True if keyword_tokens occurs at least once with no negation right before it."""
+    n = len(keyword_tokens)
+    for i in range(len(tokens) - n + 1):
+        if tokens[i : i + n] != keyword_tokens:
+            continue
+        before = tokens[max(0, i - 2) : i]
+        negated = bool(before) and (
+            before[-1] in negations or (before[-1] in fillers and len(before) == 2 and before[0] in negations)
+        )
+        if not negated:
+            return True
+    return False
+
 
 def match_severe_symptom_keyword(text: str) -> str | None:
     """Lớp 1 (rule-based, LUÔN chạy trước LLM) — khớp câu mô tả triệu chứng
     của bệnh nhân với danh sách từ khóa nguy hiểm. Thuần code, không gọi LLM,
     nên không thể bị prompt injection bypass.
+
+    Khớp theo token: phủ định ngay trước từ khóa hủy lần khớp đó; câu gõ không
+    dấu chỉ khớp các từ khóa nhiều âm tiết.
 
     Args:
         text: Câu mô tả triệu chứng của bệnh nhân
@@ -108,11 +153,28 @@ def match_severe_symptom_keyword(text: str) -> str | None:
     Returns:
         Từ khóa khớp đầu tiên, hoặc None nếu không khớp
     """
-    lowered = text.lower()
+    tokens = _tokens(text)
+    folded_tokens = [_fold_token(t) for t in tokens]
+    folded_negations = frozenset(_fold_token(t) for t in _NEGATIONS)
+    folded_fillers = frozenset(_fold_token(t) for t in _NEGATION_FILLERS)
     for keyword in SEVERE_SYMPTOM_KEYWORDS:
-        if keyword in lowered:
+        kw_tokens = keyword.split()
+        if _has_unnegated(tokens, kw_tokens, _NEGATIONS, _NEGATION_FILLERS):
+            return keyword
+        if (
+            len(kw_tokens) > 1
+            and keyword not in _ACCENT_EXACT_ONLY
+            and _has_unnegated(
+                folded_tokens, [_fold_token(t) for t in kw_tokens], folded_negations, folded_fillers
+            )
+        ):
             return keyword
     return None
+
+
+def severity_for_keyword(keyword: str) -> str:
+    """CRITICAL for the life-threatening tier, HIGH for every other keyword."""
+    return "CRITICAL" if keyword in CRITICAL_SYMPTOM_KEYWORDS else "HIGH"
 
 
 def count_missed_dose_streak(scheduled_doses: list[dict]) -> int:
@@ -151,7 +213,15 @@ def _triggered_by_type(reason: str) -> str:
     return "SOS_BUTTON"
 
 
-async def _send_alert(patient_id: str, reason: str, severity: str, evidence: str) -> dict:
+async def _send_alert(
+    patient_id: str,
+    reason: str,
+    severity: str,
+    evidence: str,
+    *,
+    conversation_id: str | None = None,
+    detector: str | None = None,
+) -> dict:
     """Gửi alert bằng cách dùng chung API SOS của hệ thống.
     Đại diện cho bệnh nhân tạo tín hiệu khẩn cấp khi phát hiện qua chat.
 
@@ -160,16 +230,90 @@ async def _send_alert(patient_id: str, reason: str, severity: str, evidence: str
     khỏi cảnh báo do bệnh nhân bấm nút.
     """
     message = f"[{severity}] {reason} (Bằng chứng: {evidence})"
+    triggered_by = _triggered_by_type(reason)
+    metadata: dict = {"source": "agent_auto_detect"}
+    if conversation_id:
+        metadata["conversation_id"] = conversation_id
+    if detector:
+        metadata["detector"] = detector
     return await post(
         f"/patients/{patient_id}/sos",
         json={
             "message": message,
-            "metadata": {"source": "agent_auto_detect"},
-            "triggered_by_type": _triggered_by_type(reason),
+            "metadata": metadata,
+            "triggered_by_type": triggered_by,
             "severity": severity,
         },
-        headers={"Idempotency-Key": alert_key(patient_id, reason)},
+        # Keyed by category, not by the matched keyword: rewording the same
+        # complaint inside the bucket replays one alert instead of paging twice.
+        headers={"Idempotency-Key": alert_key(patient_id, triggered_by)},
     )
+
+
+# One agent-raised alert per patient per 30 minutes (decision D07).
+_GATE_TTL_SECONDS = 1800
+
+
+def _gate_key(patient_id: str) -> str:
+    return f"dosely:chat:redalert:{patient_id}"
+
+
+async def _acquire_gate(patient_id: str) -> bool:
+    """True if this call may send: gate newly set, or Redis unavailable (fail-open)."""
+    try:
+        client = await core_redis.get_redis_client()
+        return bool(await client.set(_gate_key(patient_id), "1", nx=True, ex=_GATE_TTL_SECONDS))
+    except Exception as e:  # noqa: BLE001 — backend dedupe still protects against duplicates
+        logger.warning("Red Alert gate unavailable, sending anyway error=%s", type(e).__name__)
+        return True
+
+
+async def _release_gate(patient_id: str) -> None:
+    """Free the gate after a failed send so the next turn can retry."""
+    try:
+        client = await core_redis.get_redis_client()
+        await client.delete(_gate_key(patient_id))
+    except Exception:  # noqa: BLE001, S110 — best effort
+        pass
+
+
+async def dispatch_red_alert(
+    patient_id: str,
+    reason: str,
+    severity: str,
+    evidence: str,
+    *,
+    conversation_id: str | None = None,
+    detector: str | None = None,
+    use_gate: bool = False,
+) -> tuple[bool, object]:
+    """Authorize and send one Red Alert. Never raises; returns (ok, result).
+
+    With use_gate=True (chat path), a recent alert for this patient turns the call
+    into a no-op that still reports ok=True: the doctor has already been notified.
+    """
+    gated = False
+    try:
+        authorize_patient_write("trigger_red_alert", patient_id, intent="emergency")
+        if use_gate:
+            if not await _acquire_gate(patient_id):
+                return True, None
+            gated = True
+        result = await _send_alert(
+            patient_id, reason, severity, evidence, conversation_id=conversation_id, detector=detector
+        )
+    except Exception as e:  # noqa: BLE001 — fail-open: must never propagate
+        if gated:
+            await _release_gate(patient_id)
+        logger.critical(
+            # No reason/evidence: both can carry the patient's own words (PHI).
+            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s severity=%s error=%s",
+            patient_id,
+            severity,
+            type(e).__name__,
+        )
+        return False, None
+    return True, result
 
 
 @tool
@@ -199,19 +343,11 @@ async def trigger_red_alert(patient_id: str, reason: str, severity: str, evidenc
     Returns:
         Kết quả gửi alert, hoặc thông báo lỗi rõ ràng nếu gửi thất bại
     """
-    try:
-        result = await _send_alert(patient_id, reason, severity, evidence)
-    except Exception as e:  # noqa: BLE001 — fail-open: must never propagate
-        logger.critical(
-            # No reason/evidence: both can carry the patient's own words (PHI).
-            "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s severity=%s error=%s",
-            patient_id,
-            severity,
-            type(e).__name__,
-        )
+    ok, result = await dispatch_red_alert(patient_id, reason, severity, evidence)
+    if not ok:
         return (
             f"[LỖI NGHIÊM TRỌNG] Không gửi được Red Alert tự động cho bệnh nhân "
             f"{patient_id} (lý do: {reason}, mức độ: {severity}). "
-            f"Cần escalate thủ công NGAY. Chi tiết lỗi: {e}"
+            f"Cần escalate thủ công NGAY."
         )
     return f"Đã gửi Red Alert: {result}"

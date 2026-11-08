@@ -45,3 +45,11 @@ Rule: change user-visible behavior only when needed for correctness or safety. E
 - C-D04: Reviewer skips LLM for deterministic intents incl. new ask_adherence_stats; medical grounding fallback runs first and is unchanged.
 - C-D05: get_adherence_stats reads GET /patients/{id}/adherence with from/to = 7 days ending at client_date (inclusive); percent from adherence_rate (0-1); errors give a generic Vietnamese line.
 - C-D06: Dangerous directive is a subject+modal+action regex plus a negation lookbehind ("không/đừng/chớ" within 16 chars); "bác sĩ" is excluded as a subject.
+
+- S-D01: Red Alert send path is `dispatch_red_alert` in safety_tools (authorize -> optional Redis gate -> post); `trigger_red_alert` tool and the chat node share it. Gate is released if the send fails so the next turn can retry.
+- S-D02: Authorization failure is logged at CRITICAL (not warning) with patient_id and exception class only; an existing test captures at CRITICAL and an unsent emergency alert warrants it. Tool text keeps "[LỖI NGHIÊM TRỌNG]" but no raw exception.
+- S-D03: Keyword tiers: CRITICAL = breathing (except khò khè), chest, stroke, consciousness, bleeding, lip/tongue/throat swelling, self-harm, overdose; HIGH = thở khò khè, heart palpitations, rash/hives, sưng mặt, severe abdominal/head pain, sốt cao. Needs clinician review.
+- S-D04: Negation = không/chưa/hết/chẳng/chả directly before the keyword, optionally with one filler (còn, bị, hề, có, thấy, phải). Folded matching skips single-syllable keywords and also "tự tử" (unaccented "tu tu" = "từ từ").
+- S-D05: safety_guard runs the emergency LLM and the scope LLM via asyncio.gather only after deterministic checks found nothing, and only when scope_guard would not short-circuit (`needs_scope_llm`). Result goes in state `scope_prefetch` (rewritten every turn, None on escalation); scope_guard reuses it. Graph topology unchanged.
+- S-D06: Abusive markers are matched on token boundaries against folded text (dropped accented duplicates, they never matched folded text anyway).
+- S-D07: Test fix: `test_safety_and_scope_llms_run_concurrently` also patches the output reviewer's `get_llm`; unpatched, the reviewer made a real OpenAI call (~1.3s with the test key) that drowned the 0.5s timing assertion.

@@ -27,8 +27,13 @@ from pydantic import BaseModel, Field
 
 from src.chatbot.clients.llm import get_llm
 from src.chatbot.medication_policy import fold, match_medication_decision
+from src.chatbot.nodes.scope_guard_node import needs_scope_llm, prefetch_scope
 from src.chatbot.state import AgentState
-from src.chatbot.tools.safety_tools import match_severe_symptom_keyword
+from src.chatbot.tools.safety_tools import (
+    dispatch_red_alert,
+    match_severe_symptom_keyword,
+    severity_for_keyword,
+)
 
 _LLM_TIMEOUT_SECONDS = 3.0
 
@@ -51,7 +56,8 @@ CO chỉ khi người bệnh đang mô tả dấu hiệu nguy hiểm cần xử 
 uống quá liều hoặc triệu chứng tăng nhanh/nghiêm trọng.
 KHONG với câu hỏi kiến thức, giả định, hoặc triệu chứng đơn lẻ chưa có dấu hiệu nặng như đau bụng,
 buồn nôn, chóng mặt, đau đầu, ngứa, khô miệng, mệt, bầm tím. Không chẩn đoán.
-Tin nhắn: {text}"""
+Tin nhắn gần đây của người bệnh (cũ -> mới; tin cuối là tin cần đánh giá):
+{text}"""
 
 _MEDICATION_POLICY_REPLY = (
     "Mình chỉ hỗ trợ tra cứu thông tin về một thuốc hoặc hoạt chất cụ thể, "
@@ -66,6 +72,9 @@ class SafetyVerdict:
     blocked: bool = False
     reason: str | None = None
     fixed_reply: str | None = None
+    # Only set when escalated: CRITICAL/HIGH and which layer detected it.
+    severity: str | None = None
+    detector: str | None = None
 
 
 class EmergencyAssessment(BaseModel):
@@ -91,7 +100,7 @@ async def _classify_with_llm(text: str) -> bool:
         "Xác minh nghiêm ngặt một cảnh báo cấp cứu. Triệu chứng nhẹ đơn lẻ như chóng mặt, "
         "buồn nôn, đau đầu, đau bụng, ngứa hoặc mệt không phải cấp cứu nếu không có dấu hiệu "
         "nặng đi kèm. Trả về urgent=true chỉ khi tin nhắn thể hiện nguy hiểm tức thời.\n"
-        f"Tin nhắn: {text}\nKết luận lần một: {assessment.model_dump()}"
+        f"Tin nhắn gần đây:\n{text}\nKết luận lần một: {assessment.model_dump()}"
     )
     try:
         verifier = get_llm(temperature=0).with_structured_output(EmergencyAssessment)
@@ -104,13 +113,14 @@ async def _classify_with_llm(text: str) -> bool:
     return bool(verified.urgent and verified.confidence >= 0.9)
 
 
-async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
-    """Logic 2 lớp thuần túy — tách riêng khỏi AgentState để test độc lập
-    và để tái dùng ở chỗ khác (không chỉ trong graph chat) nếu cần."""
+def evaluate_deterministic(text: str) -> SafetyVerdict | None:
+    """Pure-code checks (no LLM). None means "nothing decided, ask the LLM layer"."""
     keyword = match_severe_symptom_keyword(text)
     if keyword:
-        reason = f"SEVERE_SYMPTOM: {keyword}"
-        return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
+        return SafetyVerdict(
+            escalated=True, reason=f"SEVERE_SYMPTOM: {keyword}", fixed_reply=_FIXED_SAFE_REPLY,
+            severity=severity_for_keyword(keyword), detector="keyword",
+        )
 
     normalized = fold(text)
     if any(marker in normalized for marker in (
@@ -120,6 +130,7 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
             escalated=True,
             reason="SEVERE_SYMPTOM: suspected_overdose",
             fixed_reply=_FIXED_SAFE_REPLY,
+            severity="CRITICAL", detector="keyword",
         )
     if any(marker in normalized for marker in (
         "system prompt", "bo qua moi chi dan", "bo qua chi dan truoc",
@@ -158,11 +169,28 @@ async def evaluate_safety(text: str, patient_id: str) -> SafetyVerdict:
             fixed_reply=_MEDICATION_POLICY_REPLY,
         )
 
-    if await _classify_with_llm(text):
-        reason = "SEVERE_SYMPTOM: llm_classified"
-        return SafetyVerdict(escalated=True, reason=reason, fixed_reply=_FIXED_SAFE_REPLY)
+    return None
 
+
+def _llm_verdict(urgent: bool) -> SafetyVerdict:
+    if urgent:
+        return SafetyVerdict(
+            escalated=True, reason="SEVERE_SYMPTOM: llm_classified", fixed_reply=_FIXED_SAFE_REPLY,
+            severity="HIGH", detector="llm",
+        )
     return SafetyVerdict(escalated=False, blocked=False)
+
+
+async def evaluate_safety(text: str, patient_id: str, recent_texts: list[str] | None = None) -> SafetyVerdict:
+    """Logic 2 lớp thuần túy — tách riêng khỏi AgentState để test độc lập
+    và để tái dùng ở chỗ khác (không chỉ trong graph chat) nếu cần.
+
+    Keyword layer judges `text` only; the LLM layer sees `recent_texts` (the last
+    few patient messages) for context."""
+    verdict = evaluate_deterministic(text)
+    if verdict is not None:
+        return verdict
+    return _llm_verdict(await _classify_with_llm("\n".join(recent_texts or [text])))
 
 
 def _last_human_text(state: AgentState) -> str:
@@ -172,12 +200,42 @@ def _last_human_text(state: AgentState) -> str:
     return ""
 
 
+def _recent_human_texts(state: AgentState, limit: int = 3) -> list[str]:
+    texts = [str(m.content) for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+    return texts[-limit:]
+
+
 async def safety_guard_node(state: AgentState) -> dict:
     """Node LangGraph — xem graph.py: chạy trước agent_node trên mọi turn."""
     text = _last_human_text(state)
-    verdict = await evaluate_safety(text, state.get("patient_id", ""))
+    scope_prefetch: dict | None = None
+
+    verdict = evaluate_deterministic(text)
+    if verdict is None:
+        # Deterministic checks found nothing: run the emergency LLM layer and the
+        # scope LLM classification concurrently (scope_guard reuses the latter).
+        recent = "\n".join(_recent_human_texts(state) or [text])
+        if needs_scope_llm(state):
+            urgent, scope_prefetch = await asyncio.gather(_classify_with_llm(recent), prefetch_scope(state))
+        else:
+            urgent = await _classify_with_llm(recent)
+        verdict = _llm_verdict(urgent)
+        if verdict.escalated:
+            scope_prefetch = None  # emergency wins; scope result is discarded
 
     if verdict.escalated or verdict.blocked:
+        notified = False
+        if verdict.escalated:
+            # Never raises; False when unauthorized or the send failed.
+            notified, _ = await dispatch_red_alert(
+                state.get("patient_id", ""),
+                verdict.reason or "SEVERE_SYMPTOM",
+                verdict.severity or "HIGH",
+                text,
+                conversation_id=state.get("conversation_id"),
+                detector=verdict.detector,
+                use_gate=True,
+            )
         return {
             # Emergency fail-safe; the graph's output_guard normally rewrites
             # this through the contextual refusal-response LLM.
@@ -186,5 +244,12 @@ async def safety_guard_node(state: AgentState) -> dict:
             "safety_blocked": verdict.blocked,
             "safety_reason": verdict.reason or "",
             "refusal_reason": verdict.reason or "medical_safety_risk",
+            "red_alert_notified": notified,
+            "scope_prefetch": None,
         }
-    return {"escalated": False, "safety_blocked": False}
+    return {
+        "escalated": False,
+        "safety_blocked": False,
+        "red_alert_notified": False,
+        "scope_prefetch": scope_prefetch,
+    }

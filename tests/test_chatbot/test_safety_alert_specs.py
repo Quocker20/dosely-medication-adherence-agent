@@ -404,7 +404,11 @@ async def test_safety_and_scope_llms_run_concurrently():  # spec: S-13
         )
         stack.enter_context(_scope_llm(delay=0.3))
         stack.enter_context(_general_plan())
-        chat_llm = stack.enter_context(patch("src.chatbot.nodes.chat_node.get_llm"))
+        # Keep the output reviewer off the network so the timing only measures safety+scope.
+        stack.enter_context(
+            patch("src.chatbot.nodes.semantic_output_reviewer_node.get_llm", side_effect=RuntimeError("offline"))
+        )
+        chat_llm =stack.enter_context(patch("src.chatbot.nodes.chat_node.get_llm"))
         chat_llm.return_value.ainvoke = AsyncMock(return_value=chat)
         start = time.perf_counter()
         await agent.ainvoke({"messages": [HumanMessage(content="người tôi cứ lâng lâng sao ấy")], "patient_id": PID})
