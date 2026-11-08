@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook: when a turn touches code under src/, web/, or android/, block
+"""Stop hook: when a turn touches code under src/, block
 stopping once and ask Claude to audit docs/*.md (excluding docs/guide/,
 generic cohort boilerplate) against the change, fixing anything now stale.
 
@@ -16,16 +16,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = REPO_ROOT / ".claude" / ".doc-audit-state"
-WATCHED_DIRS = ["src", "web", "android"]
+WATCHED_DIRS = ["src"]
 
 REASON = (
-    "This turn touched code under src/, web/, or android/. Before ending the "
-    "turn, audit docs/*.md (excluding docs/guide/, which is generic cohort "
-    "boilerplate, not project-specific) against the code you just changed, "
-    "and fix anything now stale or inconsistent with it - the same way "
-    "staleness was found and fixed earlier in this session (comparing docs "
-    "against the real src/ code and correcting drift). If the change doesn't "
-    "affect anything documented in docs/, say so briefly and stop."
+    "This turn touched backend code under src/. Before ending the turn, "
+    "grep docs/*.md (excluding docs/guide/) only for the names of the "
+    "modules, endpoints, tables or settings you changed, and fix just those "
+    "stale passages. Do not read whole docs files. If nothing documented is "
+    "affected, say so in one line and stop."
 )
 
 
