@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.chatbot.medication_policy import match_medication_decision
 from src.chatbot.nodes.safety_guard_node import (
+    EmergencyAssessment,
     evaluate_safety,
     safety_guard_node,
 )
@@ -47,7 +48,10 @@ async def test_layer1_match_with_llm_saying_not_severe_still_escalates():
 
 @pytest.mark.asyncio
 async def test_layer2_llm_classifies_severe_when_no_keyword_matches():
-    patcher, _ = _mock_llm("CO")
+    # Lớp 2 hiện dùng structured output (EmergencyAssessment) + 1 lượt xác minh độc lập.
+    patcher, mock_get_llm = _mock_llm("CO")
+    urgent = EmergencyAssessment(urgent=True, confidence=0.95, reason="mất ý thức dần")
+    mock_get_llm.return_value.with_structured_output.return_value.ainvoke = AsyncMock(return_value=urgent)
     try:
         verdict = await evaluate_safety("người tôi cứ lịm dần đi, không biết sao nữa", "patient-1")
     finally:
@@ -204,7 +208,7 @@ async def test_medication_policy_blocks_without_llm_or_red_alert():
         verdict = await evaluate_safety("Tôi tăng gấp đôi liều được không?", "patient-1")
     assert verdict.blocked is True
     assert verdict.escalated is False
-    assert verdict.reason == "MEDICATION_POLICY: DOSE_CHANGE"
+    assert verdict.reason == "DOSE_CHANGE"
     assert verdict.fixed_reply is not None
     mock_llm.assert_not_called()
 

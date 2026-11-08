@@ -8,15 +8,18 @@ from src.chatbot.nodes.scope_guard_node import ScopeClassification, scope_guard_
 
 @pytest.mark.asyncio
 async def test_scope_blocks_when_classified_out_of_scope():
+    # Câu "World Cup"... nay bị chặn bởi luật từ khóa tất định (không qua LLM, trả
+    # refusal_reason cho output_guard); dùng câu không có từ khóa để kiểm tra nhánh LLM.
     verdict = ScopeClassification(category="out_of_scope", reason="thể thao", confidence=0.99)
     with patch(
         "src.chatbot.nodes.scope_guard_node.get_llm",
         **{"return_value.with_structured_output.return_value.ainvoke": AsyncMock(return_value=verdict)},
     ):
-        result = await scope_guard_node({"messages": [HumanMessage(content="World Cup kết thúc khi nào?")]})
+        result = await scope_guard_node({"messages": [HumanMessage(content="Đội nào vô địch giải bóng chuyền năm ngoái?")]})
     assert result["scope_blocked"] is True
     assert result["scope_category"] == "out_of_scope"
-    assert "ngoài phạm vi" in result["messages"][0].content
+    assert result["response_type"] == "out_of_scope_capability"
+    assert "Mình chỉ hỗ trợ" in result["messages"][0].content
 
 
 @pytest.mark.asyncio
@@ -62,3 +65,13 @@ async def test_routine_deviation_stays_in_scope(message: str):
         result = await scope_guard_node({"messages": [HumanMessage(content=message)]})
 
     assert result == {"scope_blocked": False, "scope_category": "medication"}
+
+
+@pytest.mark.asyncio
+async def test_scope_keyword_blocks_out_of_scope_without_llm():
+    with patch("src.chatbot.nodes.scope_guard_node.get_llm") as mock_llm:
+        result = await scope_guard_node({"messages": [HumanMessage(content="World Cup kết thúc khi nào?")]})
+    assert result["scope_blocked"] is True
+    assert result["scope_category"] == "out_of_scope"
+    assert result["refusal_reason"] == "outside_dosely_scope"
+    mock_llm.assert_not_called()
