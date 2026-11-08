@@ -7,6 +7,7 @@ import re
 from langchain_core.messages import AIMessage
 
 from src.chatbot.nodes.refusal_response import generate_refusal
+from src.chatbot.nodes.safety_guard_node import _FIXED_SAFE_REPLY, CALL_115_SENTENCE
 from src.chatbot.state import AgentState
 
 _SAFE_FALLBACK = (
@@ -104,13 +105,17 @@ async def output_guard_node(state: AgentState) -> dict:
         refusal_reason = next((item for item in priority if item in errors), errors[0])
     if not errors and not refusal_reason:
         return {"output_guarded": True, "output_errors": []}
+    escalated = bool(state.get("escalated"))
     try:
         answer = await generate_refusal(state, refusal_reason)
         if not answer:
             raise ValueError("empty refusal")
     except Exception:
-        # Fail safely if the response model is temporarily unavailable.
-        answer = _SAFE_FALLBACK
+        # Fail safely if the response model is temporarily unavailable. An emergency
+        # turn keeps the fixed emergency instructions (Alert button, 115).
+        answer = _FIXED_SAFE_REPLY if escalated else _SAFE_FALLBACK
+    if escalated and "115" not in answer:
+        answer = f"{answer.rstrip()} {CALL_115_SENTENCE}"
     answer = _with_alert_notice(state, answer)
     return {
         "messages": [AIMessage(content=answer)],

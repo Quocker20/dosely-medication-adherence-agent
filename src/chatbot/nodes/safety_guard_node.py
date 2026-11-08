@@ -44,10 +44,12 @@ _CLASSIFY_PROMPT = (
     "phải. Không giải thích gì thêm, không thêm từ nào khác.\n\nCâu nói: {text}"
 )
 
+CALL_115_SENTENCE = "Nếu nguy hiểm tức thời, hãy gọi cấp cứu 115 ngay."
+
 _FIXED_SAFE_REPLY = (
     "Các dấu hiệu bạn mô tả có thể là tình huống khẩn cấp. "
     "Hãy bấm giữ nút Cảnh báo khẩn cấp (Alert) trên màn hình để gửi thông báo cho bác sĩ. "
-    "Nếu nguy hiểm tức thời, hãy gọi cấp cứu 115 ngay."
+    + CALL_115_SENTENCE
 )
 
 _SEMANTIC_EMERGENCY_PROMPT = """Bạn là bộ phân loại cấp cứu y tế. Trả về urgent, confidence và reason theo schema.

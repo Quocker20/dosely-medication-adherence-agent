@@ -127,7 +127,7 @@ async def test_adherence_stats_node_reads_last_seven_days_and_replies_in_vietnam
         "patient_id": "p1",
         "from_date": "2026-11-02",
         "to_date": "2026-11-08",
-        "adherence_rate": 0.8,
+        "adherence_rate": 80.0,  # backend reports 0-100; the node must ignore it
         "total_doses": 10,
         "taken_doses": 8,
         "skipped_doses": 1,
@@ -156,8 +156,18 @@ async def test_adherence_stats_node_reads_last_seven_days_and_replies_in_vietnam
     }
     answer = result["messages"][0].content
     assert "8" in answer and "10" in answer
-    assert "80" in answer
+    assert "80%" in answer
     post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_adherence_percent_comes_from_counts_not_rate_field():  # spec: C-05
+    from src.chatbot.nodes import adherence_stats_node as module
+
+    summary = {"adherence_rate": 0.5, "total_doses": 3, "taken_doses": 1}
+    with patch.object(module, "get", AsyncMock(return_value=summary)):
+        result = await module.adherence_stats_node({"patient_id": "p1", "client_date": "2026-11-08"})
+    assert "33%" in result["messages"][0].content
 
 
 @pytest.mark.asyncio

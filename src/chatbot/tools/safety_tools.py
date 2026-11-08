@@ -19,6 +19,7 @@ does not have.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import unicodedata
@@ -44,6 +45,10 @@ CRITICAL_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "thở không ra hơi",
     "thở gấp",
     "thở dốc",
+    "không thở được",
+    "không thể thở",
+    "thở không nổi",
+    "ngưng thở",
     # Tim mạch / ngực
     "tức ngực",
     "đau ngực",
@@ -60,6 +65,7 @@ CRITICAL_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "co giật",
     "động kinh",
     "co cứng người",
+    "đột quỵ",
     # Ý thức
     "ngất",
     "xỉu",
@@ -67,6 +73,7 @@ CRITICAL_SYMPTOM_KEYWORDS: tuple[str, ...] = (
     "mất ý thức",
     "lơ mơ không tỉnh",
     "không đánh thức được",
+    "bất tỉnh",
     # Xuất huyết / tiêu hóa nặng
     "nôn ra máu",
     "đi ngoài ra máu",
@@ -113,8 +120,14 @@ _NEGATION_FILLERS = frozenset({"còn", "bị", "hề", "có", "thấy", "phải"
 _ACCENT_EXACT_ONLY = frozenset({"tự tử"})
 
 
+# Sentence/clause punctuation becomes a break token so a negation ending one
+# clause ("Không.") never cancels a keyword opening the next ("Đau ngực quá").
+_BREAK = "|"
+
+
 def _tokens(text: str) -> list[str]:
-    return re.findall(r"\w+", unicodedata.normalize("NFC", text).lower())
+    found = re.findall(r"\w+|[.,;:!?…\n\r]", unicodedata.normalize("NFC", text).lower())
+    return [t if t[0].isalnum() or t[0] == "_" else _BREAK for t in found]
 
 
 def _fold_token(token: str) -> str:
@@ -131,6 +144,8 @@ def _has_unnegated(
         if tokens[i : i + n] != keyword_tokens:
             continue
         before = tokens[max(0, i - 2) : i]
+        if _BREAK in before:
+            before = before[before.index(_BREAK) + 1 :] if before[-1] != _BREAK else []
         negated = bool(before) and (
             before[-1] in negations or (before[-1] in fillers and len(before) == 2 and before[0] in negations)
         )
@@ -246,7 +261,8 @@ async def _send_alert(
         },
         # Keyed by category, not by the matched keyword: rewording the same
         # complaint inside the bucket replays one alert instead of paging twice.
-        headers={"Idempotency-Key": alert_key(patient_id, triggered_by)},
+        # Severity is part of the key so a later CRITICAL is not replayed as the earlier HIGH.
+        headers={"Idempotency-Key": alert_key(patient_id, f"{triggered_by}:{severity}")},
     )
 
 
@@ -254,25 +270,30 @@ async def _send_alert(
 _GATE_TTL_SECONDS = 1800
 
 
-def _gate_key(patient_id: str) -> str:
-    return f"dosely:chat:redalert:{patient_id}"
+def _gate_key(patient_id: str, severity: str) -> str:
+    return f"dosely:chat:redalert:{patient_id}:{severity}"
 
 
-async def _acquire_gate(patient_id: str) -> bool:
-    """True if this call may send: gate newly set, or Redis unavailable (fail-open)."""
+async def _acquire_gate(patient_id: str, severity: str) -> bool:
+    """True if this call may send: gate newly set, or Redis unavailable (fail-open).
+
+    Gated per (patient, severity): CRITICAL is blocked only by a CRITICAL gate, HIGH by
+    either, so an escalation from HIGH to CRITICAL still reaches the doctor."""
     try:
         client = await core_redis.get_redis_client()
-        return bool(await client.set(_gate_key(patient_id), "1", nx=True, ex=_GATE_TTL_SECONDS))
+        if severity != "CRITICAL" and await client.exists(_gate_key(patient_id, "CRITICAL")):
+            return False
+        return bool(await client.set(_gate_key(patient_id, severity), "1", nx=True, ex=_GATE_TTL_SECONDS))
     except Exception as e:  # noqa: BLE001 — backend dedupe still protects against duplicates
         logger.warning("Red Alert gate unavailable, sending anyway error=%s", type(e).__name__)
         return True
 
 
-async def _release_gate(patient_id: str) -> None:
-    """Free the gate after a failed send so the next turn can retry."""
+async def _release_gate(patient_id: str, severity: str) -> None:
+    """Free the gate after a failed send so the next turn can retry (short, best effort)."""
     try:
         client = await core_redis.get_redis_client()
-        await client.delete(_gate_key(patient_id))
+        await asyncio.wait_for(client.delete(_gate_key(patient_id, severity)), timeout=1.0)
     except Exception:  # noqa: BLE001, S110 — best effort
         pass
 
@@ -296,15 +317,20 @@ async def dispatch_red_alert(
     try:
         authorize_patient_write("trigger_red_alert", patient_id, intent="emergency")
         if use_gate:
-            if not await _acquire_gate(patient_id):
+            if not await _acquire_gate(patient_id, severity):
                 return True, None
             gated = True
         result = await _send_alert(
             patient_id, reason, severity, evidence, conversation_id=conversation_id, detector=detector
         )
-    except Exception as e:  # noqa: BLE001 — fail-open: must never propagate
+    except BaseException as e:
         if gated:
-            await _release_gate(patient_id)
+            try:
+                await _release_gate(patient_id, severity)
+            except BaseException:  # noqa: BLE001, S110 — never mask the original exit
+                pass
+        if not isinstance(e, Exception):
+            raise  # CancelledError etc. must propagate after the gate is released
         logger.critical(
             # No reason/evidence: both can carry the patient's own words (PHI).
             "RED ALERT KHÔNG GỬI ĐƯỢC — patient_id=%s severity=%s error=%s",

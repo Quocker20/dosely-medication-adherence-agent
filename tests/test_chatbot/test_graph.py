@@ -6,7 +6,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.chatbot.graph import _route_after_plan_guard, _route_after_semantic_planner, agent
 from src.chatbot.nodes.rescheduling_node import RoutineDeviationExtraction
+from src.chatbot.nodes.safety_guard_node import EmergencyAssessment
 from src.chatbot.nodes.scope_guard_node import ScopeClassification
+from src.chatbot.nodes.semantic_output_reviewer_node import Review
 from src.chatbot.semantic_plan import TOOL_TO_LEGACY_INTENT, SemanticPlan, SemanticStep
 
 
@@ -16,7 +18,22 @@ def _not_severe():
     chứa từ khóa Lớp 1 nên không escalate."""
     return patch(
         "src.chatbot.nodes.safety_guard_node.get_llm",
-        **{"return_value.ainvoke": AsyncMock(return_value=AIMessage(content="KHONG"))},
+        **{
+            "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                return_value=EmergencyAssessment(urgent=False, confidence=0.1, reason="ok")
+            )
+        },
+    )
+
+
+def _reviewer_approves():
+    return patch(
+        "src.chatbot.nodes.semantic_output_reviewer_node.get_llm",
+        **{
+            "return_value.with_structured_output.return_value.ainvoke": AsyncMock(
+                return_value=Review(decision="approve", reason="ok")
+            )
+        },
     )
 
 
@@ -73,6 +90,7 @@ def _reaches_agent(intent: str = "general"):
     stack.enter_context(_not_severe())
     stack.enter_context(_in_scope())
     stack.enter_context(_planned_as(intent))
+    stack.enter_context(_reviewer_approves())
     return stack
 
 

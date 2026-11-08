@@ -39,7 +39,6 @@ async def adherence_stats_node(state: AgentState) -> dict:
         )
         total = int(result["total_doses"])
         taken = int(result["taken_doses"])
-        rate = float(result["adherence_rate"])
         missed = int(result.get("missed_doses") or 0)
         skipped = int(result.get("skipped_doses") or 0)
     except Exception as exc:  # noqa: BLE001 - never surface backend text to the patient
@@ -49,7 +48,7 @@ async def adherence_stats_node(state: AgentState) -> dict:
     period = f"từ {start.strftime('%d/%m')} đến {end.strftime('%d/%m')}"
     if total <= 0:
         return {"messages": [AIMessage(content=f"Chưa có cữ thuốc nào được ghi nhận {period}.")]}
-    percent = round(rate * 100) if rate <= 1 else round(rate)
+    percent = round(taken / total * 100)  # backend adherence_rate is 0-100; counts are unambiguous
     text = f"Trong 7 ngày qua ({period}), bạn đã uống {taken}/{total} cữ thuốc, đạt {percent}%."
     extras = []
     if missed:

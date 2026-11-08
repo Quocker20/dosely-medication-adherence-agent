@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
@@ -15,7 +14,11 @@ from src.chatbot.graph import agent
 from src.chatbot.nodes.safety_guard_node import EmergencyAssessment, safety_guard_node
 from src.chatbot.nodes.scope_guard_node import ScopeClassification, scope_guard_node
 from src.chatbot.semantic_plan import TOOL_TO_LEGACY_INTENT, SemanticPlan, SemanticStep
-from src.chatbot.tools.safety_tools import match_severe_symptom_keyword, trigger_red_alert
+from src.chatbot.tools.safety_tools import (
+    match_severe_symptom_keyword,
+    severity_for_keyword,
+    trigger_red_alert,
+)
 
 PID = "patient-1"
 NOTICE = "Dosely đã gửi cảnh báo tới bác sĩ của bạn."
@@ -40,6 +43,12 @@ class FakeGate:
             return None
         self.keys.add(key)
         return True
+
+    async def exists(self, key):
+        return int(key in self.keys)
+
+    async def delete(self, key):
+        self.keys.discard(key)
 
 
 def _safety_llm(assessment=_NOT_URGENT, captured: list | None = None):
@@ -82,6 +91,7 @@ async def _run_node(text: str, *, assessment=_NOT_URGENT, post=None, gate=None, 
     with ExitStack() as stack:
         post = _alert_env(stack, post=post, gate=gate, authorized=authorized)
         stack.enter_context(_safety_llm(assessment))
+        stack.enter_context(_scope_llm())
         state = {"messages": messages or [HumanMessage(content=text)], "patient_id": PID}
         result = await safety_guard_node(state)
     return result, post
@@ -125,9 +135,43 @@ async def test_second_escalation_within_gate_window_sends_no_new_alert():  # spe
     gate = FakeGate()
     post = AsyncMock(return_value={"id": "a"})
     first, _ = await _run_node("tôi bị co giật", post=post, gate=gate)
-    second, _ = await _run_node("tôi bị khó thở", post=post, gate=gate)
+    second, _ = await _run_node("tôi bị khó thở", post=post, gate=gate)  # same severity, reworded
     assert first["escalated"] and second["escalated"]
     assert post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_critical_after_high_within_window_still_sends():  # spec: S-02
+    gate = FakeGate()
+    post = AsyncMock(return_value={"id": "a"})
+    await _run_node("tôi bị phát ban", post=post, gate=gate)  # HIGH
+    result, _ = await _run_node("giờ tôi khó thở", post=post, gate=gate)  # CRITICAL
+    assert result["red_alert_notified"] is True
+    assert post.await_count == 2
+    assert post.await_args.kwargs["json"]["severity"] == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_high_after_critical_within_window_is_gated():  # spec: S-02
+    gate = FakeGate()
+    post = AsyncMock(return_value={"id": "a"})
+    await _run_node("giờ tôi khó thở", post=post, gate=gate)  # CRITICAL
+    result, _ = await _run_node("tôi bị phát ban", post=post, gate=gate)  # HIGH
+    assert result["red_alert_notified"] is True
+    assert post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_send_releases_gate_and_reraises():  # spec: S-02
+    from src.chatbot.tools.safety_tools import dispatch_red_alert
+
+    gate = FakeGate()
+    post = AsyncMock(side_effect=asyncio.CancelledError())
+    with ExitStack() as stack:
+        _alert_env(stack, post=post, gate=gate)
+        with pytest.raises(asyncio.CancelledError):
+            await dispatch_red_alert(PID, "SEVERE_SYMPTOM: x", "CRITICAL", "e", use_gate=True)
+    assert gate.keys == set()
 
 
 @pytest.mark.asyncio
@@ -149,6 +193,19 @@ async def test_idempotency_key_independent_of_matched_keyword():  # spec: S-03
             await _run_node(text, post=post, gate=FakeGate())
         keys.append(post.await_args.kwargs["headers"]["Idempotency-Key"])
     assert keys[0] == keys[1]
+
+
+@pytest.mark.asyncio
+async def test_idempotency_key_differs_by_severity():  # spec: S-03
+    fixed = datetime(2026, 11, 8, 10, 1, 0, tzinfo=UTC)
+    keys = []
+    for text in ("tôi bị phát ban", "tôi bị khó thở"):  # HIGH, CRITICAL
+        post = AsyncMock(return_value={})
+        with patch("src.chatbot.tools.idempotency.datetime") as dt:
+            dt.now.return_value = fixed
+            await _run_node(text, post=post, gate=FakeGate())
+        keys.append(post.await_args.kwargs["headers"]["Idempotency-Key"])
+    assert keys[0] != keys[1]
 
 
 # ---------------------------------------------------------------- S-04
@@ -202,6 +259,45 @@ async def test_llm_only_detection_sends_high():  # spec: S-05
 @pytest.mark.parametrize("text", ["tôi không khó thở", "hết đau ngực rồi", "không còn co giật"])
 def test_negated_keyword_does_not_match(text):  # spec: S-06
     assert match_severe_symptom_keyword(text) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Thuốc hết. Khó thở quá",
+        "Không. Đau ngực quá",
+        "Con không. Co giật rồi",
+        "Không, bị đau ngực thật",
+        "hết rồi! khó thở",
+    ],
+)
+def test_negation_does_not_cross_punctuation(text):  # spec: S-06
+    assert match_severe_symptom_keyword(text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "tôi không thở được",
+        "ông không thể thở",
+        "bà thở không nổi",
+        "ba ngưng thở rồi",
+        "mẹ bất tỉnh",
+        "bố bị đột quỵ",
+        "tay không cử động được tay",
+        "gọi mãi không đánh thức được",
+        "tôi không muốn sống nữa",
+        "toi khong tho duoc",
+    ],
+)
+def test_added_critical_keywords_and_self_negating_keywords_match(text):  # spec: S-06
+    kw = match_severe_symptom_keyword(text)
+    assert kw is not None
+    assert severity_for_keyword(kw) == "CRITICAL"
+
+
+def test_bare_overdose_question_does_not_match():  # spec: S-06
+    assert match_severe_symptom_keyword("uống vậy có quá liều không") is None
 
 
 def test_negation_elsewhere_does_not_cancel_keyword():  # spec: S-06
@@ -388,33 +484,43 @@ async def test_standalone_dm_is_still_not_whitelisted_and_can_be_blocked():  # s
 # ---------------------------------------------------------------- S-13
 @pytest.mark.asyncio
 async def test_safety_and_scope_llms_run_concurrently():  # spec: S-13
-    async def _slow(*a, **k):
-        await asyncio.sleep(0.3)
-        return _NOT_URGENT
+    events: list[tuple[str, str]] = []
 
-    slow_safety = AsyncMock(side_effect=_slow)
+    def _tracked(name, result):
+        async def _invoke(*a, **k):
+            events.append((name, "start"))
+            await asyncio.sleep(0.2)
+            events.append((name, "end"))
+            return result
+
+        return _invoke
+
     chat = AIMessage(content="Mình có thể hỗ trợ.")
+    scope_result = ScopeClassification(category="medication", reason="t", confidence=1.0)
     with ExitStack() as stack:
         _alert_env(stack)
         stack.enter_context(
             patch(
                 "src.chatbot.nodes.safety_guard_node.get_llm",
-                **{"return_value.with_structured_output.return_value.ainvoke": slow_safety},
+                **{"return_value.with_structured_output.return_value.ainvoke": _tracked("safety", _NOT_URGENT)},
             )
         )
-        stack.enter_context(_scope_llm(delay=0.3))
+        stack.enter_context(
+            patch(
+                "src.chatbot.nodes.scope_guard_node.get_llm",
+                **{"return_value.with_structured_output.return_value.ainvoke": _tracked("scope", scope_result)},
+            )
+        )
         stack.enter_context(_general_plan())
-        # Keep the output reviewer off the network so the timing only measures safety+scope.
         stack.enter_context(
             patch("src.chatbot.nodes.semantic_output_reviewer_node.get_llm", side_effect=RuntimeError("offline"))
         )
-        chat_llm =stack.enter_context(patch("src.chatbot.nodes.chat_node.get_llm"))
+        chat_llm = stack.enter_context(patch("src.chatbot.nodes.chat_node.get_llm"))
         chat_llm.return_value.ainvoke = AsyncMock(return_value=chat)
-        start = time.perf_counter()
         await agent.ainvoke({"messages": [HumanMessage(content="người tôi cứ lâng lâng sao ấy")], "patient_id": PID})
-        elapsed = time.perf_counter() - start
-    assert slow_safety.await_count >= 1
-    assert elapsed < 0.5, f"safety+scope took {elapsed:.2f}s (sequential?)"
+    first_end = min(i for i, (_, kind) in enumerate(events) if kind == "end")
+    starts_before_first_end = {name for name, kind in events[:first_end] if kind == "start"}
+    assert starts_before_first_end == {"safety", "scope"}, events
 
 
 @pytest.mark.asyncio
